@@ -1,0 +1,1140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Shatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #e8e4dc; --ink-soft: #8d8a84; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0e11; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; touch-action: none; }
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 55%, transparent 45%, rgba(0,0,0,0.55) 100%);
+  }
+  .title { position: fixed; top: 24px; left: 28px; pointer-events: none; font-family: Fraunces, serif; font-weight: 400; font-size: 22px; letter-spacing: 0.01em; }
+  .title small { display: block; margin-top: 4px; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+  .hint { position: fixed; bottom: 22px; left: 0; right: 0; text-align: center; pointer-events: none; font-size: 12px; letter-spacing: 0.08em; color: var(--ink-soft); }
+  .hint b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 640px) { .title { top: 16px; left: 16px; font-size: 19px; } }
+  #msg {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none;
+    font-family: Fraunces, serif; font-style: italic; font-size: 26px; letter-spacing: 0.02em; color: #fffaf0;
+    padding: 10px 26px 12px; border-radius: 999px; white-space: nowrap;
+    background: rgba(8, 9, 12, 0.72); border: 1px solid rgba(255, 255, 255, 0.14);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    opacity: 0; transition: opacity .6s ease, transform .6s ease;
+  }
+  #msg.show { opacity: 1; }
+  #msg.gold { color: #ffd98a; border-color: rgba(255, 210, 130, 0.45); text-shadow: 0 0 14px rgba(255,190,90,0.35), 0 1px 2px rgba(0,0,0,0.6); }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-family: Fraunces, serif; font-style: italic; font-size: 20px; color: var(--ink-soft); background: #0d0e11; transition: opacity .6s; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="vignette"></div>
+<div class="title">Vibecodevember - Shatter<small>Nov 2nd 2026</small></div>
+<div class="hint" id="hint"><b>drag</b> orbit</div>
+<div id="msg"></div>
+<div id="loading">glazing the bowl…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import RAPIER from 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js';
+
+await RAPIER.init();
+await new Promise(r => requestAnimationFrame(() => setTimeout(r, 30)));
+
+// ---------------------------------------------------------------- noise
+function hash3(x, y, z) {
+  let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1) ^ Math.imul(z | 0, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function noise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10);
+  const v = yf * yf * yf * (yf * (yf * 6 - 15) + 10);
+  const w = zf * zf * zf * (zf * (zf * 6 - 15) + 10);
+  const a = hash3(xi, yi, zi), b = hash3(xi + 1, yi, zi), c = hash3(xi, yi + 1, zi), d = hash3(xi + 1, yi + 1, zi);
+  const e = hash3(xi, yi, zi + 1), f = hash3(xi + 1, yi, zi + 1), g = hash3(xi, yi + 1, zi + 1), h = hash3(xi + 1, yi + 1, zi + 1);
+  const x1 = a + (b - a) * u, x2 = c + (d - c) * u, x3 = e + (f - e) * u, x4 = g + (h - g) * u;
+  const y1 = x1 + (x2 - x1) * v, y2 = x3 + (x4 - x3) * v;
+  return y1 + (y2 - y1) * w;
+}
+function fbm3(x, y, z, oct = 4) {
+  let s = 0, a = 0.5, f = 1, n = 0;
+  for (let i = 0; i < oct; i++) { s += a * noise3(x * f, y * f, z * f); n += a; a *= 0.5; f *= 2.03; }
+  return s / n;
+}
+const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const mix = (a, b, t) => a + (b - a) * t;
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+
+// ---------------------------------------------------------------- bowl profile (metres)
+// A chawan: ~13 cm across, ~8 cm tall, trimmed foot ring, slightly inturned lip.
+const L = (a, b) => t => [mix(a[0], b[0], t), mix(a[1], b[1], t)];
+const Qb = (a, c, b) => t => { const u = 1 - t; return [u*u*a[0] + 2*u*t*c[0] + t*t*b[0], u*u*a[1] + 2*u*t*c[1] + t*t*b[1]]; };
+const Cb = (a, c1, c2, b) => t => { const u = 1 - t;
+  return [u*u*u*a[0] + 3*u*u*t*c1[0] + 3*u*t*t*c2[0] + t*t*t*b[0], u*u*u*a[1] + 3*u*u*t*c1[1] + 3*u*t*t*c2[1] + t*t*t*b[1]]; };
+function polyline(segs) { const P = []; for (const [f, n] of segs) for (let i = P.length ? 1 : 0; i <= n; i++) P.push(f(i / n)); return P; }
+
+const outerLine = polyline([
+  [L([0, 0.0045], [0.0205, 0.0045]), 40],
+  [Qb([0.0205, 0.0045], [0.0228, 0.0045], [0.0232, 0.002]), 12],
+  [Qb([0.0232, 0.002], [0.0236, 0], [0.0255, 0]), 12],
+  [L([0.0255, 0], [0.0285, 0]), 10],
+  [Qb([0.0285, 0], [0.0308, 0], [0.031, 0.002]), 12],
+  [L([0.031, 0.002], [0.0315, 0.006]), 10],
+  [Qb([0.0315, 0.006], [0.032, 0.0085], [0.0355, 0.0092]), 12],
+  [Cb([0.0355, 0.0092], [0.051, 0.0105], [0.0668, 0.03], [0.0662, 0.062]), 120],
+  [Cb([0.0662, 0.062], [0.0659, 0.07], [0.0652, 0.0755], [0.0648, 0.078]), 40],
+]);
+const innerLine = polyline([
+  [Cb([0, 0.011], [0.027, 0.011], [0.0605, 0.024], [0.0612, 0.055]), 160],
+  [Cb([0.0612, 0.055], [0.0615, 0.066], [0.061, 0.074], [0.0606, 0.078]), 40],
+]);
+
+function makeProfile(P, K, inner) {
+  const cum = [0];
+  for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i-1][0], P[i][1] - P[i-1][1]));
+  const total = cum[cum.length - 1];
+  const R = new Float32Array(K), Y = new Float32Array(K), NR = new Float32Array(K), NY = new Float32Array(K);
+  let seg = 0;
+  for (let k = 0; k < K; k++) {
+    const s = k / (K - 1) * total;
+    while (seg < P.length - 2 && cum[seg + 1] < s) seg++;
+    const t = (s - cum[seg]) / ((cum[seg + 1] - cum[seg]) || 1);
+    R[k] = mix(P[seg][0], P[seg + 1][0], t); Y[k] = mix(P[seg][1], P[seg + 1][1], t);
+  }
+  for (let k = 0; k < K; k++) {
+    const k0 = Math.max(0, k - 1), k1 = Math.min(K - 1, k + 1);
+    const dr = R[k1] - R[k0], dy = Y[k1] - Y[k0], l = Math.hypot(dr, dy) || 1;
+    if (inner) { NR[k] = -dy / l; NY[k] = dr / l; } else { NR[k] = dy / l; NY[k] = -dr / l; }
+  }
+  return { R, Y, NR, NY, K };
+}
+const OUT = makeProfile(outerLine, 1600, false);
+const IN = makeProfile(innerLine, 1600, true);
+
+// The bowl surface is parametrised by a unit disk: radius = normalised arc length
+// along the profile, angle = angle around the axis. Fracture happens in this disk.
+function surf(prof, x, y, P, N) {
+  const l = Math.hypot(x, y);
+  const rho = Math.min(1, l);
+  const f = rho * (prof.K - 1), i0 = Math.min(prof.K - 2, Math.floor(f)), t = f - i0;
+  const r = mix(prof.R[i0], prof.R[i0 + 1], t), yy = mix(prof.Y[i0], prof.Y[i0 + 1], t);
+  const nr = mix(prof.NR[i0], prof.NR[i0 + 1], t), ny = mix(prof.NY[i0], prof.NY[i0 + 1], t);
+  const c = l > 1e-9 ? x / l : 1, s = l > 1e-9 ? y / l : 0;
+  P.set(r * c, yy, r * s);
+  if (N) N.set(nr * c, ny, nr * s).normalize();
+}
+
+// ---------------------------------------------------------------- textures
+function genBowlTexture(S, inner) {
+  const cc = document.createElement('canvas'); cc.width = cc.height = S;
+  const rc = document.createElement('canvas'); rc.width = rc.height = S;
+  const cctx = cc.getContext('2d'), rctx = rc.getContext('2d');
+  const cimg = cctx.createImageData(S, S), rimg = rctx.createImageData(S, S);
+  const o = [0, 0, 0, 0, 0];
+  for (let py = 0; py < S; py++) {
+    const y = 1 - 2 * (py + 0.5) / S;
+    for (let px = 0; px < S; px++) {
+      const x = 2 * (px + 0.5) / S - 1;
+      const l = Math.hypot(x, y);
+      if (l > 1.03) continue;
+      const rho = Math.min(1, l), cx = l > 1e-6 ? x / l : 1, sx = l > 1e-6 ? y / l : 0;
+      (inner ? innerColor : outerColor)(x, y, rho, cx, sx, o);
+      const k = (py * S + px) * 4;
+      cimg.data[k] = Math.min(255, o[0] * 255); cimg.data[k+1] = Math.min(255, o[1] * 255); cimg.data[k+2] = Math.min(255, o[2] * 255); cimg.data[k+3] = 255;
+      rimg.data[k] = o[4] * 255; rimg.data[k+1] = o[3] * 255; rimg.data[k+2] = 0; rimg.data[k+3] = 255;
+    }
+  }
+  cctx.putImageData(cimg, 0, 0); rctx.putImageData(rimg, 0, 0);
+  const map = new THREE.CanvasTexture(cc); map.colorSpace = THREE.SRGBColorSpace;
+  const rough = new THREE.CanvasTexture(rc);
+  return { map, rough };
+}
+
+const DEEP = [0.025, 0.065, 0.27], MID = [0.07, 0.20, 0.52], BRIGHT = [0.16, 0.38, 0.72];
+const PALE = [0.55, 0.68, 0.82], BEAD = [0.02, 0.045, 0.17], RIM = [0.50, 0.37, 0.27];
+const CLAY = [0.68, 0.50, 0.36], POOL = [0.02, 0.16, 0.30];
+function mixc(o, c, t) { o[0] = mix(o[0], c[0], t); o[1] = mix(o[1], c[1], t); o[2] = mix(o[2], c[2], t); }
+
+function glazeBody(x, y, rho, cx, sx, o, seed) {
+  const streak = fbm3(cx * 9 + seed, sx * 9, rho * 2.2, 3);
+  const mott = fbm3(x * 6 + 11 + seed, y * 6, 8.8, 4);
+  const k = smoothstep(0.32, 0.68, streak * 0.65 + mott * 0.35);
+  o[0] = mix(DEEP[0], MID[0], k); o[1] = mix(DEEP[1], MID[1], k); o[2] = mix(DEEP[2], MID[2], k);
+  mixc(o, BRIGHT, smoothstep(0.6, 0.78, mott) * 0.45);
+  // pale nuka-style overglaze running down from the rim
+  const flowEdge = 0.8 + (fbm3(cx * 13 + seed, sx * 13, 1.3, 3) - 0.5) * 0.3;
+  const fl = smoothstep(flowEdge - 0.03, flowEdge + 0.09, rho);
+  const pm = fl * smoothstep(0.32, 0.62, mott * 0.5 + streak * 0.5 + 0.1);
+  mixc(o, PALE, pm * 0.5);
+  // glaze breaks to iron-brown on the lip
+  const rb = smoothstep(0.962, 0.997, rho) * (0.55 + 0.45 * noise3(cx * 30, sx * 30, 2 + seed));
+  mixc(o, RIM, rb * 0.85);
+  if (noise3(x * 350, y * 350, 7 + seed) > 0.95) mixc(o, PALE, 0.2);
+  const throwing = 1 + 0.015 * Math.sin(rho * 260 + fbm3(cx * 3, sx * 3, 1, 2) * 8);
+  o[0] *= throwing; o[1] *= throwing; o[2] *= throwing;
+  o[3] = 0.14 + 0.14 * (1 - mott); o[4] = 1;
+  return mott;
+}
+function outerColor(x, y, rho, cx, sx, o) {
+  const edgeN = fbm3(cx * 2.2, sx * 2.2, 3.1, 3);
+  const drip = smoothstep(0.6, 0.9, noise3(cx * 10 + 0.3, sx * 10, 5.7)) * 0.075;
+  const edge = 0.35 + (edgeN - 0.5) * 0.06 - drip;
+  if (rho < edge) {
+    const n = fbm3(x * 25, y * 25, 0.5, 3);
+    o[0] = CLAY[0] * (0.82 + 0.3 * n); o[1] = CLAY[1] * (0.82 + 0.3 * n); o[2] = CLAY[2] * (0.82 + 0.3 * n);
+    mixc(o, [0.55, 0.31, 0.19], smoothstep(edge - 0.07, edge - 0.004, rho) * 0.55);
+    if (noise3(x * 260, y * 260, 2.0) > 0.86) { o[0] *= 0.45; o[1] *= 0.42; o[2] *= 0.4; }
+    o[3] = 0.88; o[4] = 0;
+    return;
+  }
+  glazeBody(x, y, rho, cx, sx, o, 0);
+  const bd = 1 - smoothstep(0, 0.028, rho - edge);   // thick glassy bead where the glaze stopped
+  mixc(o, BEAD, bd * 0.85); o[3] *= 1 - bd * 0.5;
+}
+function innerColor(x, y, rho, cx, sx, o) {
+  glazeBody(x, y, rho, cx, sx, o, 40);
+  const p = 1 - smoothstep(0.1, 0.42, rho + (noise3(cx * 4, sx * 4, 9) - 0.5) * 0.08); // glaze pools in the well
+  mixc(o, POOL, p * 0.85); o[3] = mix(o[3], 0.06, p);
+}
+
+function genClayTexture(S) {
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(S, S);
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const u = px / S * Math.PI * 2, v = py / S * Math.PI * 2;
+    const n = fbm3(Math.cos(u) * 3, Math.sin(u) * 3 + Math.cos(v) * 3, Math.sin(v) * 3, 4);
+    const g = noise3(Math.cos(u) * 40, Math.sin(u) * 40 + Math.cos(v) * 40, Math.sin(v) * 40);
+    let s = 0.84 + 0.2 * n + 0.08 * g;
+    let r = 0.70 * s, gg = 0.64 * s, b = 0.57 * s;
+    if (g > 0.9) { r *= 0.55; gg *= 0.5; b *= 0.48; }
+    const k = (py * S + px) * 4;
+    img.data[k] = r * 255; img.data[k+1] = gg * 255; img.data[k+2] = b * 255; img.data[k+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+function genWoodTexture(S) {
+  const cc = document.createElement('canvas'); cc.width = cc.height = S;
+  const rc = document.createElement('canvas'); rc.width = rc.height = S;
+  const cctx = cc.getContext('2d'), rctx = rc.getContext('2d');
+  const ci = cctx.createImageData(S, S), ri = rctx.createImageData(S, S);
+  const PL = 7;
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const u = px / S, v = py / S;
+    const plank = Math.floor(u * PL), pu = u * PL - plank;
+    const vv = v + hash3(plank, 7, 1);
+    const ang = vv * Math.PI * 2, cz = Math.cos(ang), sz = Math.sin(ang);
+    const wn = fbm3(pu * 2.5 + plank * 7, cz * 1.3, sz * 1.3, 3);
+    const ring = Math.sin((pu * 9 + wn * 5 + plank * 3.1) * Math.PI * 2) * 0.5 + 0.5;
+    const fine = noise3(pu * 160 + plank * 13, cz * 2.5, sz * 2.5);
+    const tint = 0.82 + 0.3 * hash3(plank, 3, 9);
+    let s = (0.75 + 0.25 * ring * 0.6 + wn * 0.4) * (0.88 + 0.22 * fine) * tint;
+    let r = 0.25 * s, g = 0.15 * s, b = 0.09 * s, rough = 0.38 + 0.18 * fine;
+    const jv = hash3(plank, 2, 5);
+    let jd = Math.abs(((vv % 1) + 1) % 1 - jv); jd = Math.min(jd, 1 - jd);
+    if (pu < 0.008 || pu > 0.992 || jd < 0.0015) { r *= 0.25; g *= 0.25; b *= 0.25; rough = 0.9; }
+    const k = (py * S + px) * 4;
+    ci.data[k] = r * 255; ci.data[k+1] = g * 255; ci.data[k+2] = b * 255; ci.data[k+3] = 255;
+    ri.data[k] = 0; ri.data[k+1] = rough * 255; ri.data[k+2] = 0; ri.data[k+3] = 255;
+  }
+  cctx.putImageData(ci, 0, 0); rctx.putImageData(ri, 0, 0);
+  const map = new THREE.CanvasTexture(cc); map.colorSpace = THREE.SRGBColorSpace;
+  const rough = new THREE.CanvasTexture(rc);
+  for (const t of [map, rough]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 6); }
+  return { map, rough };
+}
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const aniso = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d0e11);
+scene.fog = new THREE.Fog(0x0d0e11, 1.6, 4.5);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, 0.01, 20);
+camera.position.set(0.42, 0.78, 0.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.62, 0);
+controls.enableDamping = true;
+controls.minDistance = 0.15; controls.maxDistance = 2.5;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
+
+const key = new THREE.DirectionalLight(0xfff0dc, 2.6);
+key.position.set(0.7, 1.6, 0.45);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -0.5, right: 0.5, top: 0.5, bottom: -0.5, near: 0.2, far: 4 });
+key.shadow.bias = -0.0002; key.shadow.normalBias = 0.0012; key.shadow.radius = 3;
+scene.add(key, key.target);
+const rimLight = new THREE.DirectionalLight(0xbcd2ff, 1.4);
+rimLight.position.set(-0.9, 0.5, -1.0);
+scene.add(rimLight);
+scene.add(new THREE.HemisphereLight(0xc8d4ff, 0x2a1a10, 0.25));
+
+const loadingEl = document.getElementById('loading');
+const texOuter = genBowlTexture(1024, false);
+const texInner = genBowlTexture(1024, true);
+const clayTex = genClayTexture(256);
+const wood = genWoodTexture(1024);
+for (const t of [texOuter.map, texInner.map, wood.map, wood.rough]) t.anisotropy = aniso;
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 8),
+  new THREE.MeshStandardMaterial({ map: wood.map, roughnessMap: wood.rough, roughness: 1.25, envMapIntensity: 0.3 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const glazeMat = (t) => new THREE.MeshPhysicalMaterial({
+  map: t.map, roughnessMap: t.rough, roughness: 1,
+  clearcoat: 1, clearcoatMap: t.rough, clearcoatRoughness: 0.14, clearcoatRoughnessMap: t.rough,
+  ior: 1.52, specularIntensity: 0.6,
+});
+const outerMat = glazeMat(texOuter);
+const innerMat = glazeMat(texInner);
+const clayMat = new THREE.MeshStandardMaterial({ map: clayTex, roughness: 0.93 });
+const MATS = [outerMat, innerMat, clayMat];
+const chipGlazeMat = new THREE.MeshPhysicalMaterial({ color: 0x163a86, roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.05 });
+
+// kintsugi gold: reveal flows outward from the impact with a molten front, plus glitter flakes
+const goldU = { uReveal: { value: 0 }, uTime: { value: 0 }, uBurst: { value: 0 } };
+const goldMat = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color(1.0, 0.64, 0.20), metalness: 1, roughness: 0.2,
+  clearcoat: 0.5, clearcoatRoughness: 0.06, envMap: scene.environment, envMapIntensity: 1.25,
+  emissive: new THREE.Color(0.08, 0.045, 0.01),
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+});
+goldMat.onBeforeCompile = sh => {
+  Object.assign(sh.uniforms, goldU);
+  sh.vertexShader = 'attribute float aReveal;\nvarying float vReveal;\nvarying vec3 vGoldPos;\n' +
+    sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vReveal = aReveal; vGoldPos = position;');
+  sh.fragmentShader = 'uniform float uReveal;\nuniform float uTime;\nuniform float uBurst;\nvarying float vReveal;\nvarying vec3 vGoldPos;\n' +
+    sh.fragmentShader
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if (vReveal > uReveal) discard;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  float front = smoothstep(0.14, 0.0, uReveal - vReveal) * step(uReveal, 1.05);
+  totalEmissiveRadiance += vec3(5.0, 2.8, 0.9) * front;
+  vec3 cell = floor(vGoldPos * 3500.0);
+  float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  float tw = pow(max(0.0, sin(uTime * (2.0 + h * 3.0) + h * 60.0)), 24.0);
+  totalEmissiveRadiance += vec3(4.0, 3.0, 1.6) * step(0.965, h) * tw * (1.0 + 2.0 * uBurst);`);
+};
+
+const starTex = (() => {
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.12, 'rgba(255,240,200,0.8)'); rg.addColorStop(0.4, 'rgba(255,200,120,0.12)'); rg.addColorStop(1, 'rgba(255,200,120,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, S, S);
+  g.globalCompositeOperation = 'lighter';
+  for (const [w, h] of [[S, 2], [2, S]]) {
+    const lg = g.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+    lg.addColorStop(0, 'rgba(255,245,220,1)'); lg.addColorStop(1, 'rgba(255,220,160,0)');
+    g.fillStyle = lg; g.fillRect((S - w) / 2, (S - h) / 2, w, h);
+  }
+  return new THREE.CanvasTexture(c);
+})();
+const sparkU = { uTime: goldU.uTime, uReveal: goldU.uReveal, uBurst: goldU.uBurst, uTex: { value: starTex }, uScale: { value: 400 } };
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: sparkU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: `
+    attribute float aReveal; attribute float aPhase;
+    uniform float uTime, uReveal, uBurst, uScale;
+    varying float vI;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      float vis = step(aReveal, uReveal - 0.04);
+      float tw = pow(max(0.0, sin(uTime * (1.2 + aPhase * 2.6) + aPhase * 80.0)), 18.0);
+      vI = vis * (tw + uBurst * 0.8 * step(0.55, fract(aPhase * 13.7 + uTime * 2.3)));
+      gl_PointSize = vis * (0.0025 + 0.003 * aPhase) * (0.3 + 1.0 * tw + 0.8 * uBurst) * projectionMatrix[1][1] * uScale / -mv.z;
+    }`,
+  fragmentShader: `
+    uniform sampler2D uTex; varying float vI;
+    void main() { float a = texture2D(uTex, gl_PointCoord).a; gl_FragColor = vec4(vec3(1.0, 0.8, 0.48) * a * vI * 2.2, 1.0); }`,
+});
+
+// ---------------------------------------------------------------- piece builder
+const H = 0.012; // domain tessellation step (~1.6 mm)
+function warp(x, y, s) {
+  const rho = Math.hypot(x, y);
+  if (rho > 0.9995) return [x, y];
+  const fall = Math.min(1, (1 - rho) / 0.04);
+  const a = 0.012 * fall, b = 0.002 * fall;
+  let nx = x + (noise3(x * 11 + s, y * 11, 1.7) - 0.5) * 2 * a + (noise3(x * 50, y * 50 + s, 4.2) - 0.5) * 2 * b;
+  let ny = y + (noise3(x * 11, y * 11 + s, 9.3) - 0.5) * 2 * a + (noise3(x * 50 + s, y * 50, 7.7) - 0.5) * 2 * b;
+  const r = Math.hypot(nx, ny);
+  if (r > 0.9995) { nx *= 0.9995 / r; ny *= 0.9995 / r; }
+  return [nx, ny];
+}
+
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+const _d = new THREE.Vector3(), _e = new THREE.Vector3(), _f = new THREE.Vector3();
+
+function buildPiece(poly, warpSeed, patchArea, goldFrom = null) {
+  const P = [];
+  for (const q of poly) { const l = P[P.length - 1]; if (!l || Math.hypot(q[0] - l[0], q[1] - l[1]) > 1e-4) P.push(q); }
+  while (P.length > 2 && Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) < 1e-4) P.pop();
+  if (P.length < 3) return null;
+  let A = 0, cx = 0, cy = 0;
+  for (let i = 0; i < P.length; i++) {
+    const a = P[i], b = P[(i + 1) % P.length], cr = a[0] * b[1] - b[0] * a[1];
+    A += cr; cx += (a[0] + b[0]) * cr; cy += (a[1] + b[1]) * cr;
+  }
+  A *= 0.5;
+  if (A < 1e-6) return null;
+  cx /= 6 * A; cy /= 6 * A;
+
+  // boundary, subdivided
+  const B = [], rimSeg = [];
+  for (let i = 0; i < P.length; i++) {
+    const a = P[i], b = P[(i + 1) % P.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const isRim = Math.hypot(a[0], a[1]) > 0.999 && Math.hypot(b[0], b[1]) > 0.999 && Math.hypot((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) > 0.999;
+    const ns = Math.max(1, Math.ceil(len / H));
+    for (let k = 0; k < ns; k++) {
+      let x = mix(a[0], b[0], k / ns), y = mix(a[1], b[1], k / ns);
+      const r = Math.hypot(x, y);
+      if (isRim || r > 0.9995) { x /= r; y /= r; }
+      B.push(x, y); rimSeg.push(isRim);
+    }
+  }
+  const n = B.length / 2;
+  let maxd = 0;
+  for (let j = 0; j < n; j++) maxd = Math.max(maxd, Math.hypot(B[2*j] - cx, B[2*j+1] - cy));
+  const m = Math.max(1, Math.ceil(maxd / H));
+  const V = 1 + m * n;
+  const vid = (i, j) => i === 0 ? 0 : 1 + (i - 1) * n + (j % n);
+
+  const D = new Float32Array(V * 2);
+  const setD = (v, x, y) => { if (warpSeed !== null) [x, y] = warp(x, y, warpSeed); D[2*v] = x; D[2*v+1] = y; };
+  setD(0, cx, cy);
+  for (let i = 1; i <= m; i++) {
+    const t = i / m;
+    for (let j = 0; j < n; j++) setD(vid(i, j), i === m ? B[2*j] : cx + (B[2*j] - cx) * t, i === m ? B[2*j+1] : cy + (B[2*j+1] - cy) * t);
+  }
+
+  const NV = 2 * V + 4 * n;
+  const pos = new Float32Array(NV * 3), nor = new Float32Array(NV * 3), uv = new Float32Array(NV * 2);
+  for (let v = 0; v < V; v++) {
+    const x = D[2*v], y = D[2*v+1];
+    surf(OUT, x, y, _a, _b); _a.toArray(pos, v * 3); _b.toArray(nor, v * 3);
+    surf(IN, x, y, _a, _b); _a.toArray(pos, (V + v) * 3); _b.toArray(nor, (V + v) * 3);
+    uv[2*v] = uv[2*(V+v)] = x * 0.5 + 0.5; uv[2*v+1] = uv[2*(V+v)+1] = y * 0.5 + 0.5;
+  }
+  const idxO = [], idxI = [], idxS = [];
+  for (let j = 0; j < n; j++) {
+    const j1 = (j + 1) % n;
+    idxO.push(0, vid(1, j), vid(1, j1));
+    idxI.push(V, V + vid(1, j1), V + vid(1, j));
+    for (let i = 1; i < m; i++) {
+      const a = vid(i, j), b = vid(i + 1, j), c = vid(i + 1, j1), d = vid(i, j1);
+      idxO.push(a, b, c, a, c, d);
+      idxI.push(V + a, V + c, V + b, V + a, V + d, V + c);
+    }
+  }
+  // fracture faces (and glazed rim faces)
+  let sv = 2 * V;
+  for (let j = 0; j < n; j++) {
+    const j1 = (j + 1) % n, a = vid(m, j), b = vid(m, j1);
+    const Oa = _a.fromArray(pos, a * 3), Ob = _b.fromArray(pos, b * 3);
+    const Ia = _c.fromArray(pos, (V + a) * 3), Ib = _d.fromArray(pos, (V + b) * 3);
+    const nrm = _e.subVectors(Ob, Oa).cross(_f.subVectors(Ia, Oa)).normalize();
+    let flip;
+    if (rimSeg[j]) flip = nrm.y < 0;
+    else {
+      const mx = (D[2*a] + D[2*b]) / 2, my = (D[2*a+1] + D[2*b+1]) / 2;
+      let dx = mx - D[0], dy = my - D[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+      const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+      surf(OUT, mx, my, p0); surf(OUT, mx + dx * 0.01, my + dy * 0.01, p1);
+      flip = nrm.dot(p1.sub(p0)) < 0;
+    }
+    if (flip) nrm.negate();
+    const quad = [Oa, Ob, Ib, Ia], dom = [a, b, b, a];
+    for (let k = 0; k < 4; k++) {
+      quad[k].toArray(pos, (sv + k) * 3); nrm.toArray(nor, (sv + k) * 3);
+      if (rimSeg[j]) { uv[2*(sv+k)] = D[2*dom[k]] * 0.5 + 0.5; uv[2*(sv+k)+1] = D[2*dom[k]+1] * 0.5 + 0.5; }
+      else { const q = quad[k]; uv[2*(sv+k)] = (q.x + q.z * 0.7) * 14; uv[2*(sv+k)+1] = (q.y + q.z * 0.4) * 14; }
+    }
+    const tris = flip ? [sv, sv + 2, sv + 1, sv, sv + 3, sv + 2] : [sv, sv + 1, sv + 2, sv, sv + 2, sv + 3];
+    (rimSeg[j] ? idxO : idxS).push(...tris);
+    sv += 4;
+  }
+
+  // kintsugi: a thin raised gold bead on both glazed surfaces along every crack edge.
+  // Each piece draws its half of the seam; neighbours meet exactly on the crack line.
+  let goldGeo = null, sparkGeo = null;
+  if (goldFrom) {
+    const gP = [], gN = [], gR = [], gI = [], sP = [], sR = [], sPh = [];
+    const crack = j => !rimSeg[(j + n) % n];
+    const P0 = new THREE.Vector3(), N0 = new THREE.Vector3(), P1 = new THREE.Vector3();
+    const Pi = new THREE.Vector3(), Ni = new THREE.Vector3(), dir = new THREE.Vector3(), tmp = new THREE.Vector3();
+    const revAt = (x, y) => Math.min(1, Math.hypot(x - goldFrom[0], y - goldFrom[1]) / 1.7);
+    const hwAt = p => 0.00045 + 0.0007 * noise3(p.x * 650 + 3.3, p.y * 650, p.z * 650);
+    const pushQuad = (a, b, c, d, nx, ny, nz) => {
+      const ax = gP[3*a], ay = gP[3*a+1], az = gP[3*a+2];
+      const ux = gP[3*b] - ax, uy = gP[3*b+1] - ay, uz = gP[3*b+2] - az;
+      const vx = gP[3*d] - ax, vy = gP[3*d+1] - ay, vz = gP[3*d+2] - az;
+      const cxp = uy * vz - uz * vy, cyp = uz * vx - ux * vz, czp = ux * vy - uy * vx;
+      if (cxp * nx + cyp * ny + czp * nz >= 0) gI.push(a, b, c, a, c, d); else gI.push(a, c, b, a, d, c);
+    };
+    for (const prof of [OUT, IN]) {
+      const map = new Int32Array(n).fill(-1);
+      for (let j = 0; j < n; j++) {
+        if (!crack(j) && !crack(j - 1)) continue;
+        const a = vid(m, (j - 1 + n) % n), b = vid(m, j), c = vid(m, (j + 1) % n);
+        let tx = D[2*c] - D[2*a], ty = D[2*c+1] - D[2*a+1];
+        const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+        const ix = -ty, iy = tx, bx = D[2*b], by = D[2*b+1];
+        surf(prof, bx, by, P0, N0);
+        surf(prof, bx + ix * 1e-3, by + iy * 1e-3, P1);
+        const scale = P1.distanceTo(P0) / 1e-3 || 0.1;
+        const wd = hwAt(P0) / scale;
+        surf(prof, bx + ix * wd, by + iy * wd, Pi, Ni);
+        dir.subVectors(Pi, P0).normalize();
+        const r = revAt(bx, by);
+        map[j] = gP.length / 3;
+        tmp.copy(P0).addScaledVector(N0, 0.00016); gP.push(tmp.x, tmp.y, tmp.z); gN.push(N0.x, N0.y, N0.z); gR.push(r);
+        tmp.copy(Pi).addScaledVector(Ni, 0.00003); gP.push(tmp.x, tmp.y, tmp.z);
+        tmp.copy(Ni).addScaledVector(dir, 0.9).normalize(); gN.push(tmp.x, tmp.y, tmp.z); gR.push(r);
+        if (j % 5 === 0) { tmp.copy(P0).addScaledVector(N0, 0.0004); sP.push(tmp.x, tmp.y, tmp.z); sR.push(r); sPh.push(Math.random()); }
+      }
+      for (let j = 0; j < n; j++) {
+        const j1 = (j + 1) % n;
+        if (!crack(j) || map[j] < 0 || map[j1] < 0) continue;
+        const e0 = map[j], e1 = map[j1];
+        pushQuad(e0, e1, e1 + 1, e0 + 1, gN[3*e0], gN[3*e0+1], gN[3*e0+2]);
+      }
+    }
+    // across the lip, where a crack reaches the rim
+    for (let j = 0; j < n; j++) {
+      if (!rimSeg[j]) continue;
+      const a = vid(m, j), b = vid(m, (j + 1) % n);
+      const Oa = new THREE.Vector3().fromArray(pos, a * 3), Ob = new THREE.Vector3().fromArray(pos, b * 3);
+      const Ia = new THREE.Vector3().fromArray(pos, (V + a) * 3), Ib = new THREE.Vector3().fromArray(pos, (V + b) * 3);
+      const add = (Oc, Ic, Oo, Io, dv) => {
+        const f = Math.min(1, hwAt(Oc) / (Oc.distanceTo(Oo) || 1));
+        const r = revAt(D[2*dv], D[2*dv+1]), base = gP.length / 3;
+        const q = [Oc.clone(), Ic.clone(), Ic.clone().lerp(Io, f), Oc.clone().lerp(Oo, f)];
+        q.forEach((v, k) => { gP.push(v.x, v.y + (k < 2 ? 0.00016 : 0.00003), v.z); gN.push(0, 1, 0); gR.push(r); });
+        pushQuad(base, base + 1, base + 2, base + 3, 0, 1, 0);
+        const mid = Oc.clone().lerp(Ic, 0.5); sP.push(mid.x, mid.y + 0.0004, mid.z); sR.push(r); sPh.push(Math.random());
+      };
+      if (crack(j - 1)) add(Oa, Ia, Ob, Ib, a);
+      if (crack(j + 1)) add(Ob, Ib, Oa, Ia, b);
+    }
+    if (gI.length) {
+      goldGeo = new THREE.BufferGeometry();
+      goldGeo.setAttribute('position', new THREE.Float32BufferAttribute(gP, 3));
+      goldGeo.setAttribute('normal', new THREE.Float32BufferAttribute(gN, 3));
+      goldGeo.setAttribute('aReveal', new THREE.Float32BufferAttribute(gR, 1));
+      goldGeo.setIndex(gI);
+      sparkGeo = new THREE.BufferGeometry();
+      sparkGeo.setAttribute('position', new THREE.Float32BufferAttribute(sP, 3));
+      sparkGeo.setAttribute('aReveal', new THREE.Float32BufferAttribute(sR, 1));
+      sparkGeo.setAttribute('aPhase', new THREE.Float32BufferAttribute(sPh, 1));
+    }
+  }
+
+  // centre the piece on its centroid
+  const centroid = new THREE.Vector3();
+  for (let v = 0; v < 2 * V; v++) { centroid.x += pos[3*v]; centroid.y += pos[3*v+1]; centroid.z += pos[3*v+2]; }
+  centroid.divideScalar(2 * V);
+  for (let v = 0; v < NV; v++) { pos[3*v] -= centroid.x; pos[3*v+1] -= centroid.y; pos[3*v+2] -= centroid.z; }
+  for (const g of [goldGeo, sparkGeo]) if (g) { g.translate(-centroid.x, -centroid.y, -centroid.z); g.computeBoundingSphere(); }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const index = idxO.concat(idxI, idxS);
+  geo.setIndex(index);
+  geo.addGroup(0, idxO.length, 0);
+  geo.addGroup(idxO.length, idxI.length, 1);
+  geo.addGroup(idxO.length + idxI.length, idxS.length, 2);
+  geo.computeBoundingSphere();
+
+  // collision: a compound of convex hulls over patches of the curved shell
+  const step = Math.max(1, Math.round(0.03 / H));
+  const samples = [0];
+  for (let i = m; i >= 1; i -= step) for (let j = 0; j < n; j += step) samples.push(vid(i, j));
+  const K = Math.max(1, Math.min(28, Math.round(A / patchArea)));
+  const centers = [];
+  const dmin = new Float32Array(samples.length).fill(1e9);
+  let next = 0;
+  for (let k = 0; k < K; k++) {
+    centers.push(samples[next]);
+    const cxk = D[2*samples[next]], cyk = D[2*samples[next]+1];
+    let best = -1;
+    for (let s = 0; s < samples.length; s++) {
+      const d = Math.hypot(D[2*samples[s]] - cxk, D[2*samples[s]+1] - cyk);
+      if (d < dmin[s]) dmin[s] = d;
+      if (dmin[s] > best) { best = dmin[s]; next = s; }
+    }
+  }
+  const groups = centers.map(() => []);
+  for (const s of samples) {
+    const ds = centers.map(c => Math.hypot(D[2*s] - D[2*c], D[2*s+1] - D[2*c+1]));
+    const best = Math.min(...ds);
+    ds.forEach((d, k) => {
+      if (d <= best + 0.03) groups[k].push(pos[3*s], pos[3*s+1], pos[3*s+2], pos[3*(V+s)], pos[3*(V+s)+1], pos[3*(V+s)+2]);
+    });
+  }
+  const hulls = groups.filter(g => g.length >= 18).map(g => new Float32Array(g));
+  return { geometry: geo, gold: goldGeo, spark: sparkGeo, hulls, centroid, area: A, D, V, pos };
+}
+
+// ---------------------------------------------------------------- voronoi in the disk
+const NC = 256;
+const CIRCLE = Array.from({ length: NC }, (_, k) => [Math.cos(k / NC * Math.PI * 2), Math.sin(k / NC * Math.PI * 2)]);
+function clipHalf(poly, nx, ny, d) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const da = nx * a[0] + ny * a[1] - d, db = nx * b[0] + ny * b[1] - d;
+    if (da <= 0) out.push(a);
+    if ((da < 0 && db > 0) || (da > 0 && db < 0)) { const t = da / (da - db); out.push([mix(a[0], b[0], t), mix(a[1], b[1], t)]); }
+  }
+  return out;
+}
+function voronoiCells(seeds) {
+  return seeds.map((si, i) => {
+    let poly = CIRCLE;
+    const order = seeds.map((s, j) => [j, Math.hypot(s[0] - si[0], s[1] - si[1])]).sort((a, b) => a[1] - b[1]);
+    for (const [j, d] of order) {
+      if (j === i) continue;
+      let maxR = 0; for (const p of poly) maxR = Math.max(maxR, Math.hypot(p[0] - si[0], p[1] - si[1]));
+      if (d * 0.5 > maxR) break;
+      const sj = seeds[j], nx = sj[0] - si[0], ny = sj[1] - si[1];
+      poly = clipHalf(poly, nx, ny, nx * (si[0] + sj[0]) / 2 + ny * (si[1] + sj[1]) / 2);
+      if (poly.length < 3) break;
+    }
+    return poly;
+  });
+}
+
+// ---------------------------------------------------------------- physics
+const DT = 1 / 240;
+const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+world.timestep = DT;
+try { world.lengthUnit = 0.1; } catch (e) {}
+try { world.numSolverIterations = 6; } catch (e) {}
+const eventQueue = new RAPIER.EventQueue(true);
+const G = (member, filter) => ((member << 16) | filter) >>> 0;
+const GROUND = 1, SHARD = 2, CHIP = 4;
+{
+  const gb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+  world.createCollider(RAPIER.ColliderDesc.cuboid(5, 0.5, 5).setTranslation(0, -0.5, 0)
+    .setFriction(0.75).setRestitution(0.2).setCollisionGroups(G(GROUND, 0xffff)), gb);
+}
+
+const intact = buildPiece(CIRCLE, null, 0.12);
+const intactHullAll = (() => { let n = 0; for (const h of intact.hulls) n += h.length; const a = new Float32Array(n); let o = 0; for (const h of intact.hulls) { a.set(h, o); o += h.length; } return a; })();
+
+// state: hover -> falling -> shattered -> rewind -> hover ...
+let state = 'hover';
+let bowlObj = null, bowlBody = null;
+const bowlColliders = new Set();
+let pieces = null;               // the fracture pattern, kept once the bowl has been mended
+let shards = [];                 // { mesh, body, colliders, size, born, full, last, pv, kind, piece }
+const byCollider = new Map();
+let simTime = 0, acc = 0, timeScale = 1, slowmo = true, slowT = -1, hoverT = 0, stepCount = 0;
+let fallRec = [], rec = [], recOn = false, dropHoverT = 0, shatterReal = 0, rw = null;
+const HOVER_Y = 0.62;
+
+const poseOf = (p, q) => [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+
+function makePieceMesh(p) {
+  const mesh = new THREE.Mesh(p.geometry, MATS);
+  mesh.castShadow = mesh.receiveShadow = true;
+  if (p.gold) mesh.add(new THREE.Mesh(p.gold, goldMat));
+  if (p.spark) { const pts = new THREE.Points(p.spark, sparkMat); pts.frustumCulled = false; mesh.add(pts); }
+  mesh.userData.piece = p;
+  return mesh;
+}
+
+function makeBowl() {
+  bowlObj = new THREE.Group();
+  if (!pieces) {
+    const m = new THREE.Mesh(intact.geometry, MATS);
+    m.castShadow = m.receiveShadow = true;
+    bowlObj.add(m);
+  } else {
+    for (const p of pieces) { const m = makePieceMesh(p); m.position.copy(p.off); bowlObj.add(m); }
+  }
+  bowlObj.position.set(0, HOVER_Y, 0);
+  scene.add(bowlObj);
+  state = 'hover'; hoverT = 0;
+  updateHover(0);
+}
+const tiltQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.42, 0, 0.12));
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+function updateHover(dt) {
+  hoverT += dt;
+  bowlObj.quaternion.setFromAxisAngle(Y_AXIS, hoverT * 0.4).multiply(tiltQ);
+  bowlObj.position.y = HOVER_Y + Math.sin(hoverT * 1.3) * 0.004;
+}
+
+function drop() {
+  const q = bowlObj.quaternion, p = bowlObj.position;
+  bowlBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+    .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+    .setAngvel({ x: (Math.random() - 0.5) * 3, y: (Math.random() - 0.5) * 1.5, z: (Math.random() - 0.5) * 3 })
+    .setCcdEnabled(true));
+  for (const h of intact.hulls) {
+    const d = RAPIER.ColliderDesc.convexHull(h);
+    if (!d) continue;
+    d.setDensity(1700).setFriction(0.6).setRestitution(0.2).setCollisionGroups(G(SHARD, GROUND))
+      .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(0.05);
+    bowlColliders.add(world.createCollider(d, bowlBody).handle);
+  }
+  fallRec = [poseOf(p, q)];
+  dropHoverT = hoverT;
+  state = 'falling';
+}
+
+function removeShards() {
+  for (const s of shards) {
+    if (s.body) world.removeRigidBody(s.body);
+    scene.remove(s.mesh);
+    if (s.kind === 'chip') s.mesh.geometry.dispose();
+  }
+  shards = []; byCollider.clear();
+}
+function hardReset() {
+  removeShards();
+  if (bowlBody) { world.removeRigidBody(bowlBody); bowlBody = null; bowlColliders.clear(); }
+  if (bowlObj) { scene.remove(bowlObj); bowlObj = null; }
+  if (pieces) for (const p of pieces) { p.geometry.dispose(); p.gold?.dispose(); p.spark?.dispose(); }
+  pieces = null; rw = null; recOn = false;
+  goldU.uReveal.value = 0; goldU.uBurst.value = 0;
+  slowT = -1; timeScale = 1;
+  makeBowl();
+}
+
+const _q = new THREE.Quaternion(), _P = new THREE.Vector3(), _v = new THREE.Vector3();
+function addBody(mesh, hulls, pos, quat, lv, av, density, groups, size, kind) {
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+    .setTranslation(pos.x, pos.y, pos.z).setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w })
+    .setLinvel(lv.x, lv.y, lv.z).setAngvel({ x: av.x, y: av.y, z: av.z })
+    .setCcdEnabled(true).setLinearDamping(0.05).setAngularDamping(0.15));
+  const colliders = [];
+  for (const h of hulls) {
+    const d = RAPIER.ColliderDesc.convexHull(h);
+    if (!d) continue;
+    d.setDensity(density).setFriction(0.55).setRestitution(0.25).setCollisionGroups(groups)
+      .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(0.02);
+    colliders.push(world.createCollider(d, body));
+  }
+  if (!colliders.length) {
+    colliders.push(world.createCollider(RAPIER.ColliderDesc.ball(0.0015).setDensity(density).setCollisionGroups(groups), body));
+  }
+  mesh.position.copy(pos); mesh.quaternion.copy(quat);
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+  const s = { mesh, body, colliders, size, born: simTime, full: kind === 'chip', last: 0, pv: new THREE.Vector3().copy(lv), kind, piece: mesh.userData.piece };
+  for (const c of colliders) byCollider.set(c.handle, s);
+  shards.push(s);
+  return s;
+}
+
+function shatter(impact, lv, av, speed) {
+  const t = bowlBody.translation(), r = bowlBody.rotation();
+  const P = new THREE.Vector3(t.x, t.y, t.z), Q = new THREE.Quaternion(r.x, r.y, r.z, r.w);
+  const local = impact.clone().sub(P).applyQuaternion(Q.clone().invert());
+  fallRec.push(poseOf(P, Q));
+
+  world.removeRigidBody(bowlBody); bowlBody = null; bowlColliders.clear();
+  scene.remove(bowlObj); bowlObj = null;
+
+  if (!pieces) {
+    // where on the bowl did it hit? -> point in the fracture disk
+    let best = 1e9, bi = 0;
+    const ip = intact.pos;
+    for (let v = 0; v < 2 * intact.V; v++) {
+      const dx = ip[3*v] - local.x, dy = ip[3*v+1] - local.y, dz = ip[3*v+2] - local.z, d = dx*dx + dy*dy + dz*dz;
+      if (d < best) { best = d; bi = v; }
+    }
+    const dv = bi % intact.V;
+    const pi = [intact.D[2*dv], intact.D[2*dv+1]];
+    // fracture seeds: dense around the impact, sparse far away
+    const nSeeds = Math.round(THREE.MathUtils.clamp(16 + speed * 7, 18, 56));
+    const seeds = [];
+    while (seeds.length < nSeeds) {
+      let x, y;
+      if (Math.random() < 0.6) { const s = 0.05 + 0.3 * Math.random() ** 1.5; x = pi[0] + gauss() * s; y = pi[1] + gauss() * s; }
+      else { const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()); x = rr * Math.cos(a); y = rr * Math.sin(a); }
+      if (Math.hypot(x, y) < 0.985) seeds.push([x, y]);
+    }
+    const ws = Math.random() * 100;
+    pieces = voronoiCells(seeds).map(cell => buildPiece(cell, ws, 0.05, pi)).filter(Boolean);
+    for (const p of pieces) p.off = p.centroid.clone().sub(intact.centroid);
+  }
+
+  const upish = new THREE.Vector3();
+  for (const piece of pieces) {
+    const off = piece.off.clone().applyQuaternion(Q);
+    const wp = P.clone().add(off);
+    const v = new THREE.Vector3(lv.x, lv.y, lv.z).add(new THREE.Vector3(av.x, av.y, av.z).cross(off));
+    const toC = wp.clone().sub(impact); const d = toC.length(); toC.normalize();
+    const k = speed * (0.04 + 0.3 * Math.exp(-d / 0.04)) * (0.6 + 0.8 * Math.random());
+    v.addScaledVector(toC, k);
+    if (d < 0.05 && v.y < 0) v.y *= -0.3;
+    v.y += Math.random() * 0.08 * speed * Math.exp(-d / 0.06);
+    const spin = speed * 7 * Math.exp(-d / 0.07) / Math.max(0.3, Math.sqrt(piece.area) * 3);
+    const w = new THREE.Vector3(av.x, av.y, av.z).add(upish.set(gauss(), gauss(), gauss()).multiplyScalar(spin));
+    addBody(makePieceMesh(piece), piece.hulls, wp, Q, v, w, 2000, G(SHARD, GROUND), Math.sqrt(piece.area), 'shard');
+  }
+  // fine chips and grit from the impact zone
+  const nChips = Math.round(20 + speed * 8);
+  for (let i = 0; i < nChips; i++) {
+    const sz = 0.0012 + Math.random() ** 2 * 0.0035;
+    const pts = Array.from({ length: 7 }, () => new THREE.Vector3(gauss() * sz, gauss() * sz * 0.5, gauss() * sz));
+    const geo = new ConvexGeometry(pts);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, Math.random() < 0.55 ? chipGlazeMat : clayMat);
+    const p = impact.clone().add(new THREE.Vector3(gauss() * 0.008, 0.004 + Math.random() * 0.006, gauss() * 0.008));
+    const dir = new THREE.Vector3(gauss(), Math.abs(gauss()) * 0.9 + 0.2, gauss()).normalize();
+    const v = new THREE.Vector3(lv.x * 0.2, 0, lv.z * 0.2).addScaledVector(dir, speed * (0.1 + 0.5 * Math.random() ** 2));
+    const w = new THREE.Vector3(gauss(), gauss(), gauss()).multiplyScalar(60);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
+    addBody(mesh, [new Float32Array(geo.attributes.position.array)], p, q, v, w, 2000, G(CHIP, GROUND | SHARD), 0.02, 'chip');
+  }
+  shatterSound(speed);
+  if (slowmo) slowT = 0;
+  rec = []; recOn = true; recordFrame();
+  state = 'shattered'; shatterReal = performance.now();
+}
+
+// ---------------------------------------------------------------- recording & rewind
+function recordFrame() {
+  const f = new Float32Array(shards.length * 7);
+  shards.forEach((s, i) => {
+    const t = s.body.translation(), r = s.body.rotation();
+    f.set([t.x, t.y, t.z, r.x, r.y, r.z, r.w], i * 7);
+  });
+  rec.push(f);
+  if (rec.length > 1400) recOn = false;
+}
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+function applyPose(obj, A, B, a, o = 0) {
+  obj.position.set(mix(A[o], B[o], a), mix(A[o+1], B[o+1], a), mix(A[o+2], B[o+2], a));
+  _qa.set(A[o+3], A[o+4], A[o+5], A[o+6]); _qb.set(B[o+3], B[o+4], B[o+5], B[o+6]);
+  obj.quaternion.slerpQuaternions(_qa, _qb, a);
+}
+const easeInOut = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+
+function canFix() {
+  if (state !== 'shattered') return false;
+  const el = performance.now() - shatterReal;
+  return el > 4000 || (el > 1600 && slowT < 0 && shards.every(s => s.body.isSleeping()));
+}
+function fix() {
+  recOn = false;
+  for (const s of shards) { world.removeRigidBody(s.body); s.body = null; }
+  byCollider.clear();
+  slowT = -1; timeScale = 1;
+  // skip the part of the recording where everything was already at rest
+  let last = 1;
+  for (let k = rec.length - 1; k > 0 && last === 1; k--) {
+    const a = rec[k], b = rec[k - 1];
+    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 3e-5) { last = k; break; }
+  }
+  rw = { phase: 'shards', t: 0, start: Math.min(rec.length - 1, last + 1) };
+  rw.dur = THREE.MathUtils.clamp(1.6 + rw.start / 240, 2.2, 3.4);
+  state = 'rewind';
+  fixSound(rw.dur);
+}
+function updateRewind(dt) {
+  rw.t += dt;
+  if (rw.phase === 'shards') {
+    const u = Math.min(1, rw.t / rw.dur), f = rw.start * (1 - easeInOut(u));
+    const i0 = Math.floor(f), i1 = Math.min(i0 + 1, rec.length - 1), a = f - i0;
+    shards.forEach((s, i) => {
+      applyPose(s.mesh, rec[i0], rec[i1], a, i * 7);
+      if (s.kind === 'chip') s.mesh.scale.setScalar(Math.max(0.001, 1 - smoothstep(0.7, 0.97, u)));
+    });
+    if (u >= 1) {
+      // pieces are home: become one object again
+      const last = fallRec[fallRec.length - 1];
+      bowlObj = new THREE.Group();
+      applyPose(bowlObj, last, last, 0);
+      for (const s of shards) {
+        if (s.kind !== 'shard') continue;
+        scene.remove(s.mesh);
+        s.mesh.position.copy(s.piece.off); s.mesh.quaternion.identity();
+        bowlObj.add(s.mesh);
+      }
+      shards = shards.filter(s => s.kind === 'chip');
+      removeShards();
+      scene.add(bowlObj);
+      rw.phase = 'rise'; rw.t = 0; rw.from = goldU.uReveal.value;
+    }
+  } else if (rw.phase === 'rise') {
+    // the bowl lifts back to where it fell from while the gold flows into the cracks
+    const u = Math.min(1, rw.t / 2.6), f = (fallRec.length - 1) * (1 - smoothstep(0, 1, u));
+    const i0 = Math.floor(f), i1 = Math.min(i0 + 1, fallRec.length - 1);
+    applyPose(bowlObj, fallRec[i0], fallRec[i1], f - i0);
+    goldU.uReveal.value = Math.max(rw.from, mix(0, 1.2, smoothstep(0.02, 0.9, u)));
+    goldU.uBurst.value = Math.sin(Math.PI * u) * 0.9;
+    if (u >= 1) { state = 'hover'; hoverT = dropHoverT; rw = null; goldU.uBurst.value = 0; }
+  }
+}
+
+// ---------------------------------------------------------------- audio
+let actx = null, master, wet, noiseBuf, soundBudget = 0;
+function initAudio() {
+  if (actx) { actx.resume(); return; }
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = actx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4;
+  comp.connect(actx.destination);
+  master = actx.createGain(); master.gain.value = 0.85; master.connect(comp);
+  const conv = actx.createConvolver();
+  const len = actx.sampleRate * 1.3, ir = actx.createBuffer(2, len, actx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
+  conv.buffer = ir;
+  wet = actx.createGain(); wet.gain.value = 0.2; wet.connect(conv); conv.connect(comp);
+  noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+  const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+}
+const pitchNow = () => 0.5 + 0.5 * timeScale;
+function tink(when, f, vol, decay, ratios = [1, 2.71, 5.15, 8.09], amps = [1, 0.5, 0.3, 0.16]) {
+  const out = actx.createGain(); out.gain.value = vol; out.connect(master); out.connect(wet);
+  for (let k = 0; k < ratios.length; k++) {
+    const fr = f * ratios[k] * (1 + (Math.random() - 0.5) * 0.03);
+    if (fr > 17000) continue;
+    const osc = actx.createOscillator(); osc.frequency.value = fr;
+    const g = actx.createGain(), d = decay / (1 + k * 0.8);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(amps[k], when + 0.0015);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + d);
+    osc.connect(g).connect(out); osc.start(when); osc.stop(when + d + 0.02);
+  }
+}
+function noiseHit(when, vol, dur, type, freq, Q, attack = 0.002) {
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = Q;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, when); g.gain.exponentialRampToValueAtTime(vol, when + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + attack + dur);
+  src.connect(f).connect(g); g.connect(master); g.connect(wet);
+  src.start(when, Math.random() * 0.5); src.stop(when + attack + dur + 0.02);
+  return f;
+}
+function shatterSound(speed) {
+  if (!actx) return;
+  const p = pitchNow(), t = actx.currentTime + 0.005, v = Math.min(1, speed / 3.5);
+  noiseHit(t, 0.9 * v, 0.06 / p, 'highpass', 2600 * p, 0.7);
+  noiseHit(t, 0.7 * v, 0.14 / p, 'lowpass', 380 * p, 0.8);
+  noiseHit(t + 0.004, 0.4 * v, 0.4 / p, 'bandpass', 4800 * p, 1.1);
+  for (let k = 0; k < 30; k++) {
+    tink(t + Math.random() ** 2 * 0.22 / p, (1600 + Math.random() * 6500) * p, (0.04 + Math.random() * 0.14) * v, (0.04 + Math.random() * 0.28) / p);
+  }
+}
+function fixSound(dur) {
+  if (!actx) return;
+  const t = actx.currentTime + 0.01;
+  // a reversed shatter: rising whoosh, clinks gathering toward the moment the pieces meet
+  const f = noiseHit(t, 0.25, 0.05, 'bandpass', 900, 1.4, dur * 0.95);
+  f.frequency.setValueAtTime(700, t); f.frequency.exponentialRampToValueAtTime(5200, t + dur);
+  for (let k = 0; k < 26; k++) {
+    const when = t + dur * (1 - Math.random() ** 2.5 * 0.7);
+    tink(when, 1800 + Math.random() * 5500, 0.03 + Math.random() * 0.06, 0.06 + Math.random() * 0.12);
+  }
+}
+function clink(s, dv) {
+  if (!actx || soundBudget <= 0) return;
+  const now = actx.currentTime;
+  if (now - s.last < 0.06) return;
+  const vol = Math.min(0.32, dv * 0.1) * Math.min(1, 0.35 + s.size * 2.2);
+  if (vol < 0.008) return;
+  s.last = now; soundBudget--;
+  const p = pitchNow();
+  const f = (1300 + 6500 * Math.exp(-s.size * 4)) * (0.85 + Math.random() * 0.3) * p;
+  tink(now, f, vol, (0.05 + 0.3 * Math.min(1, s.size * 2)) / p);
+}
+
+// ---------------------------------------------------------------- simulation step
+function step() {
+  let preLv = null, preAv = null;
+  if (bowlBody) { preLv = bowlBody.linvel(); preAv = bowlBody.angvel(); }
+  for (const s of shards) if (!s.body.isSleeping()) { const v = s.body.linvel(); s.pv.set(v.x, v.y, v.z); }
+  world.step(eventQueue);
+  simTime += DT; stepCount++;
+  let bowlHit = false;
+  eventQueue.drainContactForceEvents(ev => {
+    const h1 = ev.collider1(), h2 = ev.collider2();
+    if (bowlColliders.has(h1) || bowlColliders.has(h2)) { bowlHit = true; return; }
+    for (const h of [h1, h2]) {
+      const s = byCollider.get(h);
+      if (!s) continue;
+      const v = s.body.linvel();
+      clink(s, _v.set(v.x, v.y, v.z).sub(s.pv).length());
+    }
+  });
+  if (bowlBody && stepCount % 2 === 0) {
+    const t = bowlBody.translation(), r = bowlBody.rotation();
+    fallRec.push([t.x, t.y, t.z, r.x, r.y, r.z, r.w]);
+  }
+  if (bowlHit && bowlBody) {
+    const t = bowlBody.translation(), r = bowlBody.rotation();
+    _P.set(t.x, t.y, t.z); _q.set(r.x, r.y, r.z, r.w);
+    let minY = Infinity; const pts = intactHullAll, wp = [];
+    for (let i = 0; i < pts.length; i += 3) {
+      const p = new THREE.Vector3(pts[i], pts[i+1], pts[i+2]).applyQuaternion(_q).add(_P);
+      wp.push(p); if (p.y < minY) minY = p.y;
+    }
+    const impact = new THREE.Vector3(); let c = 0;
+    for (const p of wp) if (p.y < minY + 0.002) { impact.add(p); c++; }
+    impact.divideScalar(c);
+    const arm = impact.clone().sub(_P);
+    const vp = new THREE.Vector3(preAv.x, preAv.y, preAv.z).cross(arm).add(new THREE.Vector3(preLv.x, preLv.y, preLv.z));
+    const speed = -vp.y;
+    if (speed > 1.1) shatter(impact, preLv, preAv, Math.min(speed, 6));
+  }
+  for (const s of shards) if (!s.full && simTime - s.born > 0.03) {
+    for (const c of s.colliders) c.setCollisionGroups(G(SHARD, GROUND | SHARD | CHIP));
+    s.full = true;
+  }
+  if (recOn && stepCount % 2 === 0) recordFrame();
+}
+
+// ---------------------------------------------------------------- input
+const msgEl = document.getElementById('msg');
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downAt) return;
+  const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+  if (moved < 6 && performance.now() - downAt.t < 400) act();
+  downAt = null;
+});
+function act() {
+  initAudio();
+  if (state === 'hover') drop();
+  else if (canFix()) fix();
+}
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); act(); }
+  if (e.code === 'KeyR') { initAudio(); hardReset(); }
+  if (e.code === 'KeyS') { slowmo = !slowmo; if (!slowmo) { slowT = -1; timeScale = 1; } }
+});
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.32, 0.45, 0.92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+function resize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+  sparkU.uScale.value = renderer.domElement.height / 2;
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------------------------------------------------------------- loop
+makeBowl();
+loadingEl.style.opacity = 0; setTimeout(() => loadingEl.remove(), 700);
+const clock = new THREE.Clock();
+let focusY = HOVER_Y, msgText = '';
+function setMsg(text, cls = '') {
+  if (text === msgText) return;
+  msgText = text;
+  if (text) { msgEl.textContent = text; msgEl.className = 'show ' + cls; }
+  else msgEl.className = msgEl.className.replace('show', '');
+}
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  soundBudget = 6;
+  goldU.uTime.value += dt;
+
+  // time scale: ease into slow motion just before impact, hold it through the break, ease out
+  if (slowmo) {
+    if (state === 'falling' && bowlBody) {
+      timeScale = mix(0.3, 1, smoothstep(0.06, 0.22, bowlBody.translation().y));
+    } else if (slowT >= 0) {
+      slowT += dt;
+      timeScale = slowT < 1.4 ? 0.1 : mix(0.1, 1, smoothstep(1.4, 3.2, slowT));
+      if (slowT > 3.2) { slowT = -1; timeScale = 1; }
+    } else timeScale = 1;
+  }
+
+  if (state === 'hover') updateHover(dt);
+  else if (state === 'rewind') updateRewind(dt);
+  else {
+    acc += dt * timeScale;
+    let n = 0;
+    while (acc >= DT && n < 12) { step(); acc -= DT; n++; }
+    if (n === 12) acc = 0;
+  }
+  if (bowlBody && bowlObj) {
+    const t = bowlBody.translation(), r = bowlBody.rotation();
+    bowlObj.position.set(t.x, t.y, t.z); bowlObj.quaternion.set(r.x, r.y, r.z, r.w);
+  }
+  if (state !== 'rewind') for (const s of shards) {
+    const t = s.body.translation(), r = s.body.rotation();
+    s.mesh.position.set(t.x, t.y, t.z); s.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+  }
+
+  if (state === 'hover') setMsg('Click to drop', pieces ? 'gold' : '');
+  else if (canFix()) setMsg('Click to fix', 'gold');
+  else setMsg('');
+
+  // camera follows the bowl; the subject sits a little above the centred message
+  const want = bowlObj ? Math.max(0.05, bowlObj.position.y) - 0.05 : 0.025;
+  const ny = mix(focusY, want, 1 - Math.exp(-dt * (state === 'falling' || state === 'rewind' ? 7 : 2.5)));
+  const dy = ny - focusY; focusY = ny;
+  controls.target.y += dy; camera.position.y += dy;
+  if (camera.position.y < 0.05) camera.position.y = 0.05;
+
+  controls.update(dt);
+  composer.render();
+});
+</script>
+</body>
+</html>
