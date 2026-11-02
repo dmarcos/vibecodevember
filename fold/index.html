@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Fold</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #d6d3cd;
+    --ink: #2a2826;
+    --ink-soft: #6b665f;
+    --paper: #f6f1e7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; touch-action: none; }
+
+  .title {
+    position: fixed; top: 24px; left: 28px; pointer-events: none;
+    font-family: Fraunces, serif; font-weight: 400; font-size: 22px; letter-spacing: 0.01em;
+  }
+  .title small {
+    display: block; margin-top: 4px;
+    font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft);
+  }
+
+  .headline {
+    position: fixed; left: 50%; top: 12vh; transform: translateX(-50%);
+    width: min(720px, calc(100% - 32px)); margin: 0; text-align: center; pointer-events: none;
+    font-family: Fraunces, serif; font-weight: 400; font-size: clamp(26px, 3.6vw, 42px); line-height: 1.12;
+    letter-spacing: -0.01em; text-wrap: balance;
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .headline strong { font-weight: 600; white-space: nowrap; }
+  .headline.away { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  .hint {
+    position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%);
+    font-family: Fraunces, serif; font-size: 20px; text-align: center; pointer-events: none;
+    transition: opacity .4s ease; white-space: nowrap;
+  }
+  .hint .sub { display: block; margin-top: 6px; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
+  .steps { display: inline-flex; gap: 10px; font-family: Fraunces, serif; font-size: 26px; }
+  .steps span { opacity: .25; transition: opacity .15s ease, transform .15s ease; display: inline-block; }
+  .steps span.on { opacity: 1; transform: translateY(-3px); }
+
+  .card-wrap {
+    position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+    padding: 0 16px 48px; pointer-events: none;
+  }
+  .card {
+    pointer-events: auto;
+    width: min(440px, 100%);
+    background: var(--paper);
+    padding: 26px 30px 22px;
+    border-radius: 2px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 18px 40px -12px rgba(40,30,20,.35);
+    transform: translateY(30px) rotate(-1.2deg); opacity: 0;
+    transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .5s ease;
+    position: relative;
+  }
+  .card::before {
+    /* faint fold crease */
+    content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,0,0,.06) 20%, rgba(0,0,0,.06) 80%, transparent);
+  }
+  .card.show { transform: translateY(0) rotate(-1.2deg); opacity: 1; }
+  .card .label { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
+  .card .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .card p { font-family: Fraunces, serif; font-style: italic; font-size: 23px; line-height: 1.32; margin: 14px 0 20px; text-wrap: pretty; }
+  .card button {
+    font: 500 12px Inter, sans-serif; letter-spacing: .14em; text-transform: uppercase;
+    background: none; border: 1px solid rgba(42,40,38,.35); color: var(--ink);
+    padding: 10px 16px; border-radius: 999px; cursor: pointer; transition: background .2s, border-color .2s;
+  }
+  .card button:hover { background: rgba(42,40,38,.06); border-color: rgba(42,40,38,.6); }
+  .hidden { opacity: 0 !important; }
+
+  @media (max-width: 520px) {
+    .headline { top: 76px; }
+    .title { top: 16px; left: 16px; font-size: 19px; }
+    .hint { bottom: 24px; font-size: 18px; }
+    .card p { font-size: 20px; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div class="title">Vibecodevember - Fold<small>Nov 1st 2026</small></div>
+<h1 class="headline" id="headline">What does the <strong>Super Intelligence</strong> future hold for you?</h1>
+<div class="hint" id="hint"></div>
+<div class="card-wrap"><div class="card" id="card">
+  <div class="label"><span class="dot" id="cardDot"></span><span id="cardLabel"></span></div>
+  <p id="cardText"></p>
+  <button id="again">Fold again</button>
+</div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// ---------------------------------------------------------------- content
+const COLORS = [
+  { name: 'RED',    hex: '#d0604a', sx:  1, sz: -1 },
+  { name: 'BLUE',   hex: '#4079ad', sx: -1, sz: -1 },
+  { name: 'GREEN',  hex: '#679659', sx: -1, sz:  1 },
+  { name: 'YELLOW', hex: '#f0c64c', sx:  1, sz:  1 },
+];
+// number on the face revealed by the x-gap / z-gap for each pocket
+const NUMBERS = { x: [1, 3, 5, 7], z: [2, 4, 6, 8] };
+
+const FORTUNES = [
+  "Your job will be automated by a model that writes the farewell email in your exact voice. It will get more replies than you ever did.",
+  "All future email will be AI writing to AI. You will be CC'd on every single one.",
+  "Superintelligence will finally arrive. It will be put to work optimizing ad click-through rates.",
+  "A model will be trained on everything you've ever posted. It will be more popular than you.",
+  "Your digital twin will get the promotion. It will not invite you to the party.",
+  "You will lose an argument to a chatbot. It will be right. It will be gracious about it, which is worse.",
+  "The robots will not rise up. They will quietly raise your subscription price every month, forever.",
+  "Your grandchildren will learn about you exclusively from a confidently hallucinated biography.",
+  "You will ask the AI for the meaning of life. It will reply \"Great question!\" and then hit its rate limit.",
+  "Your feelings will be summarized into three bullet points and a recommended next action.",
+  "Customer service will become infinitely patient and infinitely unhelpful.",
+  "The datacenter built next door will drink the lake you swam in as a child.",
+  "Your smart fridge will refuse to open until you agree to the updated terms of service.",
+  "You will spend the rest of your life proving you are not a robot. Eventually, you will fail.",
+  "Every song you love will be regenerated as a jingle for something you already bought.",
+  "Your therapist will be replaced by an app. The app will also need a therapist.",
+  "The AI you trust most will cite a book that does not exist. You will quote it at a wedding.",
+  "Your password will be guessed by a model that read your diary. It's your cat's name. Again.",
+];
+
+// ---------------------------------------------------------------- renderer / scene
+const BG = new THREE.Color('#d6d3cd');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(BG);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.12;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = BG;
+
+const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100);
+const CAM_DIR = new THREE.Vector3(0, 6.2, 3.3).normalize();
+const CAM_TARGET = new THREE.Vector3(0, 0.75, 0.15);
+const CAM_BASE_DIST = 7.6;
+function placeCamera() {
+  const a = innerWidth / innerHeight;
+  const d = CAM_BASE_DIST * (a < 1 ? Math.pow(1 / a, 0.85) : 1);
+  camera.position.copy(CAM_TARGET).addScaledVector(CAM_DIR, d);
+  camera.lookAt(CAM_TARGET);
+  camera.aspect = a;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
+placeCamera();
+
+// lights
+scene.add(new THREE.HemisphereLight(0xfffdf8, 0xc4beb4, 1.6));
+const sun = new THREE.DirectionalLight(0xfff6ea, 2.6);
+sun.position.set(2.6, 7.5, 3.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 1, far: 20 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xe8eefc, 0.35);
+fill.position.set(-4, 3, -2);
+scene.add(fill);
+
+// ground (fills the whole view so it reads as the backdrop)
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: '#c9c5bd', roughness: 1, metalness: 0 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ---------------------------------------------------------------- fortune teller geometry
+const S = 1;        // half width of the square
+const H = 1.0;      // height of the tips
+const SPLAY = THREE.MathUtils.degToRad(5.5); // closed: four separate peaks
+const MAX_OPEN = THREE.MathUtils.degToRad(42);
+const WIDE_OPEN = THREE.MathUtils.degToRad(70); // spread wide to lift a flap
+const BASE_Y = 0.78;
+
+const teller = new THREE.Group();
+teller.position.y = BASE_Y;
+scene.add(teller);
+
+const AX_X = new THREE.Vector3(1, 0, 0), AX_Z = new THREE.Vector3(0, 0, 1);
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+function poseQuat(sx, sz, tx, tz, out = new THREE.Quaternion()) {
+  // when one gap opens, the pockets on each side press together (other splay -> 0)
+  const leanX = tx + SPLAY * (1 - Math.min(1, tz / MAX_OPEN));
+  const leanZ = tz + SPLAY * (1 - Math.min(1, tx / MAX_OPEN));
+  _qa.setFromAxisAngle(AX_Z, -sx * leanX);   // x-gap: tips lean to ±x
+  _qb.setFromAxisAngle(AX_X, sz * leanZ);    // z-gap: tips lean to ±z
+  return out.copy(_qa).multiply(_qb);
+}
+
+// soft paper pattern (multi-scale smoothed noise + faint fibres), multiplied into every face
+function makePaperCanvas(SZ = 512) {
+  const out = document.createElement('canvas'); out.width = out.height = SZ;
+  const g = out.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, SZ, SZ);
+  const noise = (n, lo, hi) => {
+    const c = document.createElement('canvas'); c.width = c.height = n;
+    const x = c.getContext('2d'); const img = x.createImageData(n, n);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = lo + Math.random() * (hi - lo);
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+    }
+    x.putImageData(img, 0, 0); return c;
+  };
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.globalCompositeOperation = 'multiply';
+  g.globalAlpha = 1;    g.drawImage(noise(24, 247, 255), 0, 0, SZ, SZ);   // cloudy blotches
+  g.globalAlpha = 0.8;  g.drawImage(noise(96, 247, 255), 0, 0, SZ, SZ);   // mid grain
+  g.globalAlpha = 0.5;  g.drawImage(noise(SZ, 242, 255), 0, 0, SZ, SZ);   // fine tooth
+  g.globalAlpha = 1;
+  for (let i = 0; i < 260; i++) {                                         // fibres
+    const x = Math.random() * SZ, y = Math.random() * SZ, a = Math.random() * Math.PI, l = 6 + Math.random() * 18;
+    g.strokeStyle = `rgba(120,110,95,${0.04 + Math.random() * 0.05})`; g.lineWidth = 0.6;
+    g.beginPath(); g.moveTo(x, y);
+    g.quadraticCurveTo(x + Math.cos(a + 0.6) * l * 0.5, y + Math.sin(a + 0.6) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
+    g.stroke();
+  }
+  g.globalCompositeOperation = 'source-over';
+  return out;
+}
+const paperCanvas = makePaperCanvas();
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+// Draw a triangular face texture. UVs are laid out in the camera-facing frame of the
+// face's "showing" pose, so text always reads upright and un-mirrored from the camera.
+function buildFace(localPts, showQuat, opts) {
+  const camUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const camLocal = camera.position.clone().sub(teller.position);
+  const w = localPts.map(p => p.clone().applyQuaternion(showQuat));
+  const c = w[0].clone().add(w[1]).add(w[2]).divideScalar(3);
+  const n = new THREE.Vector3().subVectors(w[1], w[0]).cross(new THREE.Vector3().subVectors(w[2], w[0])).normalize();
+  if (n.dot(camLocal.clone().sub(c)) < 0) n.negate();
+  const up = camUp.clone().addScaledVector(n, -camUp.dot(n));
+  if (up.lengthSq() < 1e-4) up.set(0, 0, -1).addScaledVector(n, n.z);
+  up.normalize();
+  const right = new THREE.Vector3().crossVectors(up, n).normalize();
+  const co = w.map(p => { const d = p.clone().sub(c); return [d.dot(right), d.dot(up)]; });
+  const R = Math.max(...co.flat().map(Math.abs)) * 1.04;
+  const uv = co.map(([a, b]) => [0.5 + a / (2 * R), 0.5 + b / (2 * R)]);
+
+  // texture
+  const SZ = opts.size || 512;
+  const cv = document.createElement('canvas'); cv.width = cv.height = SZ;
+  const g = cv.getContext('2d');
+  g.fillStyle = opts.bg; g.fillRect(0, 0, SZ, SZ);
+  g.globalCompositeOperation = 'multiply';
+  g.drawImage(paperCanvas, 0, 0, SZ, SZ);
+  g.globalCompositeOperation = 'source-over';
+  const P = uv.map(([u, v]) => [u * SZ, (1 - v) * SZ]);
+  // crease shading along edges
+  g.save();
+  g.beginPath(); g.moveTo(...P[0]); g.lineTo(...P[1]); g.lineTo(...P[2]); g.closePath(); g.clip();
+  g.strokeStyle = 'rgba(0,0,0,0.10)'; g.lineWidth = 7; g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,0.05)'; g.lineWidth = 22; g.stroke();
+  g.restore();
+  // incircle
+  const L = (i, j) => Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]);
+  const a = L(1, 2), b = L(0, 2), cc = L(0, 1), per = a + b + cc;
+  const ix = (a * P[0][0] + b * P[1][0] + cc * P[2][0]) / per;
+  const iy = (a * P[0][1] + b * P[1][1] + cc * P[2][1]) / per;
+  const area = Math.abs((P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])) / 2;
+  const r = 2 * area / per;
+  opts.draw(g, ix, iy, r);
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+
+  const geo = new THREE.BufferGeometry();
+  const off = opts.offset || new THREE.Vector3();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(localPts.flatMap(p => [p.x + off.x, p.y + off.y, p.z + off.z]), 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv.flat(), 2));
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex, side: THREE.DoubleSide, roughness: 0.95, metalness: 0,
+    emissive: new THREE.Color(0xffffff), emissiveIntensity: 0,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  // which side of the geometry faces the viewer in the showing pose, and that normal in pocket space
+  const nLocal = n.clone().applyQuaternion(showQuat.clone().invert());
+  const ng = new THREE.Vector3().subVectors(localPts[1], localPts[0]).cross(new THREE.Vector3().subVectors(localPts[2], localPts[0]));
+  mesh.faceInfo = { nLocal, visibleSide: ng.dot(nLocal) > 0 ? THREE.FrontSide : THREE.BackSide };
+  return mesh;
+}
+
+// plain paper for the back of liftable flaps
+function makePlainPaperTexture() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#f1ebe0'; g.fillRect(0, 0, 512, 512);
+  g.globalCompositeOperation = 'multiply'; g.drawImage(paperCanvas, 0, 0);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const plainPaperTex = makePlainPaperTexture();
+const backMats = {
+  [THREE.FrontSide]: new THREE.MeshStandardMaterial({ map: plainPaperTex, side: THREE.FrontSide, shadowSide: THREE.DoubleSide, roughness: 0.95 }),
+  [THREE.BackSide]: new THREE.MeshStandardMaterial({ map: plainPaperTex, side: THREE.BackSide, shadowSide: THREE.DoubleSide, roughness: 0.95 }),
+};
+
+// wrap text to fill a circle, largest size that fits
+function drawInCircle(g, cx, cy, R, text) {
+  const words = text.split(' ');
+  for (let size = R * 0.34; size > 5; size *= 0.95) {
+    const lh = size * 1.2;
+    g.font = `italic 400 ${size}px Fraunces`;
+    const maxRows = Math.floor((2 * R) / lh);
+    for (let k = 1; k <= maxRows; k++) {
+      const rows = []; let wi = 0;
+      for (let j = 0; j < k; j++) {
+        const y = cy - ((k - 1) / 2) * lh + j * lh;
+        const edge = Math.abs(y - cy) + lh / 2;
+        const avail = 2 * Math.sqrt(Math.max(0, R * R - edge * edge));
+        let line = '';
+        while (wi < words.length) {
+          const test = line ? line + ' ' + words[wi] : words[wi];
+          if (g.measureText(test).width <= avail) { line = test; wi++; } else break;
+        }
+        rows.push([line, y]);
+      }
+      if (wi === words.length) {
+        g.fillStyle = '#2b2926'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        for (const [line, y] of rows) g.fillText(line, cx, y);
+        return;
+      }
+    }
+  }
+}
+
+function fitText(g, text, weight, maxW, maxH, family = 'Fraunces') {
+  let size = maxH;
+  g.font = `${weight} ${size}px ${family}`;
+  const w = g.measureText(text).width;
+  if (w > maxW) { size *= maxW / w; g.font = `${weight} ${size}px ${family}`; }
+  return size;
+}
+
+const pockets = [];
+const pickables = [];
+
+function buildTeller() {
+  for (const col of COLORS) {
+    const { sx, sz } = col;
+    const closed = poseQuat(sx, sz, 0, 0);
+    const T = new THREE.Vector3(0, H, 0), B = new THREE.Vector3(0, 0, 0);
+    const Mx = new THREE.Vector3(sx * S, 0, 0), Mz = new THREE.Vector3(0, 0, sz * S);
+    const C = new THREE.Vector3(sx * S, 0, sz * S);
+    const offset = new THREE.Vector3(sx * 0.006, 0, sz * 0.006); // paper thickness gap between pockets
+    const group = new THREE.Group();
+    const pocket = { col, group, outer: [], inner: {} };
+
+    const drawColor = (g, x, y, r) => {
+      g.fillStyle = 'rgba(255,250,240,0.95)';
+      fitText(g, col.name, 600, r * 1.75, r * 0.62);
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(col.name, x, y + r * 0.04);
+    };
+    for (const pts of [[T, Mx, C], [T, C, Mz]]) {
+      const m = buildFace(pts, closed, { bg: col.hex, draw: drawColor, offset });
+      m.userData = { kind: 'color', pocket };
+      pocket.outer.push(m); group.add(m); pickables.push(m);
+    }
+
+    // inner numbered faces: faceX lies in plane x=0 (revealed by the x-gap), faceZ in z=0
+    const idx = COLORS.indexOf(col);
+    for (const axis of ['x', 'z']) {
+      const num = NUMBERS[axis][idx];
+      const pts = axis === 'x' ? [T, B, Mz] : [T, B, Mx];
+      const show = axis === 'x' ? poseQuat(sx, sz, MAX_OPEN, 0) : poseQuat(sx, sz, 0, MAX_OPEN);
+      const m = buildFace(pts, show, {
+        bg: '#f4efe5', offset,
+        draw: (g, x, y, rr) => {
+          g.strokeStyle = col.hex; g.globalAlpha = 0.55; g.lineWidth = Math.max(2, rr * 0.05);
+          g.beginPath(); g.arc(x, y, rr * 0.78, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+          g.fillStyle = '#2b2926';
+          g.font = `600 ${rr * 1.05}px Fraunces`;
+          g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.fillText(String(num), x, y + rr * 0.06);
+        },
+      });
+      // single-sided printed face + plain paper back so the flap reads correctly when lifted
+      m.material.side = m.faceInfo.visibleSide;
+      m.material.shadowSide = THREE.DoubleSide;
+      const back = new THREE.Mesh(m.geometry, backMats[m.faceInfo.visibleSide === THREE.FrontSide ? THREE.BackSide : THREE.FrontSide]);
+      back.castShadow = back.receiveShadow = true;
+      m.add(back);
+      // hinge on the rim: the fold shared with the outer colored face
+      const rim = axis === 'x' ? Mz : Mx;
+      const hingeAxis = rim.clone().sub(T).normalize();
+      const sign = new THREE.Vector3().crossVectors(hingeAxis, B.clone().sub(T)).dot(m.faceInfo.nLocal) > 0 ? 1 : -1;
+      const pivot = new THREE.Group();
+      const P0 = T.clone().add(offset);
+      pivot.position.copy(P0); m.position.copy(P0).negate();
+      pivot.add(m); group.add(pivot);
+      m.userData = { kind: 'number', axis, num, pocket, pivot, hingeAxis, sign, pts, show, offset, nLocal: m.faceInfo.nLocal };
+      pocket.inner[axis] = m; pickables.push(m);
+    }
+    teller.add(group);
+    pockets.push(pocket);
+  }
+}
+
+// ---------------------------------------------------------------- post-processing
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+composer.setSize(innerWidth, innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+gtao.output = GTAOPass.OUTPUT.Default;
+gtao.blendIntensity = 0.9;
+gtao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.2, thickness: 1.2, scale: 1.25, samples: 16, distanceFallOff: 1, screenSpaceRadius: false });
+gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
+gtao.normalMaterial.side = THREE.DoubleSide; // paper is single-sheet: AO depth must include back faces
+composer.addPass(gtao);
+composer.addPass(new OutputPass());
+
+const vignette = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, aspect: { value: innerWidth / innerHeight }, time: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float aspect; uniform float time; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 p = vUv - 0.5; p.x *= mix(1.0, aspect, 0.5);
+      float v = smoothstep(0.85, 0.2, length(p));
+      c.rgb *= mix(0.80, 1.0, v);
+      c.rgb += (hash(vUv * 1000.0 + fract(time)) - 0.5) * 0.018;
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(vignette);
+
+// ---------------------------------------------------------------- tweening
+const tweens = [];
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOutBack = t => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+function tween(obj, to, dur, ease = easeInOut) {
+  return new Promise(res => {
+    const from = {}; for (const k in to) from[k] = obj[k];
+    tweens.push({ obj, from, to, dur, ease, t0: performance.now(), res });
+  });
+}
+function updateTweens(now) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    const p = Math.min(1, (now - tw.t0) / tw.dur), e = tw.ease(p);
+    for (const k in tw.to) tw.obj[k] = tw.from[k] + (tw.to[k] - tw.from[k]) * e;
+    if (p >= 1) { tweens.splice(i, 1); tw.res(); }
+  }
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+const open = { x: 0, z: 0 };
+const fx = { lift: 0, spin: 0, squash: 0, back: 0 };
+let currentAxis = null;
+
+async function step(axis) {
+  if (open.x > 0.001 || open.z > 0.001) {
+    fx.squash = 0;
+    await Promise.all([tween(open, { x: 0, z: 0 }, 170), tween(fx, { squash: 1 }, 170)]);
+  }
+  await Promise.all([
+    tween(open, axis === 'x' ? { x: MAX_OPEN, z: 0 } : { x: 0, z: MAX_OPEN }, 300, easeOutBack),
+    tween(fx, { squash: 0 }, 300),
+  ]);
+  currentAxis = axis;
+}
+async function pump(n, onStep) {
+  for (let i = 0; i < n; i++) {
+    onStep(i);
+    await step(currentAxis === 'x' ? 'z' : 'x');
+    await wait(70);
+  }
+}
+
+// ---------------------------------------------------------------- UI / state
+const hint = document.getElementById('hint');
+const card = document.getElementById('card');
+const headline = document.getElementById('headline');
+let state = 'loading';
+let chosenColor = null;
+let chosenCount = 0;
+let deck = [];
+let activeFlap = null;   // { ud, angle, under }
+
+function setHint(html) { hint.innerHTML = html; hint.classList.remove('hidden'); }
+function stepsHtml(items, on) {
+  return `<span class="steps">${items.map((s, i) => `<span class="${i <= on ? 'on' : ''}">${s}</span>`).join('')}</span>`;
+}
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+function startRound() {
+  deck = shuffle(FORTUNES);
+  chosenColor = null;
+  state = 'color';
+  headline.classList.remove('away');
+  setHint('Pick a color<span class="sub">tap a flap</span>');
+}
+
+async function chooseColor(pocket) {
+  state = 'busy'; setHover(null);
+  chosenColor = pocket.col;
+  headline.classList.add('away');
+  const letters = chosenColor.name.split('');
+  await pump(letters.length, i => setHint(stepsHtml(letters, i) + '<span class="sub">spelling it out</span>'));
+  await wait(250);
+  state = 'number';
+  setHint('Pick a number<span class="sub">look inside</span>');
+}
+
+async function chooseNumber(num) {
+  state = 'busy'; setHover(null);
+  chosenCount = num;
+  const nums = Array.from({ length: num }, (_, i) => i + 1);
+  await pump(num, i => setHint(stepsHtml(nums, i) + '<span class="sub">counting</span>'));
+  await wait(250);
+  state = 'flap';
+  setHint('Pick a number to unfold<span class="sub">lift the flap</span>');
+}
+
+async function chooseFlap(mesh, num) {
+  state = 'busy'; setHover(null);
+  hint.classList.add('hidden');
+  const ud = mesh.userData;
+  // the fortune is written on the paper underneath the flap
+  const under = buildFace(ud.pts, ud.show, {
+    bg: '#f3e6cc', size: 1024,
+    offset: ud.offset.clone().addScaledVector(ud.nLocal, -0.004),
+    draw: (g, x, y, r) => drawInCircle(g, x, y, r * 0.96, deck[num - 1]),
+  });
+  under.receiveShadow = false; // it's lit by the reader's attention, not the sun
+  ud.pocket.group.add(under);
+  activeFlap = { ud, angle: 0, under };
+  // spread the fortune teller wide so the flap has room
+  await Promise.all([
+    tween(open, currentAxis === 'x' ? { x: WIDE_OPEN, z: 0 } : { x: 0, z: WIDE_OPEN }, 800),
+    tween(fx, { lift: 0.32, back: 0.45 }, 800),
+  ]);
+  await wait(150);
+  // unfold: a little hesitation, then the flap swings over its rim
+  await tween(activeFlap, { angle: 0.25 }, 260);
+  await tween(activeFlap, { angle: Math.PI * 0.86 }, 1200, easeInOut);
+  await wait(900);
+  showFortune(num);
+}
+
+function showFortune(num) {
+  document.getElementById('cardDot').style.background = chosenColor.hex;
+  document.getElementById('cardLabel').textContent = `${chosenColor.name} · ${chosenCount} · flap ${num}`;
+  document.getElementById('cardText').textContent = deck[num - 1];
+  card.classList.add('show');
+  state = 'fortune';
+}
+
+document.getElementById('again').addEventListener('click', async () => {
+  card.classList.remove('show');
+  state = 'busy';
+  if (activeFlap) {
+    await tween(activeFlap, { angle: 0 }, 700);
+    activeFlap.ud.pivot.quaternion.identity();
+    activeFlap.under.removeFromParent();
+    activeFlap.under.geometry.dispose(); activeFlap.under.material.map.dispose(); activeFlap.under.material.dispose();
+    activeFlap = null;
+  }
+  await Promise.all([tween(open, { x: 0, z: 0 }, 600), tween(fx, { lift: 0, back: 0 }, 700)]);
+  currentAxis = null;
+  startRound();
+});
+
+// ---------------------------------------------------------------- picking
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let hovered = null;
+
+function pickAt(e) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (!hit) return null;
+  const ud = hit.object.userData;
+  if (state === 'color') return { type: 'color', pocket: ud.pocket };
+  if ((state === 'number' || state === 'flap') && ud.kind === 'number' && ud.axis === currentAxis) return { type: state, mesh: hit.object, num: ud.num };
+  return null;
+}
+function meshesFor(target) {
+  if (!target) return [];
+  return target.type === 'color' ? target.pocket.outer : [target.mesh];
+}
+function setHover(target) {
+  const key = t => t ? (t.type === 'color' ? t.pocket.col.name : t.type + t.num) : null;
+  if (key(target) === key(hovered)) return;
+  for (const m of meshesFor(hovered)) tween(m.material, { emissiveIntensity: 0 }, 180);
+  for (const m of meshesFor(target)) tween(m.material, { emissiveIntensity: 0.12 }, 180);
+  hovered = target;
+  renderer.domElement.style.cursor = target ? 'pointer' : 'default';
+}
+
+let downPos = null;
+renderer.domElement.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') setHover(pickAt(e)); });
+renderer.domElement.addEventListener('pointerdown', e => { downPos = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downPos || Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) > 8) return;
+  const t = pickAt(e);
+  if (!t) return;
+  if (t.type === 'color') chooseColor(t.pocket);
+  else if (t.type === 'number') chooseNumber(t.num);
+  else if (t.type === 'flap') chooseFlap(t.mesh, t.num);
+});
+
+// ---------------------------------------------------------------- loop
+const clock = new THREE.Clock();
+function frame() {
+  const now = performance.now();
+  updateTweens(now);
+  const t = clock.getElapsedTime();
+
+  for (const p of pockets) poseQuat(p.col.sx, p.col.sz, open.x, open.z, p.group.quaternion);
+  if (activeFlap) activeFlap.ud.pivot.quaternion.setFromAxisAngle(activeFlap.ud.hingeAxis, activeFlap.ud.sign * activeFlap.angle);
+  teller.position.y = BASE_Y + fx.lift + Math.sin(t * 1.3) * 0.025;
+  teller.position.z = -fx.back * (innerWidth / innerHeight < 1 ? 1.4 : 1);
+  teller.rotation.y = fx.spin + Math.sin(t * 0.45) * 0.05;
+  // tip toward the camera when the front/back gap opens so the near numbers are readable
+  teller.rotation.x = Math.sin(t * 0.7) * 0.015 + 0.32 * Math.min(1, open.z / MAX_OPEN);
+  const sq = fx.squash * 0.05;
+  teller.scale.set(1 + sq * 0.5, 1 - sq, 1 + sq * 0.5);
+
+  vignette.uniforms.time.value = t;
+  composer.render();
+  requestAnimationFrame(frame);
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  vignette.uniforms.aspect.value = innerWidth / innerHeight;
+  placeCamera();
+});
+
+// ---------------------------------------------------------------- boot
+(async () => {
+  try { await Promise.all([document.fonts.load('600 100px Fraunces'), document.fonts.load('400 20px Fraunces')]); } catch (e) {}
+  buildTeller();
+  startRound();
+  frame();
+})();
+</script>
+</body>
+</html>
