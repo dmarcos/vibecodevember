@@ -36,8 +36,8 @@
 </head>
 <body>
 <div class="vignette"></div>
-<div class="title">Vibecodevember - Tangle<small>Nov 4th 2026</small></div>
-<div class="foot" id="hint"><b>grab</b> a noodle &nbsp;·&nbsp; <b>drag</b> the table to orbit &nbsp;·&nbsp; <b>scroll</b> to read the code &nbsp;·&nbsp; <b>R</b> to serve again</div>
+<div class="title">Vibecodevember - Tangle<small>Nov 4th 2026</small><small>Spaghetti Code</small></div>
+<div class="foot" id="hint"><b>grab</b> a noodle &nbsp;·&nbsp; <b>drag</b> the sauce over the pasta to pour &nbsp;·&nbsp; <b>drag</b> the table to orbit &nbsp;·&nbsp; <b>scroll</b> to read the code &nbsp;·&nbsp; <b>R</b> to serve again</div>
 <div class="foot" id="snippet"></div>
 <button id="sound" title="Toggle sound (M)">♪ click for sound</button>
 
@@ -247,6 +247,11 @@ function solveContacts(measure) {
     if (d2 < wake2 && (stirred[a0] | stirred[a1] | stirred[b0] | stirred[b1])) {
       if (dozing(a0) || dozing(b0)) pairsStale = true;
       restCount[a0] = restCount[a1] = restCount[b0] = restCount[b1] = 0;
+    }
+    if (measure && d2 < contact2 * 1.2 && Math.abs(sauce[a0] - sauce[b0]) > 0.05) {
+      const rub = (sauce[a0] - sauce[b0]) * 0.03;
+      sauce[a0] -= rub; sauce[b0] += rub;
+      sauceDirty[Math.floor(a0 / NODES)] = sauceDirty[Math.floor(b0 / NODES)] = 1;
     }
     if (measure && d2 < near2 && ny * ny > 0.2 * d2) {
       const under = ny < 0 ? a0 : b0;
@@ -556,9 +561,11 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.32;
 
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 400);
+// Perspective makes the near rim loom larger, so aim a little toward it to center the dish.
+const VIEW_TARGET = new THREE.Vector3(0, 0.4, 0.85);
 const fitCamera = () => {
   const portrait = Math.max(1, 1 / camera.aspect);
-  camera.position.set(0, 22.5 * portrait, 12.5 * portrait);
+  camera.position.set(0, 22.5 * portrait, 12.5 * portrait).add(VIEW_TARGET);
 };
 fitCamera();
 
@@ -645,6 +652,7 @@ const meshPos = new Float32Array(VERTS * 3);
 const meshNor = new Float32Array(VERTS * 3);
 const meshTan = new Float32Array(VERTS * 3);
 const meshShade = new Float32Array(VERTS).fill(1);
+const meshSauce = new Float32Array(VERTS);
 const noodleUniforms = { uAtlas: { value: null }, uRows: { value: STRANDS }, uHot: { value: -1 } };
 let noodleGeometry;
 
@@ -675,6 +683,7 @@ function buildNoodles(atlas) {
   geo.setAttribute('normal', dynamic(meshNor, 3));
   geo.setAttribute('aTangent', dynamic(meshTan, 3));
   geo.setAttribute('aShade', dynamic(meshShade, 1));
+  geo.setAttribute('aSauce', dynamic(meshSauce, 1));
   geo.setAttribute('aLabel', new THREE.BufferAttribute(label, 2));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   noodleGeometry = geo;
@@ -688,14 +697,14 @@ function buildNoodles(atlas) {
     Object.assign(shader.uniforms, noodleUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec3 aTangent; attribute vec2 aLabel; attribute float aShade;
-        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade;`)
+        attribute vec3 aTangent; attribute vec2 aLabel; attribute float aShade; attribute float aSauce;
+        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade; varying float vSauce;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vStrandT = normalMatrix * aTangent; vLabel = aLabel; vShade = aShade;`);
+        vStrandT = normalMatrix * aTangent; vLabel = aLabel; vShade = aShade; vSauce = aSauce;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform sampler2D uAtlas; uniform float uRows; uniform float uHot;
-        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade;`)
+        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade; varying float vSauce;`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         // Keep the printed line facing the viewer, whichever way the tube has rolled.
         vec3 viewDir = normalize(vViewPosition);
@@ -709,8 +718,17 @@ function buildNoodles(atlas) {
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.86, 0.3), hot * 0.6);
         float rim = pow(1.0 - abs(dot(normal, viewDir)), 2.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.28), rim * 0.35);
+        // Sauce clings unevenly and leaves the noodle wet. The code still reads through it.
+        float clumps = 0.5 + 0.5 * sin(vLabel.x * 310.0 + row * 2.3 + across * 1.4) * sin(vLabel.x * 113.0 - row);
+        float coat = smoothstep(0.1, 0.62, vSauce * (0.6 + clumps * 0.8));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.66, 0.055, 0.012), coat * 0.95);
+        roughnessFactor = mix(roughnessFactor, 0.48, coat);
         diffuseColor.rgb *= mix(vec3(0.55, 0.3, 0.1), vec3(1.0), vShade);
-        diffuseColor.rgb *= ink;`);
+        diffuseColor.rgb *= ink;`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        // Wet sauce: a warm tinted glint rather than a reflection of the room.
+        reflectedLight.indirectSpecular *= mix(1.0, 0.12, coat);
+        reflectedLight.directSpecular *= mix(vec3(1.0), vec3(1.0, 0.5, 0.36), coat);`);
   };
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
@@ -726,14 +744,44 @@ function buildNoodles(atlas) {
 }
 
 const dirtyStrands = [];
+const saucedStrands = [];
+
+function writeStrandSauce(s) {
+  const base = s * NODES;
+  let v = s * RINGS * SIDES;
+  for (let n = 0; n < NODES - 1; n++) {
+    const parts = n === NODES - 2 ? SUBDIV + 1 : SUBDIV;
+    const a = sauce[base + n], b = sauce[base + n + 1];
+    for (let p = 0; p < parts; p++) {
+      const coated = a + (b - a) * (p / SUBDIV);
+      for (let k = 0; k < SIDES; k++) meshSauce[v++] = coated;
+    }
+  }
+}
+
+function markUpload(name, strands) {
+  const attribute = noodleGeometry.attributes[name];
+  const size = RINGS * SIDES * attribute.itemSize;
+  attribute.clearUpdateRanges();
+  if (strands.length <= STRANDS / 2) for (const s of strands) attribute.addUpdateRange(s * size, size);
+  attribute.needsUpdate = true;
+}
+
 function updateNoodles() {
   let v = 0;
   dirtyStrands.length = 0;
+  saucedStrands.length = 0;
   for (let s = 0; s < STRANDS; s++) {
     const base = s * NODES;
     let awake = false;
     for (let i = base; i < base + NODES && !awake; i++) awake = restCount[i] < SLEEP_AFTER;
-    if (!awake) { v += RINGS * SIDES; continue; }
+    if (sauceDirty[s]) saucedStrands.push(s);
+    sauceDirty[s] = 0;
+    if (!awake) {
+      if (saucedStrands.at(-1) === s) writeStrandSauce(s);
+      v += RINGS * SIDES;
+      continue;
+    }
     dirtyStrands.push(s);
     let fx = 0, fy = 1, fz = 0;
     let ring = 0;
@@ -766,6 +814,7 @@ function updateNoodles() {
         const radius = RAD * (fromEnd === 0 ? 0.02 : fromEnd === 1 ? 0.92 : 1);
         const axial = fromEnd > 0 ? 0 : ring === 0 ? -1 : 1;
         const tone = shade[i1] * (1 - t) + shade[i2] * t;
+        const coated = sauce[i1] * (1 - t) + sauce[i2] * t;
         for (let k = 0; k < SIDES; k++, v++) {
           const ca = COS[k], sa = SIN[k];
           const nx = fx * ca + bx * sa, ny = fy * ca + by * sa, nz = fz * ca + bz * sa;
@@ -773,22 +822,766 @@ function updateNoodles() {
           meshNor[v * 3] = axial ? tx * axial : nx; meshNor[v * 3 + 1] = axial ? ty * axial : ny; meshNor[v * 3 + 2] = axial ? tz * axial : nz;
           meshTan[v * 3] = tx; meshTan[v * 3 + 1] = ty; meshTan[v * 3 + 2] = tz;
           meshShade[v] = tone;
+          meshSauce[v] = coated;
         }
       }
     }
   }
   renderer.shadowMap.needsUpdate = dirtyStrands.length > 0;
-  if (!dirtyStrands.length) return;
-  for (const name of ['position', 'normal', 'aTangent', 'aShade']) {
-    const attribute = noodleGeometry.attributes[name];
-    const size = RINGS * SIDES * attribute.itemSize;
-    attribute.clearUpdateRanges();
-    if (dirtyStrands.length <= STRANDS / 2) for (const s of dirtyStrands) attribute.addUpdateRange(s * size, size);
-    attribute.needsUpdate = true;
+  if (dirtyStrands.length) for (const name of ['position', 'normal', 'aTangent', 'aShade']) markUpload(name, dirtyStrands);
+  if (dirtyStrands.length || saucedStrands.length) {
+    for (const s of dirtyStrands) if (!saucedStrands.includes(s)) saucedStrands.push(s);
+    markUpload('aSauce', saucedStrands);
   }
 }
 const COS = Float32Array.from({ length: SIDES }, (_, k) => Math.cos((k / SIDES) * Math.PI * 2));
 const SIN = Float32Array.from({ length: SIDES }, (_, k) => Math.sin((k / SIDES) * Math.PI * 2));
+
+// ---------------------------------------------------------------------------
+// Tomato sauce: a gravy boat, the stream it pours, and the liquid it leaves behind.
+// ---------------------------------------------------------------------------
+const SAUCE_RED = 0xbe2108;
+const tomatoSheen = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+    reflectedLight.indirectSpecular *= 0.14;
+    reflectedLight.directSpecular *= vec3(1.0, 0.5, 0.36);`);
+};
+const BOAT_R = 1.45;
+const BOAT_SCALE = 0.75;
+const SPOUT_LENGTH = 0.8;
+const BOAT_MERIDIANS = 56;
+const BOAT_PROFILE_ROWS = 14;
+const BOAT_SPOUT_MERIDIAN = 14;
+const SURFACE_POINTS = 360;
+const POUR_HEAD = 0.05;
+const POUR_HEIGHT = 7;
+const AIM_HEIGHT = 1.6;
+const POUR_SECONDS = 20;
+
+// The boat: a turned bowl with one side pulled out and up into a spout.
+const boat = {
+  group: new THREE.Group(), surface: null, held: false, level: 1, tilt: 0, flow: 0, owed: 0,
+  rest: new THREE.Vector3(), direction: new THREE.Vector3(), target: new THREE.Vector3(),
+  // Where sauce parts from the outside of the lip, and the lowest point it must rise over.
+  spout: new THREE.Vector3(BOAT_R + SPOUT_LENGTH + 0.06, 1.33, 0),
+  lip: new THREE.Vector3(BOAT_R - 0.04 + SPOUT_LENGTH * ((BOAT_R - 0.04) / BOAT_R), 1.37, 0),
+  across: new THREE.Vector3(), restDirection: new THREE.Vector3(), head: -1, height: 0, shell: null,
+};
+
+const warpBoat = (out, x, y, z) => {
+  const r = Math.hypot(x, z);
+  if (r < 1e-5) return out.set(x, y, z);
+  const pull = Math.max(0, x / r) ** 7;
+  const rise = Math.min(1, y / 1.1);
+  return out.set(x + pull * SPOUT_LENGTH * rise * (r / BOAT_R), y + pull * 0.2 * rise, z * (1 - pull * 0.45 * rise));
+};
+
+// The sauce itself: points spread evenly through the bowl's volume. With the boat at any
+// angle, the height below which the right share of them lie is where the surface must be.
+const BOAT_FILL = 0.68;
+const VOLUME_POINTS = 900;
+const volumeLocal = new Float32Array(VOLUME_POINTS * 3);
+const volumeHeights = new Float32Array(VOLUME_POINTS);
+{
+  const wall = [[0, 0.22], [0.55, 0.27], [0.95, 0.48], [1.2, 0.8], [BOAT_R - 0.12, 1.08], [BOAT_R - 0.04, 1.17]];
+  const floorAt = (r) => {
+    for (let i = 1; i < wall.length; i++) {
+      if (r <= wall[i][0]) return wall[i - 1][1] + ((r - wall[i - 1][0]) / (wall[i][0] - wall[i - 1][0])) * (wall[i][1] - wall[i - 1][1]);
+    }
+    return Infinity;
+  };
+  const place = new THREE.Vector3();
+  for (let n = 0; n < VOLUME_POINTS;) {
+    const x = (Math.random() * 2 - 1) * BOAT_R, z = (Math.random() * 2 - 1) * BOAT_R, y = 0.22 + Math.random() * 0.95;
+    if (y < floorAt(Math.hypot(x, z))) continue;
+    warpBoat(place, x, y, z);
+    volumeLocal[n * 3] = place.x; volumeLocal[n * 3 + 1] = place.y; volumeLocal[n * 3 + 2] = place.z;
+    n++;
+  }
+}
+
+function spoutBend(geometry) {
+  const position = geometry.attributes.position;
+  const place = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    warpBoat(place, position.getX(i), position.getY(i), position.getZ(i));
+    position.setXYZ(i, place.x, place.y, place.z);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function buildBoat() {
+  const glaze = new THREE.MeshStandardMaterial({ color: 0xf4efe4, roughness: 0.28 });
+  const profile = [
+    [0, 0], [0.62, 0], [0.68, 0.1], [0.72, 0.14], [1.08, 0.42], [1.32, 0.78], [BOAT_R, 1.1],
+    [BOAT_R + 0.03, 1.15], [BOAT_R - 0.04, 1.17], [BOAT_R - 0.12, 1.08], [1.2, 0.8], [0.95, 0.48], [0.55, 0.27], [0, 0.22],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  const body = new THREE.Mesh(spoutBend(new THREE.LatheGeometry(profile, BOAT_MERIDIANS)), glaze);
+  body.castShadow = body.receiveShadow = true;
+  boat.group.add(body);
+
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.1, 10, 22, Math.PI * 1.05), glaze);
+  handle.position.set(-BOAT_R - 0.02, 0.72, 0);
+  handle.rotation.z = Math.PI * 0.5;
+  handle.castShadow = true;
+  boat.group.add(handle);
+
+  // The sheet of sauce running up the spout and over the lip, lying on the boat's own surface.
+  // Below the liquid's level it is simply hidden under the surface.
+  const shell = body.geometry.attributes.position, shellNormal = body.geometry.attributes.normal;
+  const sheetRows = [10, 9, 8, 7, 6], sheetAcross = [-2, -1, 0, 1, 2], sheetThick = [0, 0.03, 0.042, 0.03, 0];
+  const sheet = [], sheetFaces = [];
+  sheetRows.forEach((row) => {
+    sheetAcross.forEach((offset, k) => {
+      const i = (BOAT_SPOUT_MERIDIAN + offset) * BOAT_PROFILE_ROWS + row;
+      sheet.push(
+        shell.getX(i) + shellNormal.getX(i) * sheetThick[k],
+        shell.getY(i) + shellNormal.getY(i) * sheetThick[k],
+        shell.getZ(i) + shellNormal.getZ(i) * sheetThick[k]
+      );
+    });
+  });
+  for (let r = 0; r < sheetRows.length - 1; r++) {
+    for (let k = 0; k < sheetAcross.length - 1; k++) {
+      const a = r * sheetAcross.length + k, c = a + sheetAcross.length;
+      sheetFaces.push(a, c, a + 1, a + 1, c, c + 1);
+    }
+  }
+  const sheetGeometry = new THREE.BufferGeometry();
+  sheetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(sheet, 3));
+  sheetGeometry.setIndex(sheetFaces);
+  sheetGeometry.computeVertexNormals();
+  const sheetMaterial = new THREE.MeshStandardMaterial({ color: 0x9c1a05, roughness: 0.3, side: THREE.DoubleSide });
+  sheetMaterial.onBeforeCompile = tomatoSheen;
+  boat.sheet = new THREE.Mesh(sheetGeometry, sheetMaterial);
+  boat.sheet.visible = false;
+  boat.group.add(boat.sheet);
+
+  // The level surface inside: flat in the world, cut exactly where it meets the bowl.
+  boat.shell = shell;
+  const surfaceGeometry = new THREE.BufferGeometry();
+  surfaceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SURFACE_POINTS * 9), 3).setUsage(THREE.DynamicDrawUsage));
+  surfaceGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(SURFACE_POINTS * 9), 3).setUsage(THREE.DynamicDrawUsage));
+  surfaceGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(SURFACE_POINTS * 9).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  const surfaceMaterial = new THREE.MeshStandardMaterial({ color: 0x8a1604, vertexColors: true, roughness: 0.36, side: THREE.DoubleSide });
+  surfaceMaterial.onBeforeCompile = tomatoSheen;
+  boat.surface = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
+  boat.surface.frustumCulled = false;
+  scene.add(boat.surface);
+  boat.group.rotation.order = 'YXZ';
+  boat.group.scale.setScalar(BOAT_SCALE);
+  scene.add(boat.group);
+}
+buildBoat();
+
+// Sits on the table beside the plate. With the dish centered there may be no room for it,
+// so the camera backs off only as far as it takes to show the whole boat.
+function seatBoat() {
+  const clear = PLATE_R + (BOAT_R + SPOUT_LENGTH) * BOAT_SCALE + 0.4;
+  const reach = (BOAT_R + 0.5) * BOAT_SCALE;
+  const probe = new THREE.Vector3();
+  const home = camera.position.clone();
+  const inView = (x, z) => {
+    probe.set(x, TABLE_Y + 0.5, z).project(camera);
+    return Math.abs(probe.x) < 0.97 && Math.abs(probe.y) < 0.95;
+  };
+  let angle = -1;
+  for (let back = 1; back < 1.4 && angle < 0; back += 0.01) {
+    camera.position.copy(home).sub(VIEW_TARGET).multiplyScalar(back).add(VIEW_TARGET);
+    camera.lookAt(VIEW_TARGET);
+    camera.updateMatrixWorld();
+    for (let a = 0.3; a < 2 && angle < 0; a += 0.05) {
+      const x = Math.cos(a) * clear, z = Math.sin(a) * clear;
+      if (inView(x + reach, z) && inView(x, z + reach) && inView(x - reach, z)) angle = a;
+    }
+  }
+  if (angle < 0) angle = 0.6;
+  const x = Math.cos(angle) * clear, z = Math.sin(angle) * clear;
+  boat.rest.set(x, TABLE_Y, z);
+  boat.direction.set(-x, 0, -z).normalize();
+  boat.restDirection.copy(boat.direction);
+  boat.across.set(-boat.direction.z, 0, boat.direction.x);
+  boat.group.position.copy(boat.rest);
+  boat.target.copy(boat.rest);
+  boat.group.rotation.y = Math.atan2(-boat.direction.z, boat.direction.x);
+}
+seatBoat();
+
+function boatUnderPointer(clientX, clientY) {
+  const center = boatProbe.copy(boat.group.position);
+  center.y += 0.6;
+  const distance = camera.position.distanceTo(center);
+  center.project(camera);
+  const height = canvas.clientHeight;
+  const sx = (center.x * 0.5 + 0.5) * canvas.clientWidth, sy = (0.5 - center.y * 0.5) * height;
+  const reach = ((BOAT_R + 0.35) * BOAT_SCALE * height) / (2 * Math.tan((camera.fov * Math.PI) / 360) * distance);
+  return Math.hypot(clientX - sx, clientY - sy) < reach;
+}
+const boatProbe = new THREE.Vector3();
+
+// What the sauce has coated, per noodle node, so it stays on when a noodle is pulled away.
+const sauce = new Float32Array(COUNT);
+const sauceDirty = new Uint8Array(STRANDS);
+
+// The pool: a thin sheet of liquid on a grid over the plate. It rests just under the tops
+// of the noodles, filling the gaps between them, and runs downhill while it is fresh.
+const POOL_N = 128;
+const POOL_SPAN = 21;
+const POOL_CELL = POOL_SPAN / POOL_N;
+const POOL_VERTS = (POOL_N + 1) * (POOL_N + 1);
+const THICKNESS = 0.32;
+const poolDepth = new Float32Array(POOL_VERTS);
+const poolFlow = new Float32Array(POOL_VERTS);
+const poolGround = new Float32Array(POOL_VERTS);
+const poolFloor = new Float32Array(POOL_VERTS);
+const poolTops = new Float32Array(POOL_VERTS);
+const poolBlur = new Float32Array(POOL_VERTS);
+const poolPosition = new Float32Array(POOL_VERTS * 3);
+const poolNormal = new Float32Array(POOL_VERTS * 3);
+const poolShown = new Float32Array(POOL_VERTS);
+const poolGrain = new Float32Array(POOL_VERTS);
+let poolFresh = 0, poolWet = false, poolGroundReady = false, poolShapeClock = 0, poolFlowClock = 0;
+const poolIndex = (ix, iz) => iz * (POOL_N + 1) + ix;
+const poolCellOf = (v) => Math.max(0, Math.min(POOL_N, Math.round((v + POOL_SPAN / 2) / POOL_CELL)));
+
+const poolGeometry = new THREE.BufferGeometry();
+{
+  const faces = new Uint32Array(POOL_N * POOL_N * 6);
+  let e = 0;
+  for (let iz = 0; iz <= POOL_N; iz++) {
+    for (let ix = 0; ix <= POOL_N; ix++) {
+      const i = poolIndex(ix, iz);
+      const x = ix * POOL_CELL - POOL_SPAN / 2, z = iz * POOL_CELL - POOL_SPAN / 2;
+      const r = Math.hypot(x, z);
+      poolPosition[i * 3] = x;
+      poolPosition[i * 3 + 2] = z;
+      poolNormal[i * 3 + 1] = 1;
+      poolFloor[i] = r < PLATE_R ? plateY(r) + 0.025 : -100;
+      poolGrain[i] = 0.5 + 0.25 * Math.sin(1.7 * x + 2.1 * Math.sin(0.9 * z)) + 0.25 * Math.sin(1.9 * z + 1.7 * Math.sin(1.1 * x));
+      poolGround[i] = poolFloor[i];
+      if (ix < POOL_N && iz < POOL_N) {
+        const a = i, b = i + 1, c = i + POOL_N + 1, d = c + 1;
+        faces[e++] = a; faces[e++] = c; faces[e++] = b;
+        faces[e++] = b; faces[e++] = c; faces[e++] = d;
+      }
+    }
+  }
+  poolGeometry.setIndex(new THREE.BufferAttribute(faces, 1));
+  poolGeometry.setAttribute('position', new THREE.BufferAttribute(poolPosition, 3).setUsage(THREE.DynamicDrawUsage));
+  poolGeometry.setAttribute('normal', new THREE.BufferAttribute(poolNormal, 3).setUsage(THREE.DynamicDrawUsage));
+  poolGeometry.setAttribute('aDepth', new THREE.BufferAttribute(poolShown, 1).setUsage(THREE.DynamicDrawUsage));
+}
+const SAUCE_GRAIN = `
+  float sauceHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float sauceNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(sauceHash(i), sauceHash(i + vec2(1.0, 0.0)), f.x),
+               mix(sauceHash(i + vec2(0.0, 1.0)), sauceHash(i + vec2(1.0, 1.0)), f.x), f.y);
+  }`;
+const poolMaterial = new THREE.MeshStandardMaterial({
+  color: 0x931805, roughness: 0.36, transparent: true, depthWrite: false,
+});
+poolMaterial.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+      attribute float aDepth; varying float vDepth; varying vec2 vPlace;`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vDepth = aDepth; vPlace = position.xz;`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying float vDepth; varying vec2 vPlace;${SAUCE_GRAIN}`)
+    .replace('#include <alphamap_fragment>', `
+      float lumps = sauceNoise(vPlace * 3.1) * 0.6 + sauceNoise(vPlace * 8.7) * 0.4;
+      diffuseColor.a *= smoothstep(0.09, 0.15, vDepth + (lumps - 0.5) * 0.08);
+      if (diffuseColor.a < 0.004) discard;
+      // Pulp and herbs: darker flecks and lighter tomato through the red.
+      float flecks = sauceNoise(vPlace * 23.0);
+      diffuseColor.rgb *= 0.86 + lumps * 0.3;
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.03, 0.01), smoothstep(0.8, 0.9, flecks) * 0.6);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.2, 0.05), smoothstep(0.08, 0.02, flecks) * 0.5);`)
+    .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      vec2 slope = vec2(sauceNoise(vPlace * 6.0 + 3.0) - sauceNoise(vPlace * 6.0 + vec2(3.3, 3.0)),
+                        sauceNoise(vPlace * 6.0 + 3.0) - sauceNoise(vPlace * 6.0 + vec2(3.0, 3.3)));
+      normal = normalize(normal + (viewMatrix * vec4(slope.x, 0.0, slope.y, 0.0)).xyz * 0.22);`)
+    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      reflectedLight.indirectSpecular *= 0.14;
+      reflectedLight.directSpecular *= vec3(1.0, 0.55, 0.42);`);
+};
+const poolMesh = new THREE.Mesh(poolGeometry, poolMaterial);
+poolMesh.frustumCulled = false;
+poolMesh.receiveShadow = true;
+poolMesh.visible = false;
+scene.add(poolMesh);
+
+// Where the noodles are: their highest points, blurred into a surface for sauce to lie on.
+function shapePoolGround() {
+  const heldFirst = drag.node >= 0 ? drag.node - drag.node % NODES : -1;
+  const heldLast = drag.node >= 0 ? heldFirst + NODES - 1 : -1;
+  poolTops.set(poolFloor);
+  for (let i = 0; i < COUNT; i++) {
+    if (i >= heldFirst && i <= heldLast) continue;
+    const r2 = px[i] * px[i] + pz[i] * pz[i];
+    if (r2 > PLATE_R * PLATE_R) continue;
+    const c = poolIndex(poolCellOf(px[i]), poolCellOf(pz[i]));
+    if (py[i] > poolTops[c]) poolTops[c] = py[i];
+  }
+  const row = POOL_N + 1;
+  for (let pass = 0; pass < 8; pass++) {
+    const from = pass % 2 ? poolBlur : poolTops, to = pass % 2 ? poolTops : poolBlur;
+    for (let iz = 1; iz < POOL_N; iz++) {
+      for (let ix = 1; ix < POOL_N; ix++) {
+        const i = iz * row + ix;
+        if (poolFloor[i] < -50) { to[i] = from[i]; continue; }
+        to[i] = (from[i] * 4 + Math.max(from[i - 1], poolFloor[i]) + Math.max(from[i + 1], poolFloor[i])
+          + Math.max(from[i - row], poolFloor[i]) + Math.max(from[i + row], poolFloor[i])) / 8;
+      }
+    }
+  }
+  for (let i = 0; i < POOL_VERTS; i++) {
+    if (poolFloor[i] < -50) continue;
+    const target = Math.max(poolFloor[i], poolBlur[i] - 0.12);
+    poolGround[i] = poolGroundReady ? poolGround[i] + (target - poolGround[i]) * 0.4 : target;
+  }
+  poolGroundReady = true;
+}
+
+// Thick liquid runs downhill until it thins out, unevenly, so it spreads in fingers.
+const POOL_AROUND = [-1, 0, 1, 0, 0, -1, 0, 1, -1, -1, 1, -1, -1, 1, 1, 1];
+function runPool() {
+  const row = POOL_N + 1;
+  poolFlow.fill(0);
+  for (let iz = 1; iz < POOL_N; iz++) {
+    for (let ix = 1; ix < POOL_N; ix++) {
+      const i = iz * row + ix;
+      const depth = poolDepth[i];
+      if (depth < 0.03 + poolGrain[i] * 0.22 || poolFloor[i] < -50) continue;
+      const level = poolGround[i] + depth * THICKNESS * 2;
+      let total = 0;
+      for (let k = 0; k < 8; k++) {
+        const n = i + POOL_AROUND[k * 2] + POOL_AROUND[k * 2 + 1] * row;
+        if (poolFloor[n] < -50) continue;
+        const drop = level - (poolGround[n] + poolDepth[n] * THICKNESS * 2);
+        if (drop <= 0) continue;
+        const part = Math.min(0.08, drop * 0.1) * depth * (k < 4 ? 1 : 0.5) * (1.5 - poolGrain[n]);
+        poolFlow[n] += part;
+        total += part;
+      }
+      poolFlow[i] -= total;
+    }
+  }
+  for (let i = 0; i < POOL_VERTS; i++) poolDepth[i] += poolFlow[i];
+}
+
+function drawPool() {
+  const row = POOL_N + 1;
+  for (let iz = 1; iz < POOL_N; iz++) {
+    for (let ix = 1; ix < POOL_N; ix++) {
+      const i = iz * row + ix;
+      poolShown[i] = (poolDepth[i] * 2 + poolDepth[i - 1] + poolDepth[i + 1] + poolDepth[i - row] + poolDepth[i + row]) / 6;
+    }
+  }
+  for (let i = 0; i < POOL_VERTS; i++) {
+    const ground = poolFloor[i] < -50 ? -0.2 : poolGround[i];
+    poolPosition[i * 3 + 1] = ground + Math.min(0.2, poolShown[i] * THICKNESS);
+  }
+  for (let iz = 1; iz < POOL_N; iz++) {
+    for (let ix = 1; ix < POOL_N; ix++) {
+      const i = iz * row + ix;
+      const dx = poolPosition[(i + 1) * 3 + 1] - poolPosition[(i - 1) * 3 + 1];
+      const dz = poolPosition[(i + row) * 3 + 1] - poolPosition[(i - row) * 3 + 1];
+      const scale = 1 / Math.sqrt(dx * dx + dz * dz + 4 * POOL_CELL * POOL_CELL);
+      poolNormal[i * 3] = -dx * scale;
+      poolNormal[i * 3 + 1] = 2 * POOL_CELL * scale;
+      poolNormal[i * 3 + 2] = -dz * scale;
+    }
+  }
+  poolGeometry.attributes.position.needsUpdate = true;
+  poolGeometry.attributes.normal.needsUpdate = true;
+  poolGeometry.attributes.aDepth.needsUpdate = true;
+}
+
+// Noodles soak up whatever liquid is around them.
+function coatFromPool() {
+  for (let i = 0; i < COUNT; i++) {
+    const target = Math.min(1, Math.sqrt(Math.max(0, poolDepth[poolIndex(poolCellOf(px[i]), poolCellOf(pz[i]))])) * 1.5);
+    if (target > sauce[i] + 0.02) {
+      sauce[i] = target;
+      sauceDirty[Math.floor(i / NODES)] = 1;
+    }
+  }
+}
+
+function pourInto(x, z, amount, radius) {
+  const reach = Math.ceil((radius * 2) / POOL_CELL);
+  const cx = poolCellOf(x), cz = poolCellOf(z);
+  for (let iz = Math.max(0, cz - reach); iz <= Math.min(POOL_N, cz + reach); iz++) {
+    for (let ix = Math.max(0, cx - reach); ix <= Math.min(POOL_N, cx + reach); ix++) {
+      const i = poolIndex(ix, iz);
+      if (poolFloor[i] < -50) continue;
+      const dx = ix * POOL_CELL - POOL_SPAN / 2 - x, dz = iz * POOL_CELL - POOL_SPAN / 2 - z;
+      poolDepth[i] += amount * Math.exp(-(dx * dx + dz * dz) / (radius * radius));
+    }
+  }
+  poolWet = true;
+  poolFresh = 5;
+}
+
+const poolHeightAt = (x, z) => {
+  const i = poolIndex(poolCellOf(x), poolCellOf(z));
+  return poolFloor[i] < -50 ? -100 : poolGround[i] + poolDepth[i] * THICKNESS;
+};
+
+// The stream: one continuous tube, thinning as it falls, swinging as the boat moves.
+const STREAM_POINTS = 64;
+const STREAM_SIDES = 18;
+const stream = {
+  x: new Float32Array(STREAM_POINTS), y: new Float32Array(STREAM_POINTS), z: new Float32Array(STREAM_POINTS),
+  vx: new Float32Array(STREAM_POINTS), vy: new Float32Array(STREAM_POINTS), vz: new Float32Array(STREAM_POINTS),
+  age: new Float32Array(STREAM_POINTS), head: 0, length: 0, clock: 0,
+};
+const streamPosition = new Float32Array(STREAM_POINTS * STREAM_SIDES * 3);
+const streamNormal = new Float32Array(STREAM_POINTS * STREAM_SIDES * 3);
+const streamGeometry = new THREE.BufferGeometry();
+{
+  const faces = new Uint16Array((STREAM_POINTS - 1) * STREAM_SIDES * 6);
+  let e = 0;
+  for (let p = 0; p < STREAM_POINTS - 1; p++) {
+    for (let k = 0; k < STREAM_SIDES; k++) {
+      const a = p * STREAM_SIDES + k, b = p * STREAM_SIDES + (k + 1) % STREAM_SIDES;
+      const c = a + STREAM_SIDES, d = b + STREAM_SIDES;
+      faces[e++] = a; faces[e++] = b; faces[e++] = c;
+      faces[e++] = b; faces[e++] = d; faces[e++] = c;
+    }
+  }
+  streamGeometry.setIndex(new THREE.BufferAttribute(faces, 1));
+  streamGeometry.setAttribute('position', new THREE.BufferAttribute(streamPosition, 3).setUsage(THREE.DynamicDrawUsage));
+  streamGeometry.setAttribute('normal', new THREE.BufferAttribute(streamNormal, 3).setUsage(THREE.DynamicDrawUsage));
+}
+const streamMaterial = new THREE.MeshStandardMaterial({ color: SAUCE_RED, roughness: 0.3 });
+streamMaterial.onBeforeCompile = tomatoSheen;
+const streamMesh = new THREE.Mesh(streamGeometry, streamMaterial);
+streamMesh.frustumCulled = false;
+streamMesh.castShadow = true;
+streamMesh.visible = false;
+scene.add(streamMesh);
+
+function drawStream(flow) {
+  const n = stream.length;
+  streamMesh.visible = n > 1;
+  if (n < 2) return;
+  const at = (p) => (stream.head - p + STREAM_POINTS) % STREAM_POINTS;
+  let v = 0;
+  for (let p = 0; p < n; p++) {
+    const i = at(p), before = at(Math.max(0, p - 3)), after = at(Math.min(n - 1, p + 3));
+    let tx = stream.x[after] - stream.x[before], ty = stream.y[after] - stream.y[before], tz = stream.z[after] - stream.z[before];
+    const tl = Math.hypot(tx, ty, tz) || 1;
+    tx /= tl; ty /= tl; tz /= tl;
+    // Axes across and along the sheet, whichever way the stream is heading.
+    let ax = boat.across.y * tz - boat.across.z * ty, ay = boat.across.z * tx - boat.across.x * tz, az = boat.across.x * ty - boat.across.y * tx;
+    const al = Math.hypot(ax, ay, az) || 1;
+    ax /= al; ay /= al; az /= al;
+    const bx = ty * az - tz * ay, by = tz * ax - tx * az, bz = tx * ay - ty * ax;
+    const speed = Math.hypot(stream.vx[i], stream.vy[i], stream.vz[i]);
+    const thin = Math.max(0.62, Math.sqrt(1.4 / Math.max(1.4, speed)));
+    const ripple = 1 + 0.05 * Math.sin(stream.age[i] * 19 + p * 0.7);
+    const tip = p === n - 1 && flow <= 0 ? 0.05 : 1;
+    // A thin film as it clears the lip, so the tube fits the tight bend where it turns to fall.
+    const film = Math.min(1, 0.2 + stream.age[i] * 2.4);
+    const radius = (0.1 + flow * 0.15) * thin * ripple * tip * film + 0.012;
+    // Off the lip it is a wide flat sheet; surface tension gathers it into a rope as it falls.
+    const gather = Math.exp(-stream.age[i] * 4.5) * (1 - Math.exp(-stream.age[i] * 22));
+    const wide = radius * (1 + gather * 2.2), flat = radius * (1 - gather * 0.6);
+    for (let k = 0; k < STREAM_SIDES; k++, v++) {
+      const c = COS_STREAM[k], s = SIN_STREAM[k];
+      const onA = c * flat, onB = s * wide;
+      let nx = ax * c * wide + bx * s * flat, ny = ay * c * wide + by * s * flat, nz = az * c * wide + bz * s * flat;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+      streamPosition[v * 3] = stream.x[i] + ax * onA + bx * onB;
+      streamPosition[v * 3 + 1] = stream.y[i] + ay * onA + by * onB;
+      streamPosition[v * 3 + 2] = stream.z[i] + az * onA + bz * onB;
+      streamNormal[v * 3] = nx; streamNormal[v * 3 + 1] = ny; streamNormal[v * 3 + 2] = nz;
+    }
+  }
+  streamGeometry.setDrawRange(0, (n - 1) * STREAM_SIDES * 6);
+  streamGeometry.attributes.position.needsUpdate = true;
+  streamGeometry.attributes.normal.needsUpdate = true;
+}
+const COS_STREAM = Float32Array.from({ length: STREAM_SIDES }, (_, k) => Math.cos((k / STREAM_SIDES) * Math.PI * 2));
+const SIN_STREAM = Float32Array.from({ length: STREAM_SIDES }, (_, k) => Math.sin((k / STREAM_SIDES) * Math.PI * 2));
+
+// Drips from a sauced noodle held in the air.
+const MAX_DRIPS = 48;
+const blob = { x: new Float32Array(MAX_DRIPS), y: new Float32Array(MAX_DRIPS), z: new Float32Array(MAX_DRIPS), vy: new Float32Array(MAX_DRIPS), live: 0 };
+const dripMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 12, 10), streamMesh.material, MAX_DRIPS);
+dripMesh.frustumCulled = false;
+dripMesh.count = 0;
+scene.add(dripMesh);
+const dripMatrix = new THREE.Matrix4();
+
+const spoutWorld = new THREE.Vector3();
+const spoutBefore = new THREE.Vector3();
+const lipWorld = new THREE.Vector3();
+const shellPoint = new THREE.Vector3();
+const heldDirection = new THREE.Vector3();
+const toCamera = new THREE.Vector3();
+const cameraRight = new THREE.Vector3();
+const shellX = new Float32Array(BOAT_MERIDIANS * 6), shellY = new Float32Array(BOAT_MERIDIANS * 6), shellZ = new Float32Array(BOAT_MERIDIANS * 6);
+const edgeX = new Float32Array(SURFACE_POINTS), edgeZ = new Float32Array(SURFACE_POINTS), edgeAngle = new Float32Array(SURFACE_POINTS);
+
+// Height the sauce would reach at the boat's present angle, if nothing could spill.
+function liquidHeight(level) {
+  const m = boat.group.matrixWorld.elements;
+  for (let i = 0; i < VOLUME_POINTS; i++) {
+    volumeHeights[i] = m[1] * volumeLocal[i * 3] + m[5] * volumeLocal[i * 3 + 1] + m[9] * volumeLocal[i * 3 + 2] + m[13];
+  }
+  volumeHeights.sort();
+  return volumeHeights[Math.min(VOLUME_POINTS - 1, Math.floor(BOAT_FILL * level * VOLUME_POINTS))];
+}
+
+// Cut the bowl's inner wall with the level plane, and fill the outline that makes.
+function shapeBoatLiquid(level) {
+  const surface = boat.surface;
+  surface.visible = false;
+  if (level <= 0.01) return;
+  const height = boat.height;
+  const matrix = boat.group.matrixWorld;
+  for (let m = 0; m < BOAT_MERIDIANS; m++) {
+    for (let r = 0; r < 6; r++) {
+      const c = m * 6 + r;
+      shellPoint.fromBufferAttribute(boat.shell, m * BOAT_PROFILE_ROWS + 8 + r).applyMatrix4(matrix);
+      shellX[c] = shellPoint.x; shellY[c] = shellPoint.y; shellZ[c] = shellPoint.z;
+    }
+  }
+  let count = 0, cx = 0, cz = 0;
+  const cross = (a, b) => {
+    const ya = shellY[a] - height, yb = shellY[b] - height;
+    if ((ya < 0) === (yb < 0) || count >= SURFACE_POINTS) return;
+    const k = ya / (ya - yb);
+    edgeX[count] = shellX[a] + (shellX[b] - shellX[a]) * k;
+    edgeZ[count] = shellZ[a] + (shellZ[b] - shellZ[a]) * k;
+    cx += edgeX[count]; cz += edgeZ[count];
+    count++;
+  };
+  for (let m = 0; m < BOAT_MERIDIANS; m++) {
+    const next = (m + 1) % BOAT_MERIDIANS;
+    for (let r = 0; r < 6; r++) {
+      if (r < 5) cross(m * 6 + r, m * 6 + r + 1);
+      cross(m * 6 + r, next * 6 + r);
+    }
+  }
+  if (count < 3) return;
+  cx /= count; cz /= count;
+  const order = [];
+  for (let i = 0; i < count; i++) {
+    edgeAngle[i] = Math.atan2(edgeZ[i] - cz, edgeX[i] - cx);
+    order.push(i);
+  }
+  order.sort((a, b) => edgeAngle[a] - edgeAngle[b]);
+  const position = surface.geometry.attributes.position, color = surface.geometry.attributes.color;
+  const y = height + 0.003;
+  // Pulled in slightly, so the edge can never pass through the wall. Darker where it deepens.
+  const inX = (i) => cx + (edgeX[i] - cx) * 0.985, inZ = (i) => cz + (edgeZ[i] - cz) * 0.985;
+  for (let t = 0; t < count; t++) {
+    const a = order[t], b = order[(t + 1) % count];
+    const v = t * 3;
+    position.setXYZ(v, cx, y, cz);
+    position.setXYZ(v + 1, inX(b), y, inZ(b));
+    position.setXYZ(v + 2, inX(a), y, inZ(a));
+    color.setXYZ(v, 0.74, 0.74, 0.74);
+    color.setXYZ(v + 1, 1, 1, 1);
+    color.setXYZ(v + 2, 1, 1, 1);
+  }
+  surface.geometry.setDrawRange(0, count * 3);
+  position.needsUpdate = true;
+  color.needsUpdate = true;
+  surface.visible = true;
+}
+
+function updateSauce(time, seconds) {
+  let boatMoved = false;
+  const group = boat.group;
+  let wantPour = false;
+
+  // Carried, the boat turns its open side toward the viewer, so the sauce inside can be seen.
+  if (boat.held) {
+    cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+    toCamera.subVectors(camera.position, group.position).setY(0).normalize();
+    heldDirection.copy(cameraRight).multiplyScalar(-0.8).addScaledVector(toCamera, 0.6).normalize();
+  } else {
+    heldDirection.copy(boat.restDirection);
+  }
+  boat.direction.lerp(heldDirection, 0.08).normalize();
+  boat.across.set(-boat.direction.z, 0, boat.direction.x);
+  group.rotation.y = Math.atan2(-boat.direction.z, boat.direction.x);
+
+  // Carry the boat so the stream lands where the cursor points.
+  if (boat.held) {
+    const at = resamplePointer(time);
+    const rect = canvas.getBoundingClientRect();
+    pointer.set(((at.x - rect.left) / rect.width) * 2 - 1, -((at.y - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(pointer, camera);
+    const down = (AIM_HEIGHT - ray.ray.origin.y) / ray.ray.direction.y;
+    ray.ray.at(down, dragPoint);
+    const aimed = Math.hypot(dragPoint.x, dragPoint.z);
+    if (aimed > 20) dragPoint.multiplyScalar(20 / aimed);
+    const lead = (BOAT_R + SPOUT_LENGTH) * BOAT_SCALE + 0.55;
+    boat.target.set(dragPoint.x - boat.direction.x * lead, POUR_HEIGHT - boat.spout.y * BOAT_SCALE, dragPoint.z - boat.direction.z * lead);
+    // Tip only once the boat has arrived over the plate, so carrying it in spills nothing.
+    const arriving = group.position.distanceTo(boat.target);
+    wantPour = aimed < PLATE_R - 1.2 && arriving < 1.4 && boat.level > 0.03;
+  } else {
+    boat.target.copy(boat.rest);
+    const away = Math.hypot(group.position.x - boat.rest.x, group.position.z - boat.rest.z);
+    if (away > 0.6) boat.target.y = Math.max(boat.rest.y, 2.2);
+  }
+  // Pouring is steered like a hand does it: tip until the sauce just runs over the lip, and
+  // keep tipping further as the boat empties.
+  const tiltBefore = boat.tilt;
+  if (wantPour) {
+    const push = (POUR_HEAD - boat.head) * 9;
+    boat.tilt = Math.min(1.5, boat.tilt + Math.max(-0.5, Math.min(0.6, push)) * seconds);
+  } else {
+    boat.tilt += ((boat.held ? 0.08 : 0) - boat.tilt) * 0.07;
+  }
+  if (group.position.distanceToSquared(boat.target) > 1e-5 || Math.abs(boat.tilt - tiltBefore) > 1e-4) {
+    boatMoved = true;
+    group.position.lerp(boat.target, boat.held ? (boat.flow > 0 ? 0.045 : 0.2) : 0.1);
+    group.rotation.z = -boat.tilt;
+  }
+
+  // The sauce finds its level. Whatever rises above the lip runs out; the rest goes down with it.
+  group.updateMatrixWorld();
+  const level = Math.max(0, boat.level);
+  spoutBefore.copy(spoutWorld);
+  spoutWorld.copy(boat.spout).applyMatrix4(group.matrixWorld);
+  lipWorld.copy(boat.lip).applyMatrix4(group.matrixWorld);
+  const reached = liquidHeight(level);
+  boat.head = reached - lipWorld.y;
+  boat.height = Math.min(reached, lipWorld.y - 0.002);
+  boat.flow = level > 0.012 ? Math.max(0, Math.min(1, boat.head / POUR_HEAD)) : 0;
+  shapeBoatLiquid(level);
+  boat.sheet.visible = boat.flow > 0.02;
+  boat.sheet.scale.z = 0.35 + boat.flow * 0.65;
+  if (boat.flow > 0) {
+    boat.level -= (boat.flow * seconds) / POUR_SECONDS;
+    if (!poolGroundReady) shapePoolGround();
+  }
+
+  // Move the stream: thrown from the spout, then falling.
+  const G = 26 * seconds;
+  for (let p = 0; p < stream.length; p++) {
+    const i = (stream.head - p + STREAM_POINTS) % STREAM_POINTS;
+    stream.vy[i] -= G;
+    stream.x[i] += stream.vx[i] * seconds;
+    stream.y[i] += stream.vy[i] * seconds;
+    stream.z[i] += stream.vz[i] * seconds;
+    stream.age[i] += seconds;
+  }
+  // Fresh sauce is still clinging to the lip, so it goes where the lip goes.
+  const lipMoveX = spoutWorld.x - spoutBefore.x, lipMoveY = spoutWorld.y - spoutBefore.y, lipMoveZ = spoutWorld.z - spoutBefore.z;
+  for (let p = 0; p < stream.length; p++) {
+    const i = (stream.head - p + STREAM_POINTS) % STREAM_POINTS;
+    if (stream.age[i] > 0.28) break;
+    const cling = (1 - stream.age[i] / 0.28) ** 2;
+    stream.x[i] += lipMoveX * cling; stream.y[i] += lipMoveY * cling; stream.z[i] += lipMoveZ * cling;
+  }
+  // New liquid leaves the spout at a steady 60 points a second.
+  stream.clock += seconds;
+  if (boat.flow > 0 && stream.clock >= 1 / 61) {
+    stream.clock = 0;
+    stream.head = (stream.head + 1) % STREAM_POINTS;
+    const i = stream.head;
+    stream.x[i] = spoutWorld.x; stream.y[i] = spoutWorld.y; stream.z[i] = spoutWorld.z;
+    const slide = 0.35 + boat.flow * 0.75;
+    // Liquid keeps the motion of the spout it left, so a moving boat carries the stream with it.
+    let carryX = (spoutWorld.x - spoutBefore.x) / seconds, carryZ = (spoutWorld.z - spoutBefore.z) / seconds;
+    const carried = Math.hypot(carryX, carryZ);
+    if (carried > 2.5) { carryX *= 2.5 / carried; carryZ *= 2.5 / carried; }
+    stream.vx[i] = boat.direction.x * slide + carryX * 0.5; stream.vy[i] = -0.9; stream.vz[i] = boat.direction.z * slide + carryZ * 0.5;
+    stream.age[i] = 0;
+    stream.length = Math.min(STREAM_POINTS, stream.length + 1);
+  }
+  if (boat.flow > 0 && stream.length > 0) {
+    stream.x[stream.head] = spoutWorld.x; stream.y[stream.head] = spoutWorld.y; stream.z[stream.head] = spoutWorld.z;
+  }
+  // The end of the stream lands, and becomes part of the pool.
+  while (stream.length > 0) {
+    const tail = (stream.head - stream.length + 1 + STREAM_POINTS) % STREAM_POINTS;
+    if (stream.y[tail] > Math.max(poolHeightAt(stream.x[tail], stream.z[tail]) - 0.55, TABLE_Y)) break;
+    if (Math.hypot(stream.x[tail], stream.z[tail]) < PLATE_R) pourInto(stream.x[tail], stream.z[tail], 0.05 + boat.flow * 0.05, 0.85);
+    stream.length--;
+  }
+  drawStream(boat.flow);
+
+  // A sauced noodle held in the air drips.
+  if (drag.node >= 0) {
+    const first = drag.node - drag.node % NODES;
+    for (let i = first; i < first + NODES && blob.live < MAX_DRIPS; i++) {
+      if (sauce[i] > 0.3 && Math.random() < 0.01 * sauce[i]) {
+        const d = blob.live++;
+        blob.x[d] = px[i]; blob.y[d] = py[i] - RAD; blob.z[d] = pz[i]; blob.vy[d] = -0.5;
+      }
+    }
+  }
+  for (let d = blob.live - 1; d >= 0; d--) {
+    blob.vy[d] -= G;
+    blob.y[d] += blob.vy[d] * seconds;
+    if (blob.y[d] <= Math.max(poolHeightAt(blob.x[d], blob.z[d]), TABLE_Y)) {
+      if (Math.hypot(blob.x[d], blob.z[d]) < PLATE_R) pourInto(blob.x[d], blob.z[d], 0.09, 0.28);
+      const last = --blob.live;
+      blob.x[d] = blob.x[last]; blob.y[d] = blob.y[last]; blob.z[d] = blob.z[last]; blob.vy[d] = blob.vy[last];
+    }
+  }
+  for (let d = 0; d < blob.live; d++) {
+    dripMatrix.makeScale(0.075, 0.075 + Math.min(0.14, -blob.vy[d] * 0.012), 0.075);
+    dripMatrix.setPosition(blob.x[d], blob.y[d], blob.z[d]);
+    dripMesh.setMatrixAt(d, dripMatrix);
+  }
+  if (dripMesh.count !== blob.live || blob.live) {
+    dripMesh.count = blob.live;
+    dripMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // The pool does its work at a modest, steady rate, and not at all once it has settled.
+  if (poolWet) {
+    poolMesh.visible = true;
+    poolFresh = Math.max(0, poolFresh - seconds);
+    poolFlowClock += seconds;
+    poolShapeClock += seconds;
+    const running = poolFresh > 0;
+    if (running && poolFlowClock >= 1 / 30) {
+      poolFlowClock = 0;
+      runPool();
+    }
+    let shaped = false;
+    if (poolShapeClock >= (running || drag.node >= 0 ? 0.1 : 0.5)) {
+      poolShapeClock = 0;
+      shapePoolGround();
+      coatFromPool();
+      shaped = true;
+    }
+    if (running || shaped) drawPool();
+  }
+  return boatMoved;
+}
+
+function resetSauce() {
+  sauce.fill(0);
+  sauceDirty.fill(1);
+  poolDepth.fill(0);
+  poolShown.fill(0);
+  poolWet = false;
+  poolFresh = 0;
+  poolGroundReady = false;
+  poolMesh.visible = false;
+  blob.live = 0;
+  stream.length = 0;
+  streamMesh.visible = false;
+  boat.level = 1;
+}
 
 // ---------------------------------------------------------------------------
 // Grabbing
@@ -918,6 +1711,12 @@ function showSnippet(node) {
 }
 
 function release() {
+  if (boat.held) {
+    boat.held = false;
+    controls.enabled = true;
+    canvas.style.cursor = '';
+    return;
+  }
   if (drag.node < 0) return;
   invMass[drag.node] = 1;
   drag.node = -1;
@@ -929,6 +1728,15 @@ function release() {
 
 canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || !windows) return;
+  if (boatUnderPointer(event.clientX, event.clientY)) {
+    controls.enabled = false;
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = 'grabbing';
+    boat.held = true;
+    trail.length = 0;
+    recordPointer(event);
+    return;
+  }
   const node = pick(event.clientX, event.clientY);
   if (node < 0) return;
   controls.enabled = false;
@@ -947,11 +1755,16 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 
 canvas.addEventListener('pointermove', (event) => {
-  if (drag.node >= 0) {
+  if (drag.node >= 0 || boat.held) {
     recordPointer(event);
     return;
   }
   if (event.pointerType === 'touch' || event.buttons !== 0 || !windows) return;
+  if (boatUnderPointer(event.clientX, event.clientY)) {
+    noodleUniforms.uHot.value = hoverStrand = -1;
+    canvas.style.cursor = 'grab';
+    return;
+  }
   const node = pick(event.clientX, event.clientY);
   hoverStrand = node < 0 ? -1 : Math.floor(node / NODES);
   noodleUniforms.uHot.value = hoverStrand;
@@ -965,11 +1778,11 @@ canvas.addEventListener('pointerleave', () => {
 });
 
 addEventListener('keydown', (event) => {
-  if (event.key === 'r' || event.key === 'R') { release(); serve(); }
+  if (event.key === 'r' || event.key === 'R') { release(); serve(); resetSauce(); }
 });
 
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 0.4, 0);
+controls.target.copy(VIEW_TARGET);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.enablePan = false;
@@ -985,13 +1798,12 @@ addEventListener('resize', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The restaurant: everything you hear is synthesised, nothing is a recording.
+// The restaurant: the room is synthesised around a recorded soundtrack.
 // ---------------------------------------------------------------------------
 function createRestaurant() {
   const ctx = new AudioContext();
   const rand = (a, b) => a + Math.random() * (b - a);
   const choose = (list) => list[Math.floor(Math.random() * list.length)];
-  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
   const gainNode = (context, value) => {
     const g = context.createGain();
     g.gain.value = value;
@@ -1034,264 +1846,18 @@ function createRestaurant() {
   reverb.buffer = roomImpulse();
   reverb.connect(master);
 
-  const musicBus = gainNode(ctx, 0.85);
-  musicBus.connect(filterNode(ctx, 'highshelf', 6000, 0.7, -4)).connect(master);
-  musicBus.connect(gainNode(ctx, 0.2)).connect(reverb);
+  // A plain audio element, so it also plays on a page opened straight from disk.
+  const soundtrack = new Audio('audio/tarantella.mp3');
+  soundtrack.loop = true;
+  soundtrack.preload = 'auto';
+  soundtrack.volume = 0.55;
   const roomInput = gainNode(ctx, 1);
   const roomBus = filterNode(ctx, 'highpass', 120);
   roomInput.connect(roomBus);
   roomBus.connect(master);
   roomBus.connect(gainNode(ctx, 0.5)).connect(reverb);
 
-  // -------------------------------------------------------------------------
-  // Instruments, rendered once off the main thread and replayed as samples.
-  // -------------------------------------------------------------------------
-  const samples = { piano: [], bass: [], ride: [] };
-  let instrumentBuffer = null;
-
-  async function bakeInstruments() {
-    const RATE = 32000;
-    const plan = [];
-    let cursor = 0;
-    const add = (kind, midi, seconds) => { plan.push({ kind, midi, offset: cursor, seconds }); cursor += seconds; };
-    for (let m = 36; m <= 96; m += 4) add('piano', m, m < 60 ? 3.6 : 2.8);
-    for (let m = 28; m <= 52; m += 4) add('bass', m, 2.4);
-    add('ride', 0, 1.3);
-    const off = new OfflineAudioContext(1, Math.ceil(cursor * RATE), RATE);
-    const noise = noiseBuffer(off, 1);
-
-    const partial = (t0, length, freq, amp, fast, slow) => {
-      const osc = off.createOscillator();
-      const g = off.createGain();
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(amp, t0 + 0.003);
-      g.gain.setTargetAtTime(amp * 0.32, t0 + 0.003, 1 / fast);
-      g.gain.setTargetAtTime(0, t0 + 0.18, 1 / slow);
-      g.gain.setTargetAtTime(0, t0 + length - 0.08, 0.015);
-      osc.connect(g).connect(off.destination);
-      osc.start(t0);
-      osc.stop(t0 + length);
-    };
-    const tick = (t0, filter, frequency, amp, length) => {
-      const src = off.createBufferSource();
-      src.buffer = noise;
-      const g = off.createGain();
-      g.gain.setValueAtTime(amp, t0);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
-      src.connect(filterNode(off, filter, frequency, 0.8)).connect(g).connect(off.destination);
-      src.start(t0, Math.random() * 0.5, length + 0.01);
-    };
-
-    for (const note of plan) {
-      const t0 = note.offset;
-      if (note.kind === 'piano') {
-        const f0 = hz(note.midi);
-        const stretch = 0.00032 * 2 ** ((note.midi - 60) / 24);
-        for (let n = 1; n <= 14; n++) {
-          const f = n * f0 * Math.sqrt(1 + stretch * n * n);
-          if (f > RATE * 0.45) break;
-          const struck = 0.25 + Math.abs(Math.sin((Math.PI * n) / 7));
-          const amp = (0.24 * struck) / n ** 1.2;
-          const slow = (0.42 + 0.2 * n) * (f0 / 262) ** 0.6;
-          partial(t0, note.seconds, f, amp, slow * 5, slow);
-          partial(t0, note.seconds, f * 1.0007, amp * 0.65, slow * 5, slow * 1.2);
-        }
-        tick(t0, 'bandpass', Math.min(f0 * 3, 5000), 0.05, 0.02);
-      } else if (note.kind === 'bass') {
-        const f0 = hz(note.midi);
-        [1, 0.55, 0.32, 0.18, 0.1, 0.06].forEach((amp, k) => {
-          const slow = 1 + 0.75 * k;
-          partial(t0, note.seconds, f0 * (k + 1), amp * 0.42, slow * 2.2, slow);
-        });
-        tick(t0, 'lowpass', 700, 0.14, 0.03);
-      } else {
-        [3120, 4310, 5170, 6430, 8020, 9340].forEach((f, k) => partial(t0, note.seconds, f, 0.05, 14, 3 + k * 0.7));
-        tick(t0, 'highpass', 6000, 0.1, 0.03);
-      }
-    }
-    instrumentBuffer = await off.startRendering();
-    for (const note of plan) samples[note.kind].push(note);
-  }
-
-  function play(kind, midi, when, length, level, pan = 0) {
-    let sample = samples[kind][0];
-    if (kind !== 'ride') {
-      for (const s of samples[kind]) if (Math.abs(s.midi - midi) < Math.abs(sample.midi - midi)) sample = s;
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = instrumentBuffer;
-    if (kind !== 'ride') src.playbackRate.value = 2 ** ((midi - sample.midi) / 12);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(level * level, when);
-    g.gain.setValueAtTime(level * level, when + length);
-    g.gain.setTargetAtTime(0, when + length, kind === 'piano' ? 0.09 : 0.05);
-    const cutoff = kind === 'bass' ? 1100 : kind === 'ride' ? 12000 : 900 + 7000 * level;
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = pan;
-    src.connect(filterNode(ctx, 'lowpass', cutoff)).connect(g).connect(panner).connect(musicBus);
-    src.start(when, sample.offset, Math.min(sample.seconds, length + 0.5));
-  }
-
-  // -------------------------------------------------------------------------
-  // The trio: sixteen bars in F. Head, two choruses of solo, head again.
-  // -------------------------------------------------------------------------
-  const QUALITY = {
-    maj: { voice: [4, 7, 11, 14], scale: [0, 2, 4, 7, 9, 11], tones: [0, 4, 7, 11] },
-    min: { voice: [3, 7, 10, 14], scale: [0, 2, 3, 5, 7, 9, 10], tones: [0, 3, 7, 10] },
-    dom: { voice: [10, 14, 16, 21], scale: [0, 2, 4, 7, 9, 10], tones: [0, 4, 7, 10] },
-    alt: { voice: [10, 13, 16, 21], scale: [0, 1, 3, 4, 7, 9, 10], tones: [0, 4, 7, 10] },
-  };
-  const chord = (root, quality) => ({ root, ...QUALITY[quality] });
-  const F = chord(5, 'maj'), D7b9 = chord(2, 'alt'), D7 = chord(2, 'dom'), Gm = chord(7, 'min'), C13 = chord(0, 'dom');
-  const Am = chord(9, 'min'), F7 = chord(5, 'dom'), Bb = chord(10, 'maj'), Eb9 = chord(3, 'dom');
-  const CHART = [[F], [D7b9], [Gm], [C13], [Am], [D7], [Gm], [C13], [F], [F7], [Bb], [Eb9], [Am], [D7b9], [Gm, C13], [F]];
-  const HEAD = [
-    [[0, 69, 1.5], [1.5, 72, 0.5], [2, 76, 2]],
-    [[0, 75, 1], [1, 74, 0.5], [1.5, 72, 0.5], [2, 66, 2]],
-    [[0, 67, 0.5], [0.5, 70, 0.5], [1, 74, 1], [2, 77, 1.5], [3.5, 74, 0.5]],
-    [[0, 76, 1], [1, 74, 0.5], [1.5, 70, 0.5], [2, 69, 2]],
-    [[0, 72, 1.5], [1.5, 76, 0.5], [2, 79, 1], [3, 76, 1]],
-    [[0, 78, 1], [1, 76, 0.5], [1.5, 74, 0.5], [2, 72, 1], [3, 69, 1]],
-    [[0, 70, 1], [1, 74, 1], [2, 77, 0.5], [2.5, 76, 0.5], [3, 74, 1]],
-    [[0, 70, 1.5], [1.5, 67, 0.5], [2, 64, 2]],
-    [[0, 69, 1.5], [1.5, 72, 0.5], [2, 76, 2]],
-    [[0, 75, 1.5], [1.5, 72, 0.5], [2, 69, 2]],
-    [[0, 74, 1], [1, 77, 0.5], [1.5, 81, 0.5], [2, 84, 1.5], [3.5, 81, 0.5]],
-    [[0, 79, 1.5], [1.5, 77, 0.5], [2, 73, 2]],
-    [[0, 72, 1], [1, 76, 0.5], [1.5, 79, 0.5], [2, 81, 1], [3, 79, 1]],
-    [[0, 78, 0.5], [0.5, 75, 0.5], [1, 72, 1], [2, 69, 2]],
-    [[0, 70, 0.5], [0.5, 74, 0.5], [1, 77, 1], [2, 76, 1], [3, 74, 0.5], [3.5, 70, 0.5]],
-    [[0, 69, 3]],
-  ];
-  const COMPING = [[0], [1.5], [2.5], [0, 2.5], [1.5, 3.5], [0.5, 2.5], [0, 1.5, 3.5]];
-  const BEAT = 60 / 104;
-  const BAR = BEAT * 4;
-  const swing = (beat) => {
-    const whole = Math.floor(beat), f = beat - whole;
-    return whole + (f < 0.5 ? f * 1.24 : 0.62 + (f - 0.5) * 0.76);
-  };
-  const chordAt = (bar, beat) => {
-    const entry = CHART[bar % CHART.length];
-    return entry.length > 1 && beat >= 2 ? entry[1] : entry[0];
-  };
-  const inChord = (note, c, list) => list.some((i) => (c.root + i) % 12 === ((note % 12) + 12) % 12);
-  const nearest = (from, c, list) => {
-    for (let d = 0; d < 12; d++) {
-      if (inChord(from + d, c, list)) return from + d;
-      if (inChord(from - d, c, list)) return from - d;
-    }
-    return from;
-  };
-
-  let lineNote = 72, lineDirection = 1, restBars = 0, lastRhythm = null, bassNote = 41;
-
-  function comp(bar, start) {
-    for (const beat of choose(COMPING)) {
-      const c = beat >= 3.5 ? chordAt(bar + 1, 0) : chordAt(bar, beat);
-      const when = start + swing(beat) * BEAT + rand(-0.008, 0.012);
-      const level = rand(0.34, 0.44);
-      c.voice.forEach((interval, k) => {
-        const pc = (c.root + interval) % 12;
-        const note = pc + 12 * Math.round((61 - pc) / 12);
-        play('piano', note, when + k * 0.004, BEAT * rand(0.55, 0.95), level, -0.14);
-      });
-    }
-  }
-
-  function walk(bar, start) {
-    for (let beat = 0; beat < 4; beat++) {
-      const c = chordAt(bar, beat);
-      const next = chordAt(bar + (beat === 3 ? 1 : 0), beat === 3 ? 0 : beat + 1);
-      let target;
-      if (beat === 0 || (CHART[bar % 16].length > 1 && beat === 2)) {
-        target = nearest(bassNote, c, [0]);
-      } else if (beat === 3) {
-        target = nearest(bassNote, next, [0]) + choose([-1, 1]);
-      } else {
-        target = nearest(bassNote + choose([-5, -3, 2, 4]), c, c.tones);
-      }
-      while (target < 33) target += 12;
-      while (target > 52) target -= 12;
-      bassNote = target;
-      play('bass', target, start + beat * BEAT + rand(-0.006, 0.006), BEAT * 0.94, beat % 2 ? 0.56 : 0.63, 0.08);
-    }
-  }
-
-  function kit(start) {
-    for (const beat of [0, 1, 1.5, 2, 3, 3.5]) {
-      play('ride', 0, start + swing(beat) * BEAT + rand(-0.004, 0.006), 0.9, beat % 1 ? 0.3 : beat % 2 ? 0.42 : 0.36, 0.22);
-    }
-    for (const beat of [1, 3]) {
-      const when = start + beat * BEAT;
-      const src = ctx.createBufferSource();
-      src.buffer = noiseShared;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(0.028, when + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0005, when + 0.16);
-      src.connect(filterNode(ctx, 'bandpass', 4800, 0.6)).connect(g).connect(musicBus);
-      src.start(when, Math.random(), 0.2);
-    }
-  }
-
-  function melody(notes, start) {
-    for (const [beat, note, length] of notes) {
-      const accent = beat % 1 ? 0.05 : 0;
-      play('piano', note, start + swing(beat) * BEAT + rand(-0.01, 0.012), length * BEAT * 0.96, rand(0.6, 0.68) + accent, 0.12);
-    }
-  }
-
-  function newRhythm() {
-    const rhythm = [];
-    let beat = choose([0, 0, 0.5, 1, 1.5]);
-    while (beat < 4) {
-      const length = Math.min(4 - beat, choose([0.5, 0.5, 0.5, 0.5, 1, 1.5]));
-      rhythm.push([beat, length]);
-      beat += length;
-      if (Math.random() < 0.12) beat += 0.5;
-    }
-    return rhythm;
-  }
-
-  function solo(bar, start) {
-    if (restBars > 0) { restBars--; return; }
-    const rhythm = lastRhythm && Math.random() < 0.4 ? lastRhythm : newRhythm();
-    lastRhythm = rhythm;
-    for (const [beat, length] of rhythm) {
-      const c = chordAt(bar, beat);
-      if (beat % 1 === 0 && Math.random() < 0.65) {
-        lineNote = nearest(lineNote + lineDirection, c, c.tones);
-      } else {
-        let steps = Math.random() < 0.8 ? 1 : 2;
-        while (steps > 0) {
-          lineNote += lineDirection;
-          if (inChord(lineNote, c, c.scale)) steps--;
-        }
-      }
-      if (lineNote > 84) lineDirection = -1;
-      else if (lineNote < 65) lineDirection = 1;
-      else if (Math.random() < 0.22) lineDirection = -lineDirection;
-      const accent = beat % 1 ? 0.05 : 0;
-      play('piano', lineNote, start + swing(beat) * BEAT + rand(-0.012, 0.014), length * BEAT * 0.92, rand(0.5, 0.62) + accent, 0.12);
-    }
-    if (Math.random() < 0.3) restBars = 1;
-  }
-
   const noiseShared = noiseBuffer(ctx, 2);
-  let bar = 0, nextBar = 0;
-  function scheduleMusic() {
-    while (nextBar < ctx.currentTime + 1.2) {
-      const chorus = Math.floor(bar / CHART.length) % 4;
-      comp(bar, nextBar);
-      walk(bar, nextBar);
-      kit(nextBar);
-      if (chorus === 0 || chorus === 3) melody(HEAD[bar % CHART.length], nextBar);
-      else solo(bar, nextBar);
-      bar++;
-      nextBar += BAR;
-    }
-  }
 
   // -------------------------------------------------------------------------
   // Conversations: a loop of invented speech from a roomful of tables.
@@ -1351,7 +1917,7 @@ function createRestaurant() {
           mouth.gain.setTargetAtTime(peak, t, 0.018);
           mouth.gain.setTargetAtTime(peak * 0.1, t + length * 0.68, 0.025);
           if (!laugh && Math.random() < 0.45) {
-            hiss.gain.setTargetAtTime(rand(0.25, 0.7), t - 0.015, 0.004);
+            hiss.gain.setTargetAtTime(rand(0.25, 0.7), Math.max(0, t - 0.015), 0.004);
             hiss.gain.setTargetAtTime(0, t + 0.012, 0.012);
           }
           t += length;
@@ -1468,7 +2034,6 @@ function createRestaurant() {
   const applyVolume = () => master.gain.setTargetAtTime(muted ? 0 : 0.85, ctx.currentTime, muted ? 0.08 : 0.8);
   // All the heavy preparation happens now, at load, so the first click stays instant.
   const chatterReady = renderChatter();
-  const instrumentsReady = bakeInstruments();
 
   return {
     ctx,
@@ -1477,15 +2042,16 @@ function createRestaurant() {
       opened = true;
       ctx.resume();
       applyVolume();
+      soundtrack.play().catch(() => {});
       chatterReady.then(playChatter);
-      instrumentsReady.then(() => {
-        nextBar = ctx.currentTime + 0.3;
-        scheduleMusic();
-        setInterval(scheduleMusic, 200);
-      });
       scheduleTable();
     },
-    toggle() { muted = !muted; applyVolume(); return muted; },
+    // Touch screens only allow playback from the end of a tap, so keep asking.
+    wake() {
+      ctx.resume();
+      if (!muted && soundtrack.paused) soundtrack.play().catch(() => {});
+    },
+    toggle() { muted = !muted; soundtrack.muted = muted; applyVolume(); return muted; },
   };
 }
 
@@ -1498,14 +2064,15 @@ function toggleSound() {
     soundButton.textContent = '♪ sound on';
     return;
   }
-  restaurant.ctx.resume();
-  soundButton.textContent = restaurant.toggle() ? '♪ sound off' : '♪ sound on';
+  const nowMuted = restaurant.toggle();
+  restaurant.wake();
+  soundButton.textContent = nowMuted ? '♪ sound off' : '♪ sound on';
 }
 
 // Browsers only allow audio after a gesture, so the room opens on the first one.
 function openRoom(event) {
   if (event.target === soundButton || event.key === 'm' || event.key === 'M') return;
-  if (restaurant.opened) restaurant.ctx.resume();
+  if (restaurant.opened) restaurant.wake();
   else toggleSound();
 }
 addEventListener('pointerdown', openRoom, true);
@@ -1530,6 +2097,7 @@ buildNoodles(atlas.texture);
 serve();
 
 let lastFrame = 0;
+let boatShadowFrame = 0;
 let pending = 0;
 let slowFrames = 0, sampledFrames = -420;
 
@@ -1556,7 +2124,9 @@ renderer.setAnimationLoop((time) => {
   controls.update();
   aimHand(time);
   step(substeps);
+  const pouring = updateSauce(time, delta);
   updateNoodles();
+  if (pouring && ++boatShadowFrame % 3 === 0) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
 });
 </script>
