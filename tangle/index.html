@@ -1,0 +1,1564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Tangle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&family=JetBrains+Mono:wght@500;800&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #f3ead8; --ink-soft: #94a39a; --bg: #101a19; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; touch-action: none; }
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0,0,0,0.55) 100%);
+  }
+  .title { position: fixed; top: 24px; left: 28px; text-shadow: 0 0 8px rgba(0,0,0,0.8); pointer-events: none; font-family: Fraunces, serif; font-weight: 400; font-size: 22px; letter-spacing: 0.01em; }
+  .title small { display: block; margin-top: 4px; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+  .foot { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); padding: 7px 16px; border-radius: 999px; background: rgba(10,16,15,0.78); pointer-events: none; font-size: 12px; letter-spacing: 0.08em; color: #b9c6bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot b { color: var(--ink); font-weight: 500; }
+    #snippet { display: none; font-family: "JetBrains Mono", Menlo, monospace; font-size: 13px; letter-spacing: 0; color: var(--ink); }
+  #snippet i { font-style: normal; color: #e9b949; margin-right: 10px; }
+  #sound { position: fixed; top: 24px; right: 28px; padding: 7px 12px; background: rgba(0,0,0,0.25); border: 1px solid rgba(243,234,216,0.25); border-radius: 999px; color: var(--ink); font: 500 11px Inter, sans-serif; letter-spacing: 0.08em; cursor: pointer; }
+  #sound:hover { background: rgba(0,0,0,0.45); }
+  @media (max-width: 640px) { #sound { top: 14px; right: 12px; padding: 6px 10px; font-size: 10px; } .title { top: 16px; left: 14px; font-size: 16px; } .foot { font-size: 11px; padding: 6px 12px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="vignette"></div>
+<div class="title">Vibecodevember - Tangle<small>Nov 4th 2026</small></div>
+<div class="foot" id="hint"><b>grab</b> a noodle &nbsp;·&nbsp; <b>drag</b> the table to orbit &nbsp;·&nbsp; <b>scroll</b> to read the code &nbsp;·&nbsp; <b>R</b> to serve again</div>
+<div class="foot" id="snippet"></div>
+<button id="sound" title="Toggle sound (M)">♪ click for sound</button>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ---------------------------------------------------------------------------
+// Dimensions. One world unit is about a centimetre of very generous pasta.
+// ---------------------------------------------------------------------------
+const STRANDS = 40;
+const NODES = 65;
+const SEG = 0.5;
+const RAD = 0.19;
+const COUNT = STRANDS * NODES;
+
+const PLATE_R = 10;
+const WELL_R = 6.4;
+const RIM_Y = 1.05;
+const TABLE_Y = -0.55;
+const plateY = (r) => {
+  if (r <= WELL_R) return 0;
+  const u = (r - WELL_R) / (PLATE_R - WELL_R);
+  return RIM_Y * u * u * (3 - u) * 0.5;
+};
+// Lowest point the hand can go: on the plate, over its rim, or on the table.
+const handFloor = (r) => {
+  if (r >= PLATE_R + 0.3) return TABLE_Y + RAD;
+  return r > PLATE_R - 0.3 ? RIM_Y + RAD + 0.04 : restY(r);
+};
+// Height of a noodle's centre resting on the plate, measured along the surface normal.
+const restY = (r) => {
+  if (r <= WELL_R) return RAD + 0.01;
+  const u = (r - WELL_R) / (PLATE_R - WELL_R);
+  const slope = (RIM_Y * (6 * u - 3 * u * u) * 0.5) / (PLATE_R - WELL_R);
+  return plateY(r) + RAD * Math.sqrt(1 + slope * slope) + 0.01;
+};
+
+// ---------------------------------------------------------------------------
+// Physics: position-based ropes with segment-vs-segment contact, so noodles
+// wrap around each other instead of passing through.
+// ---------------------------------------------------------------------------
+const H = 1 / 180;
+const GRAVITY = 42;
+const AIR = 1 - 1.4 * H;
+const MAX_STEP = 0.13;
+const SLEEP_AFTER = 45;
+const DRIFT2 = 0.006 * 0.006;
+const STIR2 = 0.01 * 0.01;
+const JITTER2 = 0.012 * 0.012;
+const MAX_SUBSTEPS = 3;
+const BUDGET_MS = 6;
+const HELD_DRAG = 0.86;
+const TAUT = SEG * 1.03;
+const LIFT = 1.1;
+const CONTACT_GRIP = 0.09;
+const PLATE_GRIP = 0.15;
+const REST_EPS2 = 0.0022 * 0.0022;
+const BEND = 0.08;
+const MEMORY = 0.0008;
+const MIN_BEND = SEG * 1.72;
+const MARGIN = 0.16;
+const CELL = SEG + 2 * RAD + MARGIN;
+
+const px = new Float64Array(COUNT), py = new Float64Array(COUNT), pz = new Float64Array(COUNT);
+const ox = new Float64Array(COUNT), oy = new Float64Array(COUNT), oz = new Float64Array(COUNT);
+const invMass = new Float64Array(COUNT).fill(1);
+const bendRest = new Float64Array(COUNT);
+const touching = new Uint8Array(COUNT);
+const restCount = new Uint8Array(COUNT);
+const stirred = new Uint8Array(COUNT);
+const occlusion = new Float32Array(COUNT);
+const shade = new Float32Array(COUNT).fill(1);
+
+const GX = 64, GY = 28, GZ = 64;
+const gridHead = new Int32Array(GX * GY * GZ).fill(-1);
+const gridNext = new Int32Array(COUNT);
+const gridCell = new Int32Array(COUNT);
+const pairs = new Int32Array(600000);
+let pairCount = 0;
+let pairsStale = true;
+const builtX = new Float64Array(COUNT), builtY = new Float64Array(COUNT), builtZ = new Float64Array(COUNT);
+
+const hasSegment = (i) => i % NODES !== NODES - 1;
+const dozing = (i) => restCount[i] >= SLEEP_AFTER && restCount[i + 1] >= SLEEP_AFTER;
+const clampCell = (v, n) => (v < 0 ? 0 : v >= n ? n - 1 : v);
+const cellX = (x) => clampCell(Math.floor((x + 40) / CELL), GX);
+const cellY = (y) => clampCell(Math.floor((y + 1) / CELL), GY);
+const cellZ = (z) => clampCell(Math.floor((z + 40) / CELL), GZ);
+
+function serve() {
+  for (let s = 0; s < STRANDS; s++) {
+    let a = Math.random() * Math.PI * 2;
+    const ring = Math.sqrt(Math.random()) * 5;
+    let x = Math.cos(a) * ring, z = Math.sin(a) * ring;
+    let heading = Math.random() * Math.PI * 2;
+    let curl = (Math.random() - 0.5) * 0.5;
+    const y = 1.2 + s * 0.46;
+    for (let n = 0; n < NODES; n++) {
+      const i = s * NODES + n;
+      const r = Math.hypot(x, z);
+      if (r > 5.6) {
+        const home = Math.atan2(-z, -x);
+        let turn = home - heading;
+        turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+        heading += turn * 0.28;
+      }
+      curl += (Math.random() - 0.5) * 0.12;
+      curl = Math.max(-0.45, Math.min(0.45, curl));
+      heading += curl;
+      x += Math.cos(heading) * SEG;
+      z += Math.sin(heading) * SEG;
+      px[i] = ox[i] = x; py[i] = oy[i] = y; pz[i] = oz[i] = z;
+      bendRest[i] = SEG * 1.9;
+    }
+  }
+  drag.node = -1;
+  restCount.fill(0);
+  stirred.fill(0);
+  pairsStale = true;
+}
+
+function movedPastMargin() {
+  const heldFirst = drag.node >= 0 ? drag.node - drag.node % NODES : -1;
+  const heldLast = drag.node >= 0 ? heldFirst + NODES - 1 : -1;
+  const limit2 = (MARGIN * MARGIN) / 4;
+  for (let i = 0; i < COUNT; i++) {
+    if (restCount[i] >= SLEEP_AFTER || (i >= heldFirst && i <= heldLast)) continue;
+    const dx = px[i] - builtX[i], dy = py[i] - builtY[i], dz = pz[i] - builtZ[i];
+    if (dx * dx + dy * dy + dz * dz > limit2) return true;
+  }
+  return false;
+}
+
+function buildPairs() {
+  const reach = SEG + 2 * RAD + MARGIN;
+  const reach2 = reach * reach;
+  builtX.set(px); builtY.set(py); builtZ.set(pz);
+  pairsStale = false;
+  for (let i = 0; i < COUNT; i++) {
+    const cell = gridCell[i];
+    if (cell >= 0) gridHead[cell] = -1;
+  }
+  for (let i = 0; i < COUNT; i++) {
+    gridCell[i] = -1;
+    if (!hasSegment(i)) continue;
+    const mx = (px[i] + px[i + 1]) * 0.5, my = (py[i] + py[i + 1]) * 0.5, mz = (pz[i] + pz[i + 1]) * 0.5;
+    const cell = cellX(mx) + GX * (cellY(my) + GY * cellZ(mz));
+    gridCell[i] = cell;
+    gridNext[i] = gridHead[cell];
+    gridHead[cell] = i;
+  }
+  pairCount = 0;
+  for (let a = 0; a < COUNT; a++) {
+    if (!hasSegment(a) || dozing(a)) continue;
+    const mx = (px[a] + px[a + 1]) * 0.5, my = (py[a] + py[a + 1]) * 0.5, mz = (pz[a] + pz[a + 1]) * 0.5;
+    const cx = cellX(mx), cy = cellY(my), cz = cellZ(mz);
+    const x0 = cx > 0 ? cx - 1 : 0, x1 = cx < GX - 1 ? cx + 1 : cx;
+    const y0 = cy > 0 ? cy - 1 : 0, y1 = cy < GY - 1 ? cy + 1 : cy;
+    const z0 = cz > 0 ? cz - 1 : 0, z1 = cz < GZ - 1 ? cz + 1 : cz;
+    for (let zz = z0; zz <= z1; zz++) for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) {
+      for (let b = gridHead[xx + GX * (yy + GY * zz)]; b >= 0; b = gridNext[b]) {
+        if (dozing(b) ? Math.abs(a - b) <= 2 : b <= a + 2) continue;
+        const dx = (px[b] + px[b + 1]) * 0.5 - mx;
+        const dy = (py[b] + py[b + 1]) * 0.5 - my;
+        const dz = (pz[b] + pz[b + 1]) * 0.5 - mz;
+        if (dx * dx + dy * dy + dz * dz > reach2) continue;
+        if (pairCount + 2 > pairs.length) return;
+        pairs[pairCount++] = a;
+        pairs[pairCount++] = b;
+      }
+    }
+  }
+}
+
+function solveContacts(measure) {
+  const contact = 2 * RAD;
+  const contact2 = contact * contact;
+  const near2 = 0.72 * 0.72;
+  const wake2 = contact2 * 1.5;
+  const broad2 = 4 * (SEG + contact) * (SEG + contact);
+  let dozingPairs = 0;
+  for (let k = 0; k < pairCount; k += 2) {
+    const a0 = pairs[k], a1 = a0 + 1, b0 = pairs[k + 1], b1 = b0 + 1;
+    if (dozing(a0) && dozing(b0)) { dozingPairs++; continue; }
+    const ax = px[a0], ay = py[a0], az = pz[a0];
+    const bx = px[b0], by = py[b0], bz = pz[b0];
+    const gx = ax + px[a1] - bx - px[b1], gy = ay + py[a1] - by - py[b1], gz = az + pz[a1] - bz - pz[b1];
+    if (gx * gx + gy * gy + gz * gz > broad2) continue;
+    const ux = px[a1] - ax, uy = py[a1] - ay, uz = pz[a1] - az;
+    const vx = px[b1] - bx, vy = py[b1] - by, vz = pz[b1] - bz;
+    const rx = ax - bx, ry = ay - by, rz = az - bz;
+    const uu = ux * ux + uy * uy + uz * uz;
+    const vv = vx * vx + vy * vy + vz * vz;
+    const uv = ux * vx + uy * vy + uz * vz;
+    const vr = vx * rx + vy * ry + vz * rz;
+    const ur = ux * rx + uy * ry + uz * rz;
+    const den = uu * vv - uv * uv;
+    let s = den > 1e-9 ? (uv * vr - ur * vv) / den : 0;
+    s = s < 0 ? 0 : s > 1 ? 1 : s;
+    let t = (uv * s + vr) / vv;
+    if (t < 0) { t = 0; s = -ur / uu; s = s < 0 ? 0 : s > 1 ? 1 : s; }
+    else if (t > 1) { t = 1; s = (uv - ur) / uu; s = s < 0 ? 0 : s > 1 ? 1 : s; }
+    let nx = rx + ux * s - vx * t, ny = ry + uy * s - vy * t, nz = rz + uz * s - vz * t;
+    const d2 = nx * nx + ny * ny + nz * nz;
+    if (d2 < wake2 && (stirred[a0] | stirred[a1] | stirred[b0] | stirred[b1])) {
+      if (dozing(a0) || dozing(b0)) pairsStale = true;
+      restCount[a0] = restCount[a1] = restCount[b0] = restCount[b1] = 0;
+    }
+    if (measure && d2 < near2 && ny * ny > 0.2 * d2) {
+      const under = ny < 0 ? a0 : b0;
+      occlusion[under] += 1;
+      occlusion[under + 1] += 1;
+    }
+    if (d2 >= contact2 || d2 < 1e-10) continue;
+    const dist = Math.sqrt(d2);
+    nx /= dist; ny /= dist; nz /= dist;
+    const s1 = 1 - s, t1 = 1 - t;
+    const wa0 = invMass[a0] * s1, wa1 = invMass[a1] * s, wb0 = invMass[b0] * t1, wb1 = invMass[b1] * t;
+    const sum = wa0 * s1 + wa1 * s + wb0 * t1 + wb1 * t;
+    if (sum < 1e-9) continue;
+    let depth = contact - dist;
+    const limit = stirred[a0] | stirred[a1] | stirred[b0] | stirred[b1] ? 0.03 : 0.004;
+    if (depth > limit) depth = limit;
+    const push = depth / sum;
+    // Tangential slip since the last substep, for sticky sauce-like friction.
+    let fx = (px[a0] - ox[a0]) * s1 + (px[a1] - ox[a1]) * s - (px[b0] - ox[b0]) * t1 - (px[b1] - ox[b1]) * t;
+    let fy = (py[a0] - oy[a0]) * s1 + (py[a1] - oy[a1]) * s - (py[b0] - oy[b0]) * t1 - (py[b1] - oy[b1]) * t;
+    let fz = (pz[a0] - oz[a0]) * s1 + (pz[a1] - oz[a1]) * s - (pz[b0] - oz[b0]) * t1 - (pz[b1] - oz[b1]) * t;
+    const fn = fx * nx + fy * ny + fz * nz;
+    const grip = CONTACT_GRIP / sum;
+    fx = (fx - fn * nx) * grip; fy = (fy - fn * ny) * grip; fz = (fz - fn * nz) * grip;
+    const jx = nx * push - fx, jy = ny * push - fy, jz = nz * push - fz;
+    px[a0] += wa0 * jx; py[a0] += wa0 * jy; pz[a0] += wa0 * jz;
+    px[a1] += wa1 * jx; py[a1] += wa1 * jy; pz[a1] += wa1 * jz;
+    px[b0] -= wb0 * jx; py[b0] -= wb0 * jy; pz[b0] -= wb0 * jz;
+    px[b1] -= wb1 * jx; py[b1] -= wb1 * jy; pz[b1] -= wb1 * jz;
+    touching[a0] = touching[a1] = touching[b0] = touching[b1] = 1;
+  }
+  if (dozingPairs * 8 > pairCount) pairsStale = true;
+}
+
+function link(a, b, rest) {
+  const dx = px[b] - px[a], dy = py[b] - py[a], dz = pz[b] - pz[a];
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const wa = invMass[a], wb = invMass[b], sum = wa + wb;
+  if (d < 1e-9 || sum === 0) return;
+  const c = (d - rest) / (d * sum);
+  px[a] += dx * c * wa; py[a] += dy * c * wa; pz[a] += dz * c * wa;
+  px[b] -= dx * c * wb; py[b] -= dy * c * wb; pz[b] -= dz * c * wb;
+}
+
+function solveStrands() {
+  for (let s = 0; s < STRANDS; s++) {
+    const first = s * NODES, last = first + NODES - 1;
+    for (let i = first; i < last; i++) link(i, i + 1, SEG);
+    for (let i = last - 1; i >= first; i--) link(i, i + 1, SEG);
+    // A cooked noodle resists kinks but slowly forgets which way was straight.
+    for (let i = first; i < last - 1; i++) {
+      const j = i + 2;
+      const dx = px[j] - px[i], dy = py[j] - py[i], dz = pz[j] - pz[i];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      let rest = bendRest[i];
+      rest += (d - rest) * MEMORY;
+      rest = rest < MIN_BEND ? MIN_BEND : rest > SEG * 2 ? SEG * 2 : rest;
+      bendRest[i] = rest;
+      if (d >= rest || d < 1e-9) continue;
+      const wa = invMass[i], wb = invMass[j], sum = wa + wb;
+      if (sum === 0) continue;
+      const stiff = d < MIN_BEND ? 0.5 : BEND;
+      const c = ((d - rest) / (d * sum)) * stiff;
+      px[i] += dx * c * wa; py[i] += dy * c * wa; pz[i] += dz * c * wa;
+      px[j] -= dx * c * wb; py[j] -= dy * c * wb; pz[j] -= dz * c * wb;
+    }
+  }
+}
+
+function collidePlate() {
+  const overRim = RIM_Y + RAD + 0.04;
+  for (let i = 0; i < COUNT; i++) {
+    if (restCount[i] >= SLEEP_AFTER) continue;
+    const r = Math.sqrt(px[i] * px[i] + pz[i] * pz[i]);
+    let hit = false;
+    let radial = 0;
+    if (r < PLATE_R) {
+      const floor = r > PLATE_R - 0.3 ? Math.max(restY(r), overRim) : restY(r);
+      if (py[i] < floor) {
+        if (r > PLATE_R - 0.5 && py[i] < plateY(r) - 0.3) radial = PLATE_R + RAD;
+        else py[i] = floor;
+        hit = true;
+      }
+    } else {
+      if (py[i] < TABLE_Y + RAD) { py[i] = TABLE_Y + RAD; hit = true; }
+      // Nodes are half a unit apart, so keep them clear of the rim on both sides.
+      if (r < PLATE_R + 0.3 && py[i] < overRim) {
+        if (py[i] > RIM_Y - 0.3) py[i] = overRim;
+        else radial = PLATE_R + 0.3;
+        hit = true;
+      }
+      if (r > 45) radial = 45;
+    }
+    if (radial) {
+      const k = radial / Math.max(r, 1e-6);
+      px[i] *= k; pz[i] *= k;
+    }
+    if (hit) {
+      touching[i] = 1;
+      if (i !== drag.node) {
+        px[i] -= (px[i] - ox[i]) * PLATE_GRIP;
+        pz[i] -= (pz[i] - oz[i]) * PLATE_GRIP;
+      }
+    }
+  }
+}
+
+function integrate(handShare) {
+  const g = GRAVITY * H * H;
+  const heldFirst = drag.node >= 0 ? drag.node - drag.node % NODES : -1;
+  const heldLast = drag.node >= 0 ? heldFirst + NODES - 1 : -1;
+  for (let i = 0; i < COUNT; i++) {
+    if (restCount[i] >= SLEEP_AFTER) {
+      ox[i] = px[i]; oy[i] = py[i]; oz[i] = pz[i];
+      continue;
+    }
+    let vx = (px[i] - ox[i]) * AIR, vy = (py[i] - oy[i]) * AIR - g, vz = (pz[i] - oz[i]) * AIR;
+    if (i >= heldFirst && i <= heldLast) { vx *= HELD_DRAG; vz *= HELD_DRAG; }
+    const v2 = vx * vx + vy * vy + vz * vz;
+    if (v2 > MAX_STEP * MAX_STEP) {
+      const k = MAX_STEP / Math.sqrt(v2);
+      vx *= k; vy *= k; vz *= k;
+    }
+    ox[i] = px[i]; oy[i] = py[i]; oz[i] = pz[i];
+    px[i] += vx; py[i] += vy; pz[i] += vz;
+  }
+  if (drag.node >= 0) {
+    const i = drag.node;
+    px[i] = ox[i]; py[i] = oy[i]; pz[i] = oz[i];
+    px[i] += (drag.x - px[i]) * handShare;
+    py[i] += (drag.y - py[i]) * handShare;
+    pz[i] += (drag.z - pz[i]) * handShare;
+  }
+}
+
+// Noodles barely stretch: the held strand pays out from the hand at full length,
+// so it can never trail behind the cursor while the solver catches up.
+function taut(from, to) {
+  const dx = px[to] - px[from], dy = py[to] - py[from], dz = pz[to] - pz[from];
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (d <= TAUT) return;
+  restCount[to] = 0;
+  stirred[to] = 1;
+  const k = TAUT / d;
+  const nx = px[from] + dx * k, ny = py[from] + dy * k, nz = pz[from] + dz * k;
+  // Move the previous position too: being hauled gives a noodle no momentum, so it
+  // stops when the hand stops, and reverses with it instead of flying on past.
+  ox[to] += nx - px[to]; oy[to] += ny - py[to]; oz[to] += nz - pz[to];
+  px[to] = nx; py[to] = ny; pz[to] = nz;
+}
+
+function followHand() {
+  if (drag.node < 0) return;
+  const first = drag.node - drag.node % NODES, last = first + NODES - 1;
+  for (let i = drag.node; i < last; i++) taut(i, i + 1);
+  for (let i = drag.node; i > first; i--) taut(i, i - 1);
+}
+
+// Resting noodles in contact stay exactly still, so the text doesn't shimmer.
+function settle() {
+  const heldFirst = drag.node >= 0 ? drag.node - drag.node % NODES : -1;
+  const heldLast = drag.node >= 0 ? heldFirst + NODES - 1 : -1;
+  for (let i = 0; i < COUNT; i++) {
+    const dx = px[i] - ox[i], dy = py[i] - oy[i], dz = pz[i] - oz[i];
+    const moved2 = dx * dx + dy * dy + dz * dz;
+    const held = i >= heldFirst && i <= heldLast;
+    stirred[i] = held || moved2 > STIR2 ? 1 : 0;
+    if (held) {
+      restCount[i] = 0;
+    } else if (moved2 < REST_EPS2) {
+      if (touching[i] || restCount[i] >= SLEEP_AFTER) { px[i] = ox[i]; py[i] = oy[i]; pz[i] = oz[i]; }
+      if (restCount[i] < SLEEP_AFTER) restCount[i]++;
+    } else if (moved2 < DRIFT2) {
+      // A slow creep counts as resting, otherwise a settled pile never truly stops.
+      if (restCount[i] >= SLEEP_AFTER) { px[i] = ox[i]; py[i] = oy[i]; pz[i] = oz[i]; }
+      else {
+        restCount[i]++;
+        if (touching[i]) { px[i] = ox[i] + dx * 0.35; py[i] = oy[i] + dy * 0.35; pz[i] = oz[i] + dz * 0.35; }
+      }
+    } else {
+      restCount[i] = 0;
+      // Tiny corrections between pressed-together noodles bleed away instead of buzzing.
+      if (touching[i] && moved2 < JITTER2) {
+        px[i] = ox[i] + dx * 0.35; py[i] = oy[i] + dy * 0.35; pz[i] = oz[i] + dz * 0.35;
+      }
+    }
+    touching[i] = 0;
+  }
+}
+
+function step(substeps) {
+  occlusion.fill(0);
+  const started = performance.now();
+  for (let n = 0; n < substeps; n++) {
+    // Over budget the noodles slow down a little; the hand never does.
+    if (n > 0 && performance.now() - started > BUDGET_MS) break;
+    // The held strand is re-checked once a frame; everything else only when it has moved.
+    if (pairsStale || (n === 0 && drag.node >= 0) || (n % 2 === 0 && movedPastMargin())) buildPairs();
+    integrate(1 / (substeps - n));
+    solveContacts(n === 0);
+    solveStrands();
+    followHand();
+    collidePlate();
+    settle();
+  }
+  // Whatever the budget allowed above, the frame ends with the hand on the cursor
+  // and the whole strand pulled along behind it.
+  if (drag.node >= 0) {
+    px[drag.node] = drag.x; py[drag.node] = drag.y; pz[drag.node] = drag.z;
+    followHand();
+  }
+  if (substeps > 0) {
+    for (let i = 0; i < COUNT; i++) {
+      if (restCount[i] >= SLEEP_AFTER) continue;
+      const target = 1 / (1 + 0.065 * occlusion[i]);
+      shade[i] += (target - shade[i]) * 0.2;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The sauce: this very script, cut into strands.
+// ---------------------------------------------------------------------------
+const FONT_PX = 30;
+const ATLAS_W = 4096;
+const ROW_H = 48;
+const INK = { plain: '#2c1a0d', keyword: '#a91d0c', string: '#2c6a1c', number: '#6a2478', member: '#124f6b' };
+const KEYWORDS = /^(?:const|let|var|function|return|if|else|for|while|new|import|from|class|this|true|false|null|continue|break|await|async|of|in|typeof)$/;
+const TOKENS = /`[^`]*`|'[^']*'|"[^"]*"|[A-Za-z_$][\w$]*|\d[\d.e]*|\s+|./g;
+
+function loadSource() {
+  const lines = document.querySelector('script[type=module]').textContent.split('\n');
+  let text = '';
+  const marks = [];
+  lines.forEach((line, index) => {
+    const code = line.trim();
+    if (!code || code.startsWith('//')) return;
+    marks.push({ at: text.length, line: index + 1 });
+    text += code + ' ';
+  });
+  return { text, marks };
+}
+
+function buildAtlas({ text }) {
+  const canvas = document.createElement('canvas');
+  canvas.width = ATLAS_W;
+  canvas.height = ROW_H * STRANDS;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = `800 ${FONT_PX}px "JetBrains Mono", Menlo, Consolas, monospace`;
+  ctx.textBaseline = 'middle';
+  const advance = ctx.measureText('M').width;
+  const perStrand = Math.floor(ATLAS_W / advance) - 4;
+  const windows = [];
+  for (let s = 0; s < STRANDS; s++) {
+    const span = Math.max(1, text.length - perStrand);
+    let start = Math.floor((s / STRANDS) * span);
+    while (start > 0 && text[start - 1] !== ' ') start--;
+    const piece = text.slice(start, start + perStrand);
+    windows.push({ start, length: piece.length });
+    let col = 2;
+    let previous = '';
+    for (const token of piece.match(TOKENS) || []) {
+      if (token.trim()) {
+        let color = INK.plain;
+        if (KEYWORDS.test(token)) color = INK.keyword;
+        else if (/^[`'"]/.test(token)) color = INK.string;
+        else if (/^\d/.test(token)) color = INK.number;
+        else if (previous === '.' && /^[A-Za-z_$]/.test(token)) color = INK.member;
+        ctx.fillStyle = color;
+        ctx.fillText(token, col * advance, (s + 0.5) * ROW_H + 1);
+        previous = token;
+      }
+      col += token.length;
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.flipY = false;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return { texture, windows, advance };
+}
+
+// ---------------------------------------------------------------------------
+// Scene
+// ---------------------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio < 2 });
+const MAX_PIXELS = 4.2e6;
+const fittedRatio = () => Math.max(1, Math.min(devicePixelRatio, 2, Math.sqrt(MAX_PIXELS / (innerWidth * innerHeight))));
+renderer.setPixelRatio(fittedRatio());
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;
+document.body.prepend(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101a19);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.32;
+
+const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 400);
+const fitCamera = () => {
+  const portrait = Math.max(1, 1 / camera.aspect);
+  camera.position.set(0, 22.5 * portrait, 12.5 * portrait);
+};
+fitCamera();
+
+const key = new THREE.DirectionalLight(0xfff0dc, 3.1);
+key.position.set(-9, 26, 7);
+key.target.position.set(0, 0, 0);
+key.castShadow = true;
+key.shadow.mapSize.set(1536, 1536);
+Object.assign(key.shadow.camera, { left: -17, right: 17, top: 17, bottom: -17, near: 5, far: 50 });
+key.shadow.bias = -0.0006;
+key.shadow.normalBias = 0.03;
+key.shadow.radius = 3;
+scene.add(key);
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0x5a3c1c, 0.85));
+
+function linen() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1f3633';
+  g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 512; i += 2) {
+    g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '190,220,205'},${Math.random() * 0.045})`;
+    g.fillRect(i, 0, 1, 512);
+    g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '190,220,205'},${Math.random() * 0.045})`;
+    g.fillRect(0, i, 512, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(26, 26);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+const tableMap = linen();
+const table = new THREE.Mesh(
+  new THREE.CircleGeometry(160, 64),
+  new THREE.MeshStandardMaterial({ map: tableMap, roughness: 1, metalness: 0, envMapIntensity: 0.4 })
+);
+table.rotation.x = -Math.PI / 2;
+table.position.y = TABLE_Y;
+table.receiveShadow = true;
+scene.add(table);
+
+function buildPlate() {
+  const points = [];
+  for (let r = 0; r <= PLATE_R; r += 0.05) points.push(new THREE.Vector2(r, plateY(r)));
+  points.push(
+    new THREE.Vector2(PLATE_R + 0.07, RIM_Y + 0.01),
+    new THREE.Vector2(PLATE_R + 0.13, RIM_Y - 0.05),
+    new THREE.Vector2(PLATE_R + 0.1, RIM_Y - 0.14),
+    new THREE.Vector2(9.0, 0.3),
+    new THREE.Vector2(7.2, -0.3),
+    new THREE.Vector2(6.8, TABLE_Y),
+    new THREE.Vector2(0, TABLE_Y)
+  );
+  const geo = new THREE.LatheGeometry(points.reverse(), 128);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const glaze = new THREE.Color(0xf4efe4), band = new THREE.Color(0x1d4e57), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getZ(i));
+    const inBand = (r > 9.225 && r < 9.475) || (r > 8.925 && r < 8.975);
+    c.copy(inBand ? band : glaze);
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.28, metalness: 0,
+  }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+buildPlate();
+
+// ---------------------------------------------------------------------------
+// Noodle mesh: one merged tube, rebuilt from the simulation every frame.
+// ---------------------------------------------------------------------------
+const SUBDIV = 4;
+const SIDES = 8;
+const RINGS = (NODES - 1) * SUBDIV + 1;
+const VERTS = STRANDS * RINGS * SIDES;
+const meshPos = new Float32Array(VERTS * 3);
+const meshNor = new Float32Array(VERTS * 3);
+const meshTan = new Float32Array(VERTS * 3);
+const meshShade = new Float32Array(VERTS).fill(1);
+const noodleUniforms = { uAtlas: { value: null }, uRows: { value: STRANDS }, uHot: { value: -1 } };
+let noodleGeometry;
+
+function buildNoodles(atlas) {
+  const label = new Float32Array(VERTS * 2);
+  const index = new Uint32Array(STRANDS * (RINGS - 1) * SIDES * 6);
+  let e = 0;
+  for (let s = 0; s < STRANDS; s++) {
+    const base = s * RINGS * SIDES;
+    for (let r = 0; r < RINGS; r++) {
+      for (let k = 0; k < SIDES; k++) {
+        const v = base + r * SIDES + k;
+        label[v * 2] = r / (RINGS - 1);
+        label[v * 2 + 1] = s;
+        if (r < RINGS - 1) {
+          const k1 = (k + 1) % SIDES;
+          const a = base + r * SIDES + k, b = base + r * SIDES + k1;
+          const c = a + SIDES, d = b + SIDES;
+          index[e++] = a; index[e++] = c; index[e++] = b;
+          index[e++] = b; index[e++] = c; index[e++] = d;
+        }
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  const dynamic = (data, size) => new THREE.BufferAttribute(data, size).setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', dynamic(meshPos, 3));
+  geo.setAttribute('normal', dynamic(meshNor, 3));
+  geo.setAttribute('aTangent', dynamic(meshTan, 3));
+  geo.setAttribute('aShade', dynamic(meshShade, 1));
+  geo.setAttribute('aLabel', new THREE.BufferAttribute(label, 2));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  noodleGeometry = geo;
+
+  atlas.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  noodleUniforms.uAtlas.value = atlas;
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffcf5c, roughness: 0.62, metalness: 0,
+  });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, noodleUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute vec3 aTangent; attribute vec2 aLabel; attribute float aShade;
+        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vStrandT = normalMatrix * aTangent; vLabel = aLabel; vShade = aShade;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform sampler2D uAtlas; uniform float uRows; uniform float uHot;
+        varying vec3 vStrandT; varying vec2 vLabel; varying float vShade;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        // Keep the printed line facing the viewer, whichever way the tube has rolled.
+        vec3 viewDir = normalize(vViewPosition);
+        vec3 along = normalize(vStrandT);
+        vec3 textUp = normalize(cross(viewDir, along));
+        float across = clamp(dot(normal, textUp), -1.0, 1.0);
+        float row = floor(vLabel.y + 0.5);
+        vec2 atlasUv = vec2(vLabel.x, (row + 0.5 - 0.5 * across) / uRows);
+        vec3 ink = texture2D(uAtlas, atlasUv).rgb;
+        float hot = 1.0 - step(0.5, abs(row - uHot));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.86, 0.3), hot * 0.6);
+        float rim = pow(1.0 - abs(dot(normal, viewDir)), 2.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.28), rim * 0.35);
+        diffuseColor.rgb *= mix(vec3(0.55, 0.3, 0.1), vec3(1.0), vShade);
+        diffuseColor.rgb *= ink;`);
+  };
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+  // Lay down depth first, so noodles buried in the pile are never shaded at all.
+  const depthOnly = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+  }));
+  depthOnly.frustumCulled = false;
+  depthOnly.renderOrder = -1;
+  scene.add(depthOnly);
+}
+
+const dirtyStrands = [];
+function updateNoodles() {
+  let v = 0;
+  dirtyStrands.length = 0;
+  for (let s = 0; s < STRANDS; s++) {
+    const base = s * NODES;
+    let awake = false;
+    for (let i = base; i < base + NODES && !awake; i++) awake = restCount[i] < SLEEP_AFTER;
+    if (!awake) { v += RINGS * SIDES; continue; }
+    dirtyStrands.push(s);
+    let fx = 0, fy = 1, fz = 0;
+    let ring = 0;
+    for (let n = 0; n < NODES - 1; n++) {
+      const i1 = base + n, i2 = i1 + 1;
+      const i0 = n > 0 ? i1 - 1 : i1, i3 = n < NODES - 2 ? i2 + 1 : i2;
+      const parts = n === NODES - 2 ? SUBDIV + 1 : SUBDIV;
+      for (let p = 0; p < parts; p++, ring++) {
+        const t = p / SUBDIV, t2 = t * t, t3 = t2 * t;
+        const c0 = -0.5 * t3 + t2 - 0.5 * t, c1 = 1.5 * t3 - 2.5 * t2 + 1;
+        const c2 = -1.5 * t3 + 2 * t2 + 0.5 * t, c3 = 0.5 * t3 - 0.5 * t2;
+        const d0 = -1.5 * t2 + 2 * t - 0.5, d1 = 4.5 * t2 - 5 * t;
+        const d2 = -4.5 * t2 + 4 * t + 0.5, d3 = 1.5 * t2 - t;
+        const x = px[i0] * c0 + px[i1] * c1 + px[i2] * c2 + px[i3] * c3;
+        const y = py[i0] * c0 + py[i1] * c1 + py[i2] * c2 + py[i3] * c3;
+        const z = pz[i0] * c0 + pz[i1] * c1 + pz[i2] * c2 + pz[i3] * c3;
+        let tx = px[i0] * d0 + px[i1] * d1 + px[i2] * d2 + px[i3] * d3;
+        let ty = py[i0] * d0 + py[i1] * d1 + py[i2] * d2 + py[i3] * d3;
+        let tz = pz[i0] * d0 + pz[i1] * d1 + pz[i2] * d2 + pz[i3] * d3;
+        const tl = Math.hypot(tx, ty, tz) || 1;
+        tx /= tl; ty /= tl; tz /= tl;
+        // Parallel transport keeps the tube from twisting between rings.
+        const dot = fx * tx + fy * ty + fz * tz;
+        fx -= tx * dot; fy -= ty * dot; fz -= tz * dot;
+        let fl = Math.hypot(fx, fy, fz);
+        if (fl < 1e-4) { fx = tz; fy = 0; fz = -tx; fl = Math.hypot(fx, fy, fz) || 1; }
+        fx /= fl; fy /= fl; fz /= fl;
+        const bx = ty * fz - tz * fy, by = tz * fx - tx * fz, bz = tx * fy - ty * fx;
+        const fromEnd = Math.min(ring, RINGS - 1 - ring);
+        const radius = RAD * (fromEnd === 0 ? 0.02 : fromEnd === 1 ? 0.92 : 1);
+        const axial = fromEnd > 0 ? 0 : ring === 0 ? -1 : 1;
+        const tone = shade[i1] * (1 - t) + shade[i2] * t;
+        for (let k = 0; k < SIDES; k++, v++) {
+          const ca = COS[k], sa = SIN[k];
+          const nx = fx * ca + bx * sa, ny = fy * ca + by * sa, nz = fz * ca + bz * sa;
+          meshPos[v * 3] = x + nx * radius; meshPos[v * 3 + 1] = y + ny * radius; meshPos[v * 3 + 2] = z + nz * radius;
+          meshNor[v * 3] = axial ? tx * axial : nx; meshNor[v * 3 + 1] = axial ? ty * axial : ny; meshNor[v * 3 + 2] = axial ? tz * axial : nz;
+          meshTan[v * 3] = tx; meshTan[v * 3 + 1] = ty; meshTan[v * 3 + 2] = tz;
+          meshShade[v] = tone;
+        }
+      }
+    }
+  }
+  renderer.shadowMap.needsUpdate = dirtyStrands.length > 0;
+  if (!dirtyStrands.length) return;
+  for (const name of ['position', 'normal', 'aTangent', 'aShade']) {
+    const attribute = noodleGeometry.attributes[name];
+    const size = RINGS * SIDES * attribute.itemSize;
+    attribute.clearUpdateRanges();
+    if (dirtyStrands.length <= STRANDS / 2) for (const s of dirtyStrands) attribute.addUpdateRange(s * size, size);
+    attribute.needsUpdate = true;
+  }
+}
+const COS = Float32Array.from({ length: SIDES }, (_, k) => Math.cos((k / SIDES) * Math.PI * 2));
+const SIN = Float32Array.from({ length: SIDES }, (_, k) => Math.sin((k / SIDES) * Math.PI * 2));
+
+// ---------------------------------------------------------------------------
+// Grabbing
+// ---------------------------------------------------------------------------
+const drag = { node: -1, x: 0, y: 0, z: 0, lift: 0, plane: new THREE.Plane(), anchor: new THREE.Vector3(), forward: new THREE.Vector3() };
+const pointer = new THREE.Vector2();
+const ray = new THREE.Raycaster();
+const dragPoint = new THREE.Vector3();
+const dragDepth = new THREE.Vector3();
+const projX = new Float32Array(COUNT), projY = new Float32Array(COUNT), projZ = new Float32Array(COUNT);
+const toScreen = new THREE.Matrix4();
+const hintEl = document.getElementById('hint');
+const snippetEl = document.getElementById('snippet');
+let hoverStrand = -1;
+let source, windows;
+
+function pick(clientX, clientY) {
+  toScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  const e = toScreen.elements;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (let i = 0; i < COUNT; i++) {
+    const x = px[i], y = py[i], z = pz[i];
+    const cw = e[3] * x + e[7] * y + e[11] * z + e[15];
+    projX[i] = ((e[0] * x + e[4] * y + e[8] * z + e[12]) / cw * 0.5 + 0.5) * w;
+    projY[i] = (0.5 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / cw * 0.5) * h;
+    projZ[i] = (e[2] * x + e[6] * y + e[10] * z + e[14]) / cw;
+  }
+  // Pixel size of a noodle at the plate, used as the catch radius.
+  const reach = Math.max(14, (RAD * h) / (Math.tan((camera.fov * Math.PI) / 360) * camera.position.distanceTo(controls.target)) + 7);
+  let best = -1, bestZ = Infinity;
+  for (let i = 0; i < COUNT; i++) {
+    if (!hasSegment(i)) continue;
+    const ax = projX[i], ay = projY[i];
+    const ux = projX[i + 1] - ax, uy = projY[i + 1] - ay;
+    const l2 = ux * ux + uy * uy;
+    let t = l2 > 1e-6 ? ((clientX - ax) * ux + (clientY - ay) * uy) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const dx = ax + ux * t - clientX, dy = ay + uy * t - clientY;
+    if (dx * dx + dy * dy > reach * reach) continue;
+    const depth = projZ[i] + (projZ[i + 1] - projZ[i]) * t;
+    if (depth < bestZ) { bestZ = depth; best = t < 0.5 ? i : i + 1; }
+  }
+  return best;
+}
+
+// Mice report on their own clock, so a frame can see two samples or three. Using the
+// newest one turns steady movement into short and long steps. Instead, keep the samples
+// and read where the pointer was at a fixed moment just before each frame.
+const trail = [];
+const TRAIL_LENGTH = 48;
+const resampled = { x: 0, y: 0 };
+
+function recordPointer(event) {
+  const samples = event.getCoalescedEvents ? event.getCoalescedEvents() : [];
+  for (const sample of samples.length ? samples : [event]) {
+    trail.push({ t: sample.timeStamp, x: sample.clientX, y: sample.clientY });
+  }
+  if (trail.length > TRAIL_LENGTH) trail.splice(0, trail.length - TRAIL_LENGTH);
+}
+
+function resamplePointer(now) {
+  const n = trail.length;
+  const newest = trail[n - 1];
+  let gaps = 0, count = 0;
+  for (let i = n - 1; i > 0 && count < 8; i--) {
+    const gap = trail[i].t - trail[i - 1].t;
+    if (gap < 40) { gaps += gap; count++; }
+  }
+  const interval = count ? gaps / count : 8;
+  const at = now - Math.min(24, Math.max(4, interval * 1.25 + 2));
+  resampled.x = newest.x;
+  resampled.y = newest.y;
+  if (at >= newest.t) return resampled;
+  for (let i = n - 1; i > 0; i--) {
+    const a = trail[i - 1], b = trail[i];
+    if (a.t > at) continue;
+    const k = b.t > a.t ? (at - a.t) / (b.t - a.t) : 1;
+    resampled.x = a.x + (b.x - a.x) * k;
+    resampled.y = a.y + (b.y - a.y) * k;
+    return resampled;
+  }
+  resampled.x = trail[0].x;
+  resampled.y = trail[0].y;
+  return resampled;
+}
+
+// The held point stays exactly under the cursor; it rises by sliding along the
+// view ray toward the camera, so lifting never offsets it on screen.
+function aimHand(now) {
+  if (drag.node < 0) return;
+  drag.lift += (LIFT - drag.lift) * 0.08;
+  const held = resamplePointer(now);
+  const rect = canvas.getBoundingClientRect();
+  pointer.set(((held.x - rect.left) / rect.width) * 2 - 1, -((held.y - rect.top) / rect.height) * 2 + 1);
+  camera.updateMatrixWorld();
+  ray.setFromCamera(pointer, camera);
+  dragDepth.copy(drag.anchor).addScaledVector(drag.forward, -drag.lift);
+  drag.plane.setFromNormalAndCoplanarPoint(drag.forward, dragDepth);
+  if (!ray.ray.intersectPlane(drag.plane, dragPoint)) return;
+  // Below the surface, follow the same ray back up to it, so the point stays under the cursor.
+  const { origin, direction } = ray.ray;
+  for (let k = 0; k < 4 && direction.y < 0; k++) {
+    const floor = handFloor(Math.hypot(dragPoint.x, dragPoint.z));
+    if (dragPoint.y >= floor - 1e-4 && k === 0) break;
+    ray.ray.at((floor - origin.y) / direction.y, dragPoint);
+  }
+  drag.x = dragPoint.x;
+  drag.y = dragPoint.y;
+  drag.z = dragPoint.z;
+}
+
+function showSnippet(node) {
+  const strand = Math.floor(node / NODES);
+  const win = windows[strand];
+  const center = win.start + Math.round(((node % NODES) / (NODES - 1)) * win.length);
+  const from = Math.max(win.start, center - 45);
+  const raw = source.text.slice(from, Math.min(win.start + win.length, from + 96));
+  const piece = (from > win.start ? raw.slice(raw.indexOf(' ') + 1) : raw).trim();
+  let line = 1;
+  for (const mark of source.marks) { if (mark.at > center) break; line = mark.line; }
+  snippetEl.innerHTML = '';
+  const tag = document.createElement('i');
+  tag.textContent = `line ${line}`;
+  snippetEl.append(tag, piece);
+  hintEl.style.display = 'none';
+  snippetEl.style.display = 'block';
+}
+
+function release() {
+  if (drag.node < 0) return;
+  invMass[drag.node] = 1;
+  drag.node = -1;
+  controls.enabled = true;
+  canvas.style.cursor = '';
+  snippetEl.style.display = 'none';
+  hintEl.style.display = 'block';
+}
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || !windows) return;
+  const node = pick(event.clientX, event.clientY);
+  if (node < 0) return;
+  controls.enabled = false;
+  canvas.setPointerCapture(event.pointerId);
+  canvas.style.cursor = 'none';
+  drag.node = node;
+  drag.lift = 0;
+  invMass[node] = 0;
+  noodleUniforms.uHot.value = hoverStrand = Math.floor(node / NODES);
+  camera.getWorldDirection(drag.forward);
+  drag.anchor.set(px[node], py[node], pz[node]);
+  trail.length = 0;
+  recordPointer(event);
+  aimHand(performance.now());
+  showSnippet(node);
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  if (drag.node >= 0) {
+    recordPointer(event);
+    return;
+  }
+  if (event.pointerType === 'touch' || event.buttons !== 0 || !windows) return;
+  const node = pick(event.clientX, event.clientY);
+  hoverStrand = node < 0 ? -1 : Math.floor(node / NODES);
+  noodleUniforms.uHot.value = hoverStrand;
+  canvas.style.cursor = node < 0 ? '' : 'grab';
+});
+
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+canvas.addEventListener('pointerleave', () => {
+  if (drag.node < 0) noodleUniforms.uHot.value = hoverStrand = -1;
+});
+
+addEventListener('keydown', (event) => {
+  if (event.key === 'r' || event.key === 'R') { release(); serve(); }
+});
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.4, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.minDistance = 5;
+controls.maxDistance = 90;
+controls.maxPolarAngle = Math.PI * 0.46;
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(renderer.getPixelRatio(), fittedRatio()));
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------------------
+// The restaurant: everything you hear is synthesised, nothing is a recording.
+// ---------------------------------------------------------------------------
+function createRestaurant() {
+  const ctx = new AudioContext();
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const choose = (list) => list[Math.floor(Math.random() * list.length)];
+  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
+  const gainNode = (context, value) => {
+    const g = context.createGain();
+    g.gain.value = value;
+    return g;
+  };
+  const filterNode = (context, type, frequency, Q = 0.7, gain = 0) => {
+    const f = context.createBiquadFilter();
+    f.type = type; f.frequency.value = frequency; f.Q.value = Q; f.gain.value = gain;
+    return f;
+  };
+  const noiseBuffer = (context, seconds) => {
+    const buffer = context.createBuffer(1, Math.ceil(seconds * context.sampleRate), context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    return buffer;
+  };
+
+  // A warm, mid-sized dining room.
+  const roomImpulse = () => {
+    const seconds = 1.5;
+    const buffer = ctx.createBuffer(2, Math.ceil(seconds * ctx.sampleRate), ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const data = buffer.getChannelData(c);
+      let low = 0;
+      for (let i = 0; i < data.length; i++) {
+        const t = i / ctx.sampleRate;
+        low += (Math.random() * 2 - 1 - low) * (0.08 + 0.5 * Math.exp(-t * 7));
+        data[i] = low * Math.exp(-t * 4.6);
+      }
+      for (let r = 0; r < 7; r++) data[Math.floor(rand(0.006, 0.06) * ctx.sampleRate)] += rand(-0.7, 0.7);
+    }
+    return buffer;
+  };
+
+  const master = gainNode(ctx, 0);
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -8; limiter.ratio.value = 10; limiter.attack.value = 0.004; limiter.release.value = 0.2;
+  master.connect(limiter).connect(ctx.destination);
+  const reverb = ctx.createConvolver();
+  reverb.buffer = roomImpulse();
+  reverb.connect(master);
+
+  const musicBus = gainNode(ctx, 0.85);
+  musicBus.connect(filterNode(ctx, 'highshelf', 6000, 0.7, -4)).connect(master);
+  musicBus.connect(gainNode(ctx, 0.2)).connect(reverb);
+  const roomInput = gainNode(ctx, 1);
+  const roomBus = filterNode(ctx, 'highpass', 120);
+  roomInput.connect(roomBus);
+  roomBus.connect(master);
+  roomBus.connect(gainNode(ctx, 0.5)).connect(reverb);
+
+  // -------------------------------------------------------------------------
+  // Instruments, rendered once off the main thread and replayed as samples.
+  // -------------------------------------------------------------------------
+  const samples = { piano: [], bass: [], ride: [] };
+  let instrumentBuffer = null;
+
+  async function bakeInstruments() {
+    const RATE = 32000;
+    const plan = [];
+    let cursor = 0;
+    const add = (kind, midi, seconds) => { plan.push({ kind, midi, offset: cursor, seconds }); cursor += seconds; };
+    for (let m = 36; m <= 96; m += 4) add('piano', m, m < 60 ? 3.6 : 2.8);
+    for (let m = 28; m <= 52; m += 4) add('bass', m, 2.4);
+    add('ride', 0, 1.3);
+    const off = new OfflineAudioContext(1, Math.ceil(cursor * RATE), RATE);
+    const noise = noiseBuffer(off, 1);
+
+    const partial = (t0, length, freq, amp, fast, slow) => {
+      const osc = off.createOscillator();
+      const g = off.createGain();
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(amp, t0 + 0.003);
+      g.gain.setTargetAtTime(amp * 0.32, t0 + 0.003, 1 / fast);
+      g.gain.setTargetAtTime(0, t0 + 0.18, 1 / slow);
+      g.gain.setTargetAtTime(0, t0 + length - 0.08, 0.015);
+      osc.connect(g).connect(off.destination);
+      osc.start(t0);
+      osc.stop(t0 + length);
+    };
+    const tick = (t0, filter, frequency, amp, length) => {
+      const src = off.createBufferSource();
+      src.buffer = noise;
+      const g = off.createGain();
+      g.gain.setValueAtTime(amp, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
+      src.connect(filterNode(off, filter, frequency, 0.8)).connect(g).connect(off.destination);
+      src.start(t0, Math.random() * 0.5, length + 0.01);
+    };
+
+    for (const note of plan) {
+      const t0 = note.offset;
+      if (note.kind === 'piano') {
+        const f0 = hz(note.midi);
+        const stretch = 0.00032 * 2 ** ((note.midi - 60) / 24);
+        for (let n = 1; n <= 14; n++) {
+          const f = n * f0 * Math.sqrt(1 + stretch * n * n);
+          if (f > RATE * 0.45) break;
+          const struck = 0.25 + Math.abs(Math.sin((Math.PI * n) / 7));
+          const amp = (0.24 * struck) / n ** 1.2;
+          const slow = (0.42 + 0.2 * n) * (f0 / 262) ** 0.6;
+          partial(t0, note.seconds, f, amp, slow * 5, slow);
+          partial(t0, note.seconds, f * 1.0007, amp * 0.65, slow * 5, slow * 1.2);
+        }
+        tick(t0, 'bandpass', Math.min(f0 * 3, 5000), 0.05, 0.02);
+      } else if (note.kind === 'bass') {
+        const f0 = hz(note.midi);
+        [1, 0.55, 0.32, 0.18, 0.1, 0.06].forEach((amp, k) => {
+          const slow = 1 + 0.75 * k;
+          partial(t0, note.seconds, f0 * (k + 1), amp * 0.42, slow * 2.2, slow);
+        });
+        tick(t0, 'lowpass', 700, 0.14, 0.03);
+      } else {
+        [3120, 4310, 5170, 6430, 8020, 9340].forEach((f, k) => partial(t0, note.seconds, f, 0.05, 14, 3 + k * 0.7));
+        tick(t0, 'highpass', 6000, 0.1, 0.03);
+      }
+    }
+    instrumentBuffer = await off.startRendering();
+    for (const note of plan) samples[note.kind].push(note);
+  }
+
+  function play(kind, midi, when, length, level, pan = 0) {
+    let sample = samples[kind][0];
+    if (kind !== 'ride') {
+      for (const s of samples[kind]) if (Math.abs(s.midi - midi) < Math.abs(sample.midi - midi)) sample = s;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = instrumentBuffer;
+    if (kind !== 'ride') src.playbackRate.value = 2 ** ((midi - sample.midi) / 12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(level * level, when);
+    g.gain.setValueAtTime(level * level, when + length);
+    g.gain.setTargetAtTime(0, when + length, kind === 'piano' ? 0.09 : 0.05);
+    const cutoff = kind === 'bass' ? 1100 : kind === 'ride' ? 12000 : 900 + 7000 * level;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = pan;
+    src.connect(filterNode(ctx, 'lowpass', cutoff)).connect(g).connect(panner).connect(musicBus);
+    src.start(when, sample.offset, Math.min(sample.seconds, length + 0.5));
+  }
+
+  // -------------------------------------------------------------------------
+  // The trio: sixteen bars in F. Head, two choruses of solo, head again.
+  // -------------------------------------------------------------------------
+  const QUALITY = {
+    maj: { voice: [4, 7, 11, 14], scale: [0, 2, 4, 7, 9, 11], tones: [0, 4, 7, 11] },
+    min: { voice: [3, 7, 10, 14], scale: [0, 2, 3, 5, 7, 9, 10], tones: [0, 3, 7, 10] },
+    dom: { voice: [10, 14, 16, 21], scale: [0, 2, 4, 7, 9, 10], tones: [0, 4, 7, 10] },
+    alt: { voice: [10, 13, 16, 21], scale: [0, 1, 3, 4, 7, 9, 10], tones: [0, 4, 7, 10] },
+  };
+  const chord = (root, quality) => ({ root, ...QUALITY[quality] });
+  const F = chord(5, 'maj'), D7b9 = chord(2, 'alt'), D7 = chord(2, 'dom'), Gm = chord(7, 'min'), C13 = chord(0, 'dom');
+  const Am = chord(9, 'min'), F7 = chord(5, 'dom'), Bb = chord(10, 'maj'), Eb9 = chord(3, 'dom');
+  const CHART = [[F], [D7b9], [Gm], [C13], [Am], [D7], [Gm], [C13], [F], [F7], [Bb], [Eb9], [Am], [D7b9], [Gm, C13], [F]];
+  const HEAD = [
+    [[0, 69, 1.5], [1.5, 72, 0.5], [2, 76, 2]],
+    [[0, 75, 1], [1, 74, 0.5], [1.5, 72, 0.5], [2, 66, 2]],
+    [[0, 67, 0.5], [0.5, 70, 0.5], [1, 74, 1], [2, 77, 1.5], [3.5, 74, 0.5]],
+    [[0, 76, 1], [1, 74, 0.5], [1.5, 70, 0.5], [2, 69, 2]],
+    [[0, 72, 1.5], [1.5, 76, 0.5], [2, 79, 1], [3, 76, 1]],
+    [[0, 78, 1], [1, 76, 0.5], [1.5, 74, 0.5], [2, 72, 1], [3, 69, 1]],
+    [[0, 70, 1], [1, 74, 1], [2, 77, 0.5], [2.5, 76, 0.5], [3, 74, 1]],
+    [[0, 70, 1.5], [1.5, 67, 0.5], [2, 64, 2]],
+    [[0, 69, 1.5], [1.5, 72, 0.5], [2, 76, 2]],
+    [[0, 75, 1.5], [1.5, 72, 0.5], [2, 69, 2]],
+    [[0, 74, 1], [1, 77, 0.5], [1.5, 81, 0.5], [2, 84, 1.5], [3.5, 81, 0.5]],
+    [[0, 79, 1.5], [1.5, 77, 0.5], [2, 73, 2]],
+    [[0, 72, 1], [1, 76, 0.5], [1.5, 79, 0.5], [2, 81, 1], [3, 79, 1]],
+    [[0, 78, 0.5], [0.5, 75, 0.5], [1, 72, 1], [2, 69, 2]],
+    [[0, 70, 0.5], [0.5, 74, 0.5], [1, 77, 1], [2, 76, 1], [3, 74, 0.5], [3.5, 70, 0.5]],
+    [[0, 69, 3]],
+  ];
+  const COMPING = [[0], [1.5], [2.5], [0, 2.5], [1.5, 3.5], [0.5, 2.5], [0, 1.5, 3.5]];
+  const BEAT = 60 / 104;
+  const BAR = BEAT * 4;
+  const swing = (beat) => {
+    const whole = Math.floor(beat), f = beat - whole;
+    return whole + (f < 0.5 ? f * 1.24 : 0.62 + (f - 0.5) * 0.76);
+  };
+  const chordAt = (bar, beat) => {
+    const entry = CHART[bar % CHART.length];
+    return entry.length > 1 && beat >= 2 ? entry[1] : entry[0];
+  };
+  const inChord = (note, c, list) => list.some((i) => (c.root + i) % 12 === ((note % 12) + 12) % 12);
+  const nearest = (from, c, list) => {
+    for (let d = 0; d < 12; d++) {
+      if (inChord(from + d, c, list)) return from + d;
+      if (inChord(from - d, c, list)) return from - d;
+    }
+    return from;
+  };
+
+  let lineNote = 72, lineDirection = 1, restBars = 0, lastRhythm = null, bassNote = 41;
+
+  function comp(bar, start) {
+    for (const beat of choose(COMPING)) {
+      const c = beat >= 3.5 ? chordAt(bar + 1, 0) : chordAt(bar, beat);
+      const when = start + swing(beat) * BEAT + rand(-0.008, 0.012);
+      const level = rand(0.34, 0.44);
+      c.voice.forEach((interval, k) => {
+        const pc = (c.root + interval) % 12;
+        const note = pc + 12 * Math.round((61 - pc) / 12);
+        play('piano', note, when + k * 0.004, BEAT * rand(0.55, 0.95), level, -0.14);
+      });
+    }
+  }
+
+  function walk(bar, start) {
+    for (let beat = 0; beat < 4; beat++) {
+      const c = chordAt(bar, beat);
+      const next = chordAt(bar + (beat === 3 ? 1 : 0), beat === 3 ? 0 : beat + 1);
+      let target;
+      if (beat === 0 || (CHART[bar % 16].length > 1 && beat === 2)) {
+        target = nearest(bassNote, c, [0]);
+      } else if (beat === 3) {
+        target = nearest(bassNote, next, [0]) + choose([-1, 1]);
+      } else {
+        target = nearest(bassNote + choose([-5, -3, 2, 4]), c, c.tones);
+      }
+      while (target < 33) target += 12;
+      while (target > 52) target -= 12;
+      bassNote = target;
+      play('bass', target, start + beat * BEAT + rand(-0.006, 0.006), BEAT * 0.94, beat % 2 ? 0.56 : 0.63, 0.08);
+    }
+  }
+
+  function kit(start) {
+    for (const beat of [0, 1, 1.5, 2, 3, 3.5]) {
+      play('ride', 0, start + swing(beat) * BEAT + rand(-0.004, 0.006), 0.9, beat % 1 ? 0.3 : beat % 2 ? 0.42 : 0.36, 0.22);
+    }
+    for (const beat of [1, 3]) {
+      const when = start + beat * BEAT;
+      const src = ctx.createBufferSource();
+      src.buffer = noiseShared;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(0.028, when + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0005, when + 0.16);
+      src.connect(filterNode(ctx, 'bandpass', 4800, 0.6)).connect(g).connect(musicBus);
+      src.start(when, Math.random(), 0.2);
+    }
+  }
+
+  function melody(notes, start) {
+    for (const [beat, note, length] of notes) {
+      const accent = beat % 1 ? 0.05 : 0;
+      play('piano', note, start + swing(beat) * BEAT + rand(-0.01, 0.012), length * BEAT * 0.96, rand(0.6, 0.68) + accent, 0.12);
+    }
+  }
+
+  function newRhythm() {
+    const rhythm = [];
+    let beat = choose([0, 0, 0.5, 1, 1.5]);
+    while (beat < 4) {
+      const length = Math.min(4 - beat, choose([0.5, 0.5, 0.5, 0.5, 1, 1.5]));
+      rhythm.push([beat, length]);
+      beat += length;
+      if (Math.random() < 0.12) beat += 0.5;
+    }
+    return rhythm;
+  }
+
+  function solo(bar, start) {
+    if (restBars > 0) { restBars--; return; }
+    const rhythm = lastRhythm && Math.random() < 0.4 ? lastRhythm : newRhythm();
+    lastRhythm = rhythm;
+    for (const [beat, length] of rhythm) {
+      const c = chordAt(bar, beat);
+      if (beat % 1 === 0 && Math.random() < 0.65) {
+        lineNote = nearest(lineNote + lineDirection, c, c.tones);
+      } else {
+        let steps = Math.random() < 0.8 ? 1 : 2;
+        while (steps > 0) {
+          lineNote += lineDirection;
+          if (inChord(lineNote, c, c.scale)) steps--;
+        }
+      }
+      if (lineNote > 84) lineDirection = -1;
+      else if (lineNote < 65) lineDirection = 1;
+      else if (Math.random() < 0.22) lineDirection = -lineDirection;
+      const accent = beat % 1 ? 0.05 : 0;
+      play('piano', lineNote, start + swing(beat) * BEAT + rand(-0.012, 0.014), length * BEAT * 0.92, rand(0.5, 0.62) + accent, 0.12);
+    }
+    if (Math.random() < 0.3) restBars = 1;
+  }
+
+  const noiseShared = noiseBuffer(ctx, 2);
+  let bar = 0, nextBar = 0;
+  function scheduleMusic() {
+    while (nextBar < ctx.currentTime + 1.2) {
+      const chorus = Math.floor(bar / CHART.length) % 4;
+      comp(bar, nextBar);
+      walk(bar, nextBar);
+      kit(nextBar);
+      if (chorus === 0 || chorus === 3) melody(HEAD[bar % CHART.length], nextBar);
+      else solo(bar, nextBar);
+      bar++;
+      nextBar += BAR;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Conversations: a loop of invented speech from a roomful of tables.
+  // -------------------------------------------------------------------------
+  const VOWELS = [
+    [730, 1090, 2440], [530, 1840, 2480], [300, 2200, 3000], [570, 840, 2410], [440, 1020, 2240], [500, 1500, 2500],
+  ];
+
+  async function renderChatter() {
+    const LOOP = 28, FADE = 3, RATE = 22050;
+    const off = new OfflineAudioContext(2, (LOOP + FADE) * RATE, RATE);
+    const noise = noiseBuffer(off, 4);
+    const end = LOOP + FADE;
+
+    const looped = (node) => { node.loop = true; node.start(0, Math.random() * 3); };
+
+    for (let v = 0; v < 18; v++) {
+      const distance = rand(0.3, 1);
+      const pitch = Math.random() < 0.5 ? rand(95, 140) : rand(170, 240);
+      const glottis = off.createOscillator();
+      glottis.type = 'sawtooth';
+      glottis.frequency.value = pitch;
+      const breath = off.createBufferSource();
+      breath.buffer = noise;
+      const voiced = gainNode(off, 1);
+      glottis.connect(voiced);
+      breath.connect(gainNode(off, 0.3)).connect(voiced);
+      const mouth = gainNode(off, 0);
+      const formants = [0, 1, 2].map((k) => {
+        const f = filterNode(off, 'bandpass', VOWELS[5][k], 7 + k * 2);
+        voiced.connect(f);
+        f.connect(gainNode(off, [1, 0.55, 0.22][k])).connect(mouth);
+        return f;
+      });
+      const consonant = off.createBufferSource();
+      consonant.buffer = noise;
+      const hiss = gainNode(off, 0);
+      consonant.connect(filterNode(off, 'bandpass', rand(2400, 4200), 1.2)).connect(hiss).connect(mouth);
+      const panner = off.createStereoPanner();
+      panner.pan.value = rand(-0.85, 0.85);
+      mouth.connect(filterNode(off, 'lowpass', 1500 + 2200 * distance)).connect(gainNode(off, 0.05 * distance)).connect(panner).connect(off.destination);
+      glottis.start(0);
+      looped(breath);
+      looped(consonant);
+
+      let t = rand(0, 4);
+      while (t < end) {
+        const laugh = Math.random() < 0.05;
+        const syllables = laugh ? Math.floor(rand(4, 8)) : Math.floor(rand(4, 20));
+        for (let s = 0; s < syllables && t < end; s++) {
+          const length = laugh ? rand(0.12, 0.17) : rand(0.09, 0.27);
+          const vowel = laugh ? VOWELS[0] : choose(VOWELS);
+          const fall = 1 - (0.2 * s) / syllables;
+          glottis.frequency.setTargetAtTime(pitch * (laugh ? 1.5 : fall * rand(0.92, 1.12)), t, 0.03);
+          formants.forEach((f, k) => f.frequency.setTargetAtTime(vowel[k] * rand(0.95, 1.05), t, 0.025));
+          const peak = laugh ? rand(0.9, 1.2) : rand(0.5, 1);
+          mouth.gain.setTargetAtTime(peak, t, 0.018);
+          mouth.gain.setTargetAtTime(peak * 0.1, t + length * 0.68, 0.025);
+          if (!laugh && Math.random() < 0.45) {
+            hiss.gain.setTargetAtTime(rand(0.25, 0.7), t - 0.015, 0.004);
+            hiss.gain.setTargetAtTime(0, t + 0.012, 0.012);
+          }
+          t += length;
+        }
+        mouth.gain.setTargetAtTime(0, t, 0.04);
+        t += rand(0.35, 3.6);
+      }
+    }
+
+    // Low room tone under the voices: extraction fans, shoes, chairs.
+    const tone = off.createBufferSource();
+    tone.buffer = noise;
+    tone.connect(filterNode(off, 'lowpass', 300)).connect(gainNode(off, 0.018)).connect(off.destination);
+    looped(tone);
+
+    const rendered = await off.startRendering();
+    const fadeLength = FADE * RATE, loopLength = LOOP * RATE;
+    const buffer = ctx.createBuffer(2, loopLength, RATE);
+    let peak = 0;
+    for (let c = 0; c < 2; c++) {
+      const from = rendered.getChannelData(c), to = buffer.getChannelData(c);
+      for (let i = 0; i < loopLength; i++) to[i] = from[i];
+      for (let i = 0; i < fadeLength; i++) {
+        const mix = i / fadeLength;
+        to[i] = to[i] * Math.sqrt(mix) + from[loopLength + i] * Math.sqrt(1 - mix);
+      }
+      for (let i = 0; i < loopLength; i++) peak = Math.max(peak, Math.abs(to[i]));
+    }
+    for (let c = 0; c < 2; c++) {
+      const data = buffer.getChannelData(c);
+      for (let i = 0; i < loopLength; i++) data[i] *= 0.26 / peak;
+    }
+    return buffer;
+  }
+
+  function playChatter(buffer) {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const fadeIn = gainNode(ctx, 0);
+    fadeIn.gain.setTargetAtTime(1, ctx.currentTime, 1.2);
+    src.connect(fadeIn).connect(roomInput);
+    src.start();
+  }
+
+  // -------------------------------------------------------------------------
+  // Tableware: glass, cutlery and ceramic struck somewhere around the room.
+  // -------------------------------------------------------------------------
+  function strike(when, base, ratios, decay, level, out) {
+    ratios.forEach((ratio, k) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      const life = decay / (1 + k * 0.45);
+      osc.frequency.value = base * ratio;
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(level / (1 + k * 0.6), when + 0.0015);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + life);
+      osc.connect(g).connect(out);
+      osc.start(when);
+      osc.stop(when + life + 0.01);
+    });
+  }
+
+  function scrape(when, frequency, length, level, out) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseShared;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(level, when + Math.min(0.03, length * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, when + length);
+    src.connect(filterNode(ctx, 'bandpass', frequency, 2.5)).connect(g).connect(out);
+    src.start(when, Math.random(), length + 0.02);
+  }
+
+  function tableSound() {
+    const when = ctx.currentTime + 0.05;
+    const near = rand(0.25, 1);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = rand(-0.9, 0.9);
+    const out = filterNode(ctx, 'lowpass', 3500 + 8000 * near);
+    out.connect(gainNode(ctx, near * 2.2)).connect(panner).connect(roomInput);
+    setTimeout(() => panner.disconnect(), 3000);
+    const kind = Math.random();
+    if (kind < 0.45) {
+      // Cutlery: a few light knocks, sometimes a fork dragged across a plate.
+      const hits = Math.floor(rand(1, 5));
+      for (let h = 0, t = when; h < hits; h++, t += rand(0.05, 0.16)) {
+        strike(t, rand(2600, 5200), [1, 1.47, 2.09, 2.78, 3.6], rand(0.04, 0.1), rand(0.016, 0.034), out);
+      }
+      if (Math.random() < 0.25) scrape(when + 0.1, rand(2600, 4200), rand(0.15, 0.38), rand(0.015, 0.03), out);
+    } else if (kind < 0.75) {
+      // Ceramic: a plate or cup set down, or a small stack being cleared.
+      const hits = Math.random() < 0.2 ? 3 : Math.random() < 0.4 ? 2 : 1;
+      for (let h = 0, t = when; h < hits; h++, t += rand(0.07, 0.2)) {
+        strike(t, rand(800, 1500), [1, 1.71, 2.63, 3.9], rand(0.06, 0.14), rand(0.028, 0.05), out);
+        strike(t, rand(140, 220), [1, 1.5], 0.07, 0.05, out);
+      }
+    } else {
+      // Glass: a glass set down, or two touching in a toast.
+      const toast = Math.random() < 0.4;
+      const base = rand(1700, 3400);
+      strike(when, base, [1, 2.32, 3.85, 5.4], rand(0.25, 0.6), rand(0.016, 0.03), out);
+      if (toast) strike(when + rand(0.06, 0.13), base * rand(1.04, 1.18), [1, 2.32, 3.85, 5.4], rand(0.3, 0.7), rand(0.012, 0.024), out);
+    }
+  }
+
+  function scheduleTable() {
+    tableSound();
+    setTimeout(scheduleTable, rand(450, 3400));
+  }
+
+  // -------------------------------------------------------------------------
+  let muted = false, opened = false;
+  const applyVolume = () => master.gain.setTargetAtTime(muted ? 0 : 0.85, ctx.currentTime, muted ? 0.08 : 0.8);
+  // All the heavy preparation happens now, at load, so the first click stays instant.
+  const chatterReady = renderChatter();
+  const instrumentsReady = bakeInstruments();
+
+  return {
+    ctx,
+    get opened() { return opened; },
+    open() {
+      opened = true;
+      ctx.resume();
+      applyVolume();
+      chatterReady.then(playChatter);
+      instrumentsReady.then(() => {
+        nextBar = ctx.currentTime + 0.3;
+        scheduleMusic();
+        setInterval(scheduleMusic, 200);
+      });
+      scheduleTable();
+    },
+    toggle() { muted = !muted; applyVolume(); return muted; },
+  };
+}
+
+const soundButton = document.getElementById('sound');
+const restaurant = createRestaurant();
+
+function toggleSound() {
+  if (!restaurant.opened) {
+    restaurant.open();
+    soundButton.textContent = '♪ sound on';
+    return;
+  }
+  restaurant.ctx.resume();
+  soundButton.textContent = restaurant.toggle() ? '♪ sound off' : '♪ sound on';
+}
+
+// Browsers only allow audio after a gesture, so the room opens on the first one.
+function openRoom(event) {
+  if (event.target === soundButton || event.key === 'm' || event.key === 'M') return;
+  if (restaurant.opened) restaurant.ctx.resume();
+  else toggleSound();
+}
+addEventListener('pointerdown', openRoom, true);
+addEventListener('pointerup', openRoom, true);
+addEventListener('keydown', openRoom, true);
+soundButton.addEventListener('click', toggleSound);
+addEventListener('keydown', (event) => {
+  if (event.key === 'm' || event.key === 'M') toggleSound();
+});
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+await Promise.race([
+  document.fonts.load(`800 ${FONT_PX}px "JetBrains Mono"`),
+  new Promise((resolve) => setTimeout(resolve, 1500)),
+]);
+source = loadSource();
+const atlas = buildAtlas(source);
+windows = atlas.windows;
+buildNoodles(atlas.texture);
+serve();
+
+let lastFrame = 0;
+let pending = 0;
+let slowFrames = 0, sampledFrames = -420;
+
+// A laggy hand feels worse than a softer image, so trade pixels for frames.
+function watchFrameRate(delta) {
+  if (delta > 0.1 || ++sampledFrames <= 0) return;
+  if (delta > 0.024) slowFrames++;
+  if (sampledFrames < 45) return;
+  const ratio = renderer.getPixelRatio();
+  if (slowFrames > 22 && ratio > 1) renderer.setPixelRatio(Math.max(1, ratio - 0.25));
+  slowFrames = 0;
+  sampledFrames = -10;
+}
+
+renderer.setAnimationLoop((time) => {
+  const measured = lastFrame ? (time - lastFrame) / 1000 : 1 / 60;
+  lastFrame = time;
+  watchFrameRate(measured);
+  // Timer noise around a 60Hz frame must not flip between two and three substeps.
+  const delta = Math.abs(measured - 1 / 60) < 0.002 ? 1 / 60 : measured;
+  pending = Math.min(pending + delta, MAX_SUBSTEPS * H);
+  const substeps = Math.floor(pending / H);
+  pending -= substeps * H;
+  controls.update();
+  aimHand(time);
+  step(substeps);
+  updateNoodles();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
