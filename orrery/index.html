@@ -6,7 +6,7 @@
 <title>Vibecodevember - Orrery</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Spectral:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
 <style>
   :root { --ink: #f6e6c2; --soft: #b9a57f; --gold: #ffc35a; --bg: #07040c; }
   * { box-sizing: border-box; }
@@ -23,6 +23,32 @@
   #controls { display: flex; align-items: center; gap: 14px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--soft); text-shadow: 0 1px 4px #000; }
   #year { font: 700 18px Cinzel, Georgia, serif; letter-spacing: .06em; color: var(--gold); font-variant-numeric: tabular-nums; min-width: 128px; text-align: right; text-transform: none; }
   #speed { width: 170px; accent-color: var(--gold); }
+  .title, #hud { transition: opacity 1.2s ease .8s; }
+  body.intro .title, body.intro #hud { opacity: 0; pointer-events: none; }
+  #veil { position: fixed; inset: 0; z-index: 4; pointer-events: none; background: radial-gradient(ellipse at 66% 42%, rgba(10,2,4,.18), rgba(4,1,2,.86) 72%); transition: opacity 2.6s ease; }
+  #veil.out { opacity: 0; }
+  #intro { position: fixed; inset: 0; z-index: 5; cursor: pointer; }
+  #intro.out { pointer-events: none; }
+  #seer { position: absolute; left: max(-6vw, -80px); bottom: 0; height: min(100vh, 1024px); aspect-ratio: 1; opacity: 0; transform: translateX(-90px); transition: opacity .9s ease, transform 1.1s cubic-bezier(.2,.8,.2,1); }
+  #seer img { display: block; width: 100%; height: 100%; animation: breathe 6s ease-in-out infinite alternate; transform-origin: 50% 100%; filter: drop-shadow(0 0 40px rgba(0,0,0,.7)); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 7%, #000 93%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 7%, #000 93%, transparent); }
+  @keyframes breathe { to { transform: scale(1.012) translateY(-4px); } }
+  #intro.in #seer { opacity: 1; transform: none; }
+  #intro.out #seer { opacity: 0; transform: translateX(-160px); transition-duration: .75s; }
+  #dlg { position: absolute; left: calc(min(100vh, 1024px) * .58); right: 4vw; bottom: 8vh; max-width: 860px; padding: 46px 64px 40px 60px; background: center / 100% 100% no-repeat; filter: drop-shadow(0 0 2px #000) drop-shadow(0 14px 34px rgba(0,0,0,.85)); opacity: 0; transform: translateY(18px); transition: opacity .6s ease .45s, transform .8s cubic-bezier(.2,.8,.2,1) .45s; }
+  #intro.in #dlg { opacity: 1; transform: none; }
+  #intro.out #dlg { opacity: 0; transform: translateY(12px); transition-delay: 0s; transition-duration: .45s; }
+  #nameplate { position: absolute; top: -20px; left: 26px; padding: 12px 40px 12px 30px; background: center / 100% 100% no-repeat; color: #f7ecdb; font: 700 21px Cinzel, Georgia, serif; letter-spacing: .14em; text-transform: uppercase; text-shadow: 0 2px 0 rgba(40,0,0,.6); }
+  #line { margin: 0; min-height: 2.9em; font: 400 24px/1.5 Spectral, Georgia, serif; color: #efe4d2; }
+  #next { position: absolute; right: 36px; bottom: 20px; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid #d23a24; opacity: 0; }
+  #next.on { opacity: 1; animation: nudge 1s ease-in-out infinite; }
+  @keyframes nudge { 50% { transform: translateY(4px); } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 760px) {
+    #seer { height: 70vh; left: calc(50% - 37vh); top: 0; bottom: auto; }
+    #dlg { left: 10px; right: 10px; bottom: 14px; padding: 38px 30px 30px; }
+    #line { font-size: 19px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #seer img { animation: none; } }
   #error { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; font-family: Cinzel, Georgia, serif; }
   @media (max-width: 620px) {
     .title { top: 14px; left: 16px; font-size: 19px; }
@@ -38,7 +64,7 @@
 </script>
 </head>
 <body>
-<div class="title">The Great Orrery<small>Vibecodevember · drag to look · scroll to move</small></div>
+<div class="title">The Great Orrery<small>Vibecodevember · drag to turn · scroll to zoom</small></div>
 <div id="hud">
   <div id="bodies" role="group" aria-label="Follow a body"></div>
   <div id="controls">
@@ -48,6 +74,16 @@
   </div>
 </div>
 <div id="error">This orrery needs WebGL 2.</div>
+<div id="veil"></div>
+<div id="intro" role="dialog" aria-labelledby="nameplate" aria-describedby="said">
+  <div id="seer" aria-hidden="true"><img src="seer.webp" alt="" decoding="async" /></div>
+  <div id="dlg">
+    <div id="nameplate">Vespera</div>
+    <p id="line" aria-hidden="true"></p>
+    <span id="said" class="sr"></span>
+    <div id="next" aria-hidden="true"></div>
+  </div>
+</div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -97,20 +133,47 @@ document.body.prepend(renderer.domElement);
 const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.25, 90);
-camera.position.set(15.2, 5.4, 11);
+// True isometric: 35.26 degrees above the horizon, orthographic, free to turn about the vertical.
+const ISO_POLAR = Math.acos(1 / Math.sqrt(3));
+const CAM_D = 80;
+const ROOM_TARGET = V(0, 5.5, 0);
+const isoDir = (az) => V(Math.sin(ISO_POLAR) * Math.sin(az), Math.cos(ISO_POLAR), Math.sin(ISO_POLAR) * Math.cos(az));
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 175);
+camera.position.copy(ROOM_TARGET).addScaledVector(isoDir(Math.PI / 4), CAM_D);
 camera.layers.enable(1);
+function frameCamera() {
+  // Fit the whole machine: wide screens are limited by height, tall ones by width.
+  const a = innerWidth / innerHeight, h = Math.max(13.5, 19.5 / a);
+  camera.top = h; camera.bottom = -h; camera.left = -h * a; camera.right = h * a;
+  camera.updateProjectionMatrix();
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 7.4, 0);
+controls.target.copy(ROOM_TARGET);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.minDistance = 1.5;
-controls.maxDistance = 22;
-controls.maxPolarAngle = Math.PI * 0.86;
+controls.minPolarAngle = controls.maxPolarAngle = ISO_POLAR;
+controls.minZoom = 0.8;
+controls.maxZoom = 7;
 controls.autoRotate = true;
-controls.autoRotateSpeed = -0.28;
+controls.autoRotateSpeed = -0.35;
 controls.enablePan = false;
+
+// Dollhouse cutaway: the near walls, near gallery and the dome above the machine are sliced away.
+const CUT = 19.5;
+const clipCut = new THREE.Plane(), clipTop = new THREE.Plane();
+renderer.clippingPlanes = [clipCut, clipTop];
+let capMesh = null;
+function updateClip() {
+  const az = Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+  const nx = Math.sin(az), nz = Math.cos(az);
+  clipCut.normal.set(-nx, 0, -nz); clipCut.constant = CUT;
+  clipTop.normal.set(-0.8 * nx, -1, -0.8 * nz); clipTop.constant = 26; clipTop.normalize();
+  if (capMesh) {
+    capMesh.position.set(nx * (CUT - 0.02), 0, nz * (CUT - 0.02));
+    capMesh.rotation.set(0, az, 0);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Painted textures: everything is hand-inked on a 2D canvas          */
@@ -456,9 +519,16 @@ TEX.puff = paint(128, 128, (g) => {
 /* ------------------------------------------------------------------ */
 /*  Cel material: Phong lighting, repainted in bands with ink hatching */
 /* ------------------------------------------------------------------ */
-const shared = { uSun: { value: SUN.clone() }, uTime: { value: 0 } };
+const shared = { uSun: { value: SUN.clone() }, uTime: { value: 0 }, uEnv: { value: 0.13 } };
+// The room has its own exposure: dark behind the seer, and kept below the orrery afterwards so the machine stands out.
+const ENV_DARK = 0.13, ENV_LIT = 0.6;
+const env = { v: ENV_DARK, goal: ENV_DARK };
+// The orrery itself is switched off while the seer speaks, then powers up: 0 = cold and still, 1 = running.
+const power = { v: 0, goal: 0 };
+shared.uPower = { value: 0 };
+let pw = 0;                   // eased, flickering power used by everything this frame
 const CEL_HEAD = /* glsl */`
-  uniform float uMetal, uRim, uHatch;
+  uniform float uMetal, uRim, uHatch, uIsRoom, uEnv;
   uniform vec3 uSun;
   varying vec3 vCelW;
   float celN(vec3 p) {
@@ -486,7 +556,7 @@ const CEL_BODY = /* glsl */`
   vec3 C = L * q / l;
 
   vec3 Nw = inverseTransformDirection(normal, viewMatrix);
-  vec3 Vw = inverseTransformDirection(normalize(vViewPosition), viewMatrix);
+  vec3 Vw = inverseTransformDirection(geometryViewDir, viewMatrix);
   float NV = clamp(dot(Nw, Vw), 0., 1.);
   vec3 ambient = reflectedLight.indirectDiffuse;
   vec3 diffuseOut = albedo * RECIPROCAL_PI * C + ambient;
@@ -514,12 +584,21 @@ const CEL_BODY = /* glsl */`
   vec3 rim = rimA * (C * .05 + vec3(.022, .03, .06));
 
   vec3 outgoingLight = diffuseOut + specOut + rim + totalEmissiveRadiance;
+  if (uIsRoom > .5) {
+    // Environment: cooler, less saturated and dimmer than the machine.
+    float lum = dot(outgoingLight, vec3(.3, .59, .11));
+    outgoingLight = mix(vec3(lum) * vec3(.8, .88, 1.22), outgoingLight, .4 + .6 * uEnv) * uEnv;
+  } else {
+    outgoingLight *= 1.1;
+  }
 `;
-function cel(mat, { metal = 0, rim = 1, hatch = 1 } = {}) {
+function cel(mat, { metal = 0, rim = 1, hatch = 1, room = 1 } = {}) {
   mat.onBeforeCompile = (s) => {
     s.uniforms.uMetal = { value: metal };
     s.uniforms.uRim = { value: rim };
     s.uniforms.uHatch = { value: hatch };
+    s.uniforms.uIsRoom = { value: room };
+    s.uniforms.uEnv = shared.uEnv;
     s.uniforms.uSun = shared.uSun;
     s.vertexShader = s.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vCelW;')
@@ -536,11 +615,13 @@ function cel(mat, { metal = 0, rim = 1, hatch = 1 } = {}) {
   return mat;
 }
 function phong(opts, celOpts, tri) {
-  const m = cel(new THREE.MeshPhongMaterial({ shininess: 40, specular: 0x222222, ...opts }), celOpts);
+  const m = cel(new THREE.MeshPhongMaterial({ shininess: 40, specular: 0x222222, ...opts }), { ...celOpts, room: ROOM_FLAG });
   m.userData.tri = tri;      // metres per texture repeat, projected from world axes when baked
   return m;
 }
-const M = {
+// Two material sets share textures: the room's dims with the environment, the orrery's (MO) stays bright.
+let ROOM_FLAG = 1;
+const makeMats = () => ({
   brick: phong({ map: TEX.brick, color: new THREE.Color(1.8, 1.7, 1.7), shininess: 8, specular: 0x0a0a0a }, {}, 2.6),
   iron: phong({ map: TEX.iron, shininess: 60, specular: 0x14141c, color: new THREE.Color(1.15, 1.15, 1.4) }, { metal: 0.45 }, 2.2),
   ironDark: phong({ map: TEX.iron, shininess: 60, specular: 0x101016, color: new THREE.Color(1.15, 1.2, 1.5) }, { metal: 0.3 }, 2.2),
@@ -562,7 +643,11 @@ const M = {
   lampGlass: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.5, 0.55) }),
   fire: new THREE.MeshBasicMaterial({ color: new THREE.Color(4.4, 1.5, 0.22) }),
   moonDisc: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 1.15, 1.7) }),
-};
+});
+const M = makeMats();
+ROOM_FLAG = 0;
+const MO = makeMats();
+ROOM_FLAG = 1;
 TEX.floor.wrapS = TEX.floor.wrapT = THREE.ClampToEdgeWrapping;
 
 /* ------------------------------------------------------------------ */
@@ -614,10 +699,10 @@ class Bucket {
   }
   bake(parent, { cast = false, receive = true, brassy = false } = {}) {
     if (brassy) {
-      for (const accent of [M.gold, M.copper]) {
+      for (const accent of [brassy.gold, brassy.copper]) {
         if (!this.parts.has(accent)) continue;
-        if (!this.parts.has(M.brass)) this.parts.set(M.brass, []);
-        this.parts.get(M.brass).push(...this.parts.get(accent));
+        if (!this.parts.has(brassy.brass)) this.parts.set(brassy.brass, []);
+        this.parts.get(brassy.brass).push(...this.parts.get(accent));
         this.parts.delete(accent);
       }
     }
@@ -1303,27 +1388,27 @@ function buildOrrery() {
   // Dais: stepped marble, brass nosings and a calendar plate.
   const R0 = 9;
   for (const [y, r, h] of [[0.12, R0, 0.24], [0.44, R0 - 0.45, 0.4], [0.8, R0 - 0.9, 0.32]]) {
-    fixed.add(M.marble, cyl(r, r + 0.1, h, 72), T(0, y, 0));
-    fixed.add(M.brass, tor(r + 0.03, 0.05, 8, 96).rotateX(Math.PI / 2), T(0, y + h / 2 - 0.02, 0));
+    fixed.add(MO.marble, cyl(r, r + 0.1, h, 72), T(0, y, 0));
+    fixed.add(MO.brass, tor(r + 0.03, 0.05, 8, 96).rotateX(Math.PI / 2), T(0, y + h / 2 - 0.02, 0));
   }
-  const top = new THREE.Mesh(new THREE.CircleGeometry(8.1, 96).rotateX(-Math.PI / 2), M.dais);
+  const top = new THREE.Mesh(new THREE.CircleGeometry(8.1, 96).rotateX(-Math.PI / 2), MO.dais);
   top.position.y = 0.97; top.receiveShadow = true; orreryRoot.add(top);
   for (let i = 0; i < 16; i++) {
     const a = i / 16 * TAU, x = Math.cos(a) * 8.6, z = Math.sin(a) * 8.6;
-    fixed.add(M.brass, cyl(0.08, 0.12, 0.08, 12), T(x, 0.27, z));
-    fixed.add(M.gold, sph(0.09, 10, 8), T(x, 0.36, z));
+    fixed.add(MO.brass, cyl(0.08, 0.12, 0.08, 12), T(x, 0.27, z));
+    fixed.add(MO.gold, sph(0.09, 10, 8), T(x, 0.36, z));
   }
   // Railing posts round the dais.
   for (let i = 0; i < 24; i++) {
     const a = (i + 0.5) / 24 * TAU, x = Math.cos(a) * 7.6, z = Math.sin(a) * 7.6;
-    fixed.add(M.brass, lathe([[0.1, 0], [0.06, 0.1], [0.03, 0.2], [0.03, 0.72], [0.06, 0.78], [0.03, 0.82], [0, 0.88]], 10), T(x, 0.97, z));
+    fixed.add(MO.brass, lathe([[0.1, 0], [0.06, 0.1], [0.03, 0.2], [0.03, 0.72], [0.06, 0.78], [0.03, 0.82], [0, 0.88]], 10), T(x, 0.97, z));
   }
-  fixed.add(M.brass, tor(7.6, 0.025, 6, 96).rotateX(Math.PI / 2), T(0, 1.7, 0));
-  fixed.add(M.ironDark, tor(7.6, 0.015, 6, 96).rotateX(Math.PI / 2), T(0, 1.4, 0));
+  fixed.add(MO.brass, tor(7.6, 0.025, 6, 96).rotateX(Math.PI / 2), T(0, 1.7, 0));
+  fixed.add(MO.ironDark, tor(7.6, 0.015, 6, 96).rotateX(Math.PI / 2), T(0, 1.4, 0));
 
   // Gearbox: an open cage with plates top and bottom; the train inside is on show.
   const cage = 5.55;
-  fixed.add(M.iron, cyl(cage + 0.1, cage + 0.25, 0.14, 64), T(0, 1.04, 0));
+  fixed.add(MO.iron, cyl(cage + 0.1, cage + 0.25, 0.14, 64), T(0, 1.04, 0));
   const plateShape = new THREE.Shape(); plateShape.absarc(0, 0, cage + 0.12, 0, TAU);
   const plateHole = new THREE.Path(); plateHole.absarc(0, 0, 1.02, 0, TAU, true); plateShape.holes.push(plateHole);
   const windows = 8;
@@ -1333,43 +1418,43 @@ function buildOrrery() {
     for (let k = 8; k >= 0; k--) { const t = a0 + (a1 - a0) * k / 8; h.lineTo(Math.cos(t) * 2.7, Math.sin(t) * 2.7); }
     h.closePath(); plateShape.holes.push(h);
   }
-  fixed.add(M.brass, new THREE.ExtrudeGeometry(plateShape, { depth: 0.1, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 1, curveSegments: 48 }).rotateX(-Math.PI / 2), T(0, 3.42, 0));
+  fixed.add(MO.brass, new THREE.ExtrudeGeometry(plateShape, { depth: 0.1, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 1, curveSegments: 48 }).rotateX(-Math.PI / 2), T(0, 3.42, 0));
   for (let i = 0; i < 16; i++) {
     const a = i / 16 * TAU, x = Math.cos(a) * cage, z = Math.sin(a) * cage;
-    fixed.add(i % 2 ? M.brass : M.ironDark, lathe([[0.16, 0], [0.16, 0.08], [0.09, 0.16], [0.07, 1.1], [0.11, 1.18], [0.07, 1.26], [0.09, 2.2], [0.16, 2.3], [0.16, 2.36]], 12), T(x, 1.07, z));
+    fixed.add(i % 2 ? MO.brass : MO.ironDark, lathe([[0.16, 0], [0.16, 0.08], [0.09, 0.16], [0.07, 1.1], [0.11, 1.18], [0.07, 1.26], [0.09, 2.2], [0.16, 2.3], [0.16, 2.36]], 12), T(x, 1.07, z));
   }
   for (let i = 0; i < 64; i++) { const a = i / 64 * TAU; rivet(T(Math.cos(a) * (cage - 0.06), 3.52, Math.sin(a) * (cage - 0.06), 0, 0, 0, 0.045)); }
   for (let i = 0; i < 40; i++) { const a = i / 40 * TAU; rivet(T(Math.cos(a) * 1.15, 3.52, Math.sin(a) * 1.15, 0, 0, 0, 0.045)); }
 
   // Fixed spindle rising above the top tube to carry the sun.
-  fixed.add(M.brass, lathe([[0.22, 5.85], [0.22, 6.9], [0.32, 6.96], [0.26, 7.02], [0.5, 7.2], [0.28, 7.3], [0.2, 7.45], [0.34, 7.56]], 24));
+  fixed.add(MO.brass, lathe([[0.22, 5.85], [0.22, 6.9], [0.32, 6.96], [0.26, 7.02], [0.5, 7.2], [0.28, 7.3], [0.2, 7.45], [0.34, 7.56]], 24));
 
   /* ---- Sun cradle: brass petals curling up around the sun ---- */
   for (let i = 0; i < 12; i++) {
     const a = i / 12 * TAU, s = new THREE.Shape();
     s.moveTo(0, 0); s.quadraticCurveTo(0.2, 0.2, 0.15, 0.55); s.quadraticCurveTo(0.08, 0.75, 0, 0.82); s.quadraticCurveTo(-0.08, 0.75, -0.15, 0.55); s.quadraticCurveTo(-0.2, 0.2, 0, 0); s.closePath();
     const g = new THREE.ExtrudeGeometry(s, { depth: 0.025, bevelEnabled: false, curveSegments: 6 });
-    fixed.add(i % 2 ? M.gold : M.brass, g, new THREE.Matrix4().makeRotationY(a).multiply(T(0, 7.54, 0.36, 0.8)));
+    fixed.add(i % 2 ? MO.gold : MO.brass, g, new THREE.Matrix4().makeRotationY(a).multiply(T(0, 7.54, 0.36, 0.8)));
   }
   fixed.bake(orreryRoot, { cast: true });
 
   /* ---- Armillary: nested rings rotating about the sun ---- */
   const armillary = [
-    { r: 2.45, t: 0.05, rx: 0.1,  rz: 0.0,  rate: 0.07,  mat: M.brass, gr: true },
-    { r: 2.2,  t: 0.035, rx: 1.15, rz: 0.2,  rate: -0.11, mat: M.gold },
-    { r: 1.98, t: 0.03, rx: 0.5,  rz: 1.2,  rate: 0.16,  mat: M.copper },
-    { r: 1.8,  t: 0.025, rx: 1.7,  rz: 0.7,  rate: -0.23, mat: M.brass },
+    { r: 2.45, t: 0.05, rx: 0.1,  rz: 0.0,  rate: 0.07,  mat: MO.brass, gr: true },
+    { r: 2.2,  t: 0.035, rx: 1.15, rz: 0.2,  rate: -0.11, mat: MO.gold },
+    { r: 1.98, t: 0.03, rx: 0.5,  rz: 1.2,  rate: 0.16,  mat: MO.copper },
+    { r: 1.8,  t: 0.025, rx: 1.7,  rz: 0.7,  rate: -0.23, mat: MO.brass },
   ];
   armillary.forEach((a, i) => {
     const holder = new THREE.Group(); holder.position.copy(SUN); holder.rotation.set(a.rx, 0, a.rz);
     const b = new Bucket();
     b.add(a.mat, tor(a.r, a.t, 8, 96).rotateX(Math.PI / 2));
     if (a.gr) {
-      b.add(M.ironDark, tor(a.r - 0.09, 0.015, 6, 96).rotateX(Math.PI / 2));
-      b.add(M.ironDark, tor(a.r + 0.09, 0.015, 6, 96).rotateX(Math.PI / 2));
-      for (let k = 0; k < 72; k++) { const t = k / 72 * TAU; b.add(k % 6 ? M.brass : M.gold, box(k % 6 ? 0.012 : 0.03, 0.03, 0.14), new THREE.Matrix4().makeRotationY(t).multiply(T(a.r, 0, 0, 0, Math.PI / 2))); }
+      b.add(MO.ironDark, tor(a.r - 0.09, 0.015, 6, 96).rotateX(Math.PI / 2));
+      b.add(MO.ironDark, tor(a.r + 0.09, 0.015, 6, 96).rotateX(Math.PI / 2));
+      for (let k = 0; k < 72; k++) { const t = k / 72 * TAU; b.add(k % 6 ? MO.brass : MO.gold, box(k % 6 ? 0.012 : 0.03, 0.03, 0.14), new THREE.Matrix4().makeRotationY(t).multiply(T(a.r, 0, 0, 0, Math.PI / 2))); }
     }
-    for (let k = 0; k < 2; k++) { const t = k * Math.PI; b.add(M.gold, sph(0.07, 10, 8), T(Math.cos(t) * a.r, 0, Math.sin(t) * a.r)); }
+    for (let k = 0; k < 2; k++) { const t = k * Math.PI; b.add(MO.gold, sph(0.07, 10, 8), T(Math.cos(t) * a.r, 0, Math.sin(t) * a.r)); }
     b.bake(holder, { cast: true });
     orreryRoot.add(holder);
     spinners.push({ obj: holder, axis: 'y', rate: a.rate, phase: i });
@@ -1377,17 +1462,17 @@ function buildOrrery() {
   });
   // Spire above the sun, carrying the outer ring's axis.
   const spire = new Bucket();
-  spire.add(M.brass, lathe([[0.1, 0], [0.04, 0.3], [0.06, 0.34], [0.02, 0.8], [0, 1.0]], 12), T(0, SUN.y + 1.55, 0));
+  spire.add(MO.brass, lathe([[0.1, 0], [0.04, 0.3], [0.06, 0.34], [0.02, 0.8], [0, 1.0]], 12), T(0, SUN.y + 1.55, 0));
   spire.bake(orreryRoot);
 
   /* ---- Rail for the outermost arm, on stanchions from the floor ---- */
   const outer = PLANETS[7], railY = outer.arm - 0.2;
   const rail = new Bucket();
-  rail.add(M.brass, tor(outer.r, 0.07, 8, 192).rotateX(Math.PI / 2), T(0, railY, 0));
-  rail.add(M.ironDark, tor(outer.r, 0.04, 6, 192).rotateX(Math.PI / 2), T(0, railY - 0.24, 0));
+  rail.add(MO.brass, tor(outer.r, 0.07, 8, 192).rotateX(Math.PI / 2), T(0, railY, 0));
+  rail.add(MO.ironDark, tor(outer.r, 0.04, 6, 192).rotateX(Math.PI / 2), T(0, railY - 0.24, 0));
   for (let i = 0; i < 16; i++) {
     const a = i / 16 * TAU, x = Math.cos(a) * outer.r, z = Math.sin(a) * outer.r;
-    rail.add(M.ironDark, lathe([[0.3, 0], [0.3, 0.1], [0.14, 0.2], [0.08, 0.6], [0.06, railY - 0.7], [0.1, railY - 0.6], [0.06, railY - 0.5], [0.09, railY - 0.1], [0.04, railY - 0.05]], 12), T(x, 0, z));
+    rail.add(MO.ironDark, lathe([[0.3, 0], [0.3, 0.1], [0.14, 0.2], [0.08, 0.6], [0.06, railY - 0.7], [0.1, railY - 0.6], [0.06, railY - 0.5], [0.09, railY - 0.1], [0.04, railY - 0.05]], 12), T(x, 0, z));
     for (let k = 0; k < 6; k++) { const q = k / 6 * TAU; rivet(T(x + Math.cos(q) * 0.25, 0.1, z + Math.sin(q) * 0.25, 0, 0, 0, 0.035)); }
   }
   rail.bake(orreryRoot, { cast: true });
@@ -1404,49 +1489,49 @@ function buildOrrery() {
     const gr = MODULE * p.T / 2;
     const tubeR = 0.2 + i * 0.1;
     const tubeTop = p.arm + 0.12;
-    g.add(M.brass, flat(gearGeo(p.T, MODULE, 0.09, { spokes: p.T > 30 ? 8 : 6, hole: tubeR, bevel: 0.008 })), T(0, gearY, 0));
-    g.add(M.ironDark, cyl(tubeR + 0.03, tubeR + 0.03, 0.2, 18), T(0, gearY, 0));
-    g.add(i % 2 ? M.brass : M.copper, cyl(tubeR, tubeR, tubeTop - gearY, 20), T(0, (tubeTop + gearY) / 2, 0));
-    g.add(M.gold, cyl(tubeR + 0.05, tubeR + 0.05, 0.1, 20), T(0, tubeTop - 0.02, 0));
-    g.add(M.ironDark, cyl(tubeR + 0.11, tubeR + 0.11, 0.26, 16), T(0, p.arm, 0));
-    for (let k = 0; k < 12; k++) { const a = k / 12 * TAU; g.add(M.gold, sph(0.022, 6, 4), T(Math.cos(a) * (tubeR + 0.11), p.arm + 0.13, Math.sin(a) * (tubeR + 0.11))); }
+    g.add(MO.brass, flat(gearGeo(p.T, MODULE, 0.09, { spokes: p.T > 30 ? 8 : 6, hole: tubeR, bevel: 0.008 })), T(0, gearY, 0));
+    g.add(MO.ironDark, cyl(tubeR + 0.03, tubeR + 0.03, 0.2, 18), T(0, gearY, 0));
+    g.add(i % 2 ? MO.brass : MO.copper, cyl(tubeR, tubeR, tubeTop - gearY, 20), T(0, (tubeTop + gearY) / 2, 0));
+    g.add(MO.gold, cyl(tubeR + 0.05, tubeR + 0.05, 0.1, 20), T(0, tubeTop - 0.02, 0));
+    g.add(MO.ironDark, cyl(tubeR + 0.11, tubeR + 0.11, 0.26, 16), T(0, p.arm, 0));
+    for (let k = 0; k < 12; k++) { const a = k / 12 * TAU; g.add(MO.gold, sph(0.022, 6, 4), T(Math.cos(a) * (tubeR + 0.11), p.arm + 0.13, Math.sin(a) * (tubeR + 0.11))); }
 
     // Truss arm: top and bottom chords, zig-zag bracing, tapering outward.
     const hNear = 0.12 + p.r * 0.012, n = Math.max(5, Math.round(p.r * 2.1));
     const chordX = (s) => tubeR + (p.r - tubeR) * s;
     const yAt = (s, up) => (up ? p.arm + hNear * (1 - s * 0.7) : p.arm - hNear * (1 - s * 0.7));
     const chR = 0.028 + p.r * 0.0022;
-    g.beam(M.brass, V(chordX(0), yAt(0, 1), 0), V(chordX(1), yAt(1, 1), 0), chR, 7);
-    g.beam(M.brass, V(chordX(0), yAt(0, 0), 0), V(chordX(1), yAt(1, 0), 0), chR, 7);
+    g.beam(MO.brass, V(chordX(0), yAt(0, 1), 0), V(chordX(1), yAt(1, 1), 0), chR, 7);
+    g.beam(MO.brass, V(chordX(0), yAt(0, 0), 0), V(chordX(1), yAt(1, 0), 0), chR, 7);
     for (let k = 0; k < n; k++) {
       const s0 = k / n, s1 = (k + 1) / n;
-      g.beam(M.ironDark, V(chordX(s0), yAt(s0, k % 2), 0), V(chordX(s1), yAt(s1, !(k % 2)), 0), chR * 0.62, 5);
+      g.beam(MO.ironDark, V(chordX(s0), yAt(s0, k % 2), 0), V(chordX(s1), yAt(s1, !(k % 2)), 0), chR * 0.62, 5);
     }
-    for (const s of [0.25, 0.5, 0.75]) g.add(M.gold, cyl(0.06 + p.r * 0.004, 0.06 + p.r * 0.004, 0.05, 12).rotateX(Math.PI / 2), T(chordX(s), p.arm, 0));
+    for (const s of [0.25, 0.5, 0.75]) g.add(MO.gold, cyl(0.06 + p.r * 0.004, 0.06 + p.r * 0.004, 0.05, 12).rotateX(Math.PI / 2), T(chordX(s), p.arm, 0));
 
     // Counterweight on the far side.
     const cw = 0.9 + p.r * 0.2;
-    g.beam(M.ironDark, V(-tubeR, p.arm, 0), V(-cw, p.arm, 0), chR * 1.3, 7);
-    g.add(M.brass, sph(0.14 + p.s * 0.2, 24, 16).scale(1.3, 0.8, 0.8), T(-cw, p.arm, 0));
-    g.add(M.gold, cyl(0.02, 0.02, 0.2 + p.s * 0.5, 6), T(-cw, p.arm, 0));
+    g.beam(MO.ironDark, V(-tubeR, p.arm, 0), V(-cw, p.arm, 0), chR * 1.3, 7);
+    g.add(MO.brass, sph(0.14 + p.s * 0.2, 24, 16).scale(1.3, 0.8, 0.8), T(-cw, p.arm, 0));
+    g.add(MO.gold, cyl(0.02, 0.02, 0.2 + p.s * 0.5, 6), T(-cw, p.arm, 0));
 
     // Post: tall, with collars, a small drive gear and a filigree scroll.
     const postTop = p.y - p.s - (p.key === 'saturn' ? 0.02 : 0.02);
     const postR = 0.038 + p.r * 0.0014;
-    g.add(M.brass, cyl(postR, postR * 1.6, postTop - p.arm, 10), T(p.r, (postTop + p.arm) / 2, 0));
-    g.add(M.brass, flat(gearGeo(14, 0.04, 0.03, { bevel: 0 })), T(p.r, p.arm + 0.2, 0));
-    for (let k = 1; k < 4; k++) g.add(k % 2 ? M.gold : M.ironDark, cyl(postR * 1.8, postR * 1.8, 0.05, 10), T(p.r, p.arm + (postTop - p.arm) * k / 4, 0));
-    g.add(M.ironDark, lathe([[0.18, -0.2], [0.14, -0.1], [0.08, 0.1], [postR, 0.3]], 12), T(p.r, p.arm, 0));
+    g.add(MO.brass, cyl(postR, postR * 1.6, postTop - p.arm, 10), T(p.r, (postTop + p.arm) / 2, 0));
+    g.add(MO.brass, flat(gearGeo(14, 0.04, 0.03, { bevel: 0 })), T(p.r, p.arm + 0.2, 0));
+    for (let k = 1; k < 4; k++) g.add(k % 2 ? MO.gold : MO.ironDark, cyl(postR * 1.8, postR * 1.8, 0.05, 10), T(p.r, p.arm + (postTop - p.arm) * k / 4, 0));
+    g.add(MO.ironDark, lathe([[0.18, -0.2], [0.14, -0.1], [0.08, 0.1], [postR, 0.3]], 12), T(p.r, p.arm, 0));
     // Scroll brace from arm to post.
     const brace = new THREE.CatmullRomCurve3([V(p.r - 1.0 - p.r * 0.05, p.arm + 0.1, 0), V(p.r - 0.5, p.arm + 0.22, 0), V(p.r - 0.15, p.arm + 0.5, 0), V(p.r - postR, p.arm + 0.75 + p.r * 0.03, 0)]);
-    g.add(M.brass, new THREE.TubeGeometry(brace, 14, 0.018 + p.r * 0.0009, 5));
+    g.add(MO.brass, new THREE.TubeGeometry(brace, 14, 0.018 + p.r * 0.0009, 5));
 
     // Neptune's arm also rides a roller on the rail.
     if (i === 7) {
-      g.add(M.ironDark, cyl(0.2, 0.2, 0.09, 14).rotateZ(Math.PI / 2), T(p.r, railY + 0.18, 0));
-      g.beam(M.ironDark, V(p.r, p.arm - 0.15, 0), V(p.r, railY + 0.18, 0), 0.03, 6);
+      g.add(MO.ironDark, cyl(0.2, 0.2, 0.09, 14).rotateZ(Math.PI / 2), T(p.r, railY + 0.18, 0));
+      g.beam(MO.ironDark, V(p.r, p.arm - 0.15, 0), V(p.r, railY + 0.18, 0), 0.03, 6);
     }
-    g.bake(arm, { cast: true, brassy: true });
+    g.bake(arm, { cast: true, brassy: MO });
     arm.rotation.y = p.phase;
     orreryRoot.add(arm);
     p.pivot = arm;
@@ -1458,13 +1543,13 @@ function buildOrrery() {
     p.holder = holder;
     const d = new Bucket();
     const cupR = Math.max(0.12, p.s * 0.48);
-    d.add(M.brass, lathe([[0.02, 0], [cupR * 0.4, 0.015], [cupR, 0.1], [cupR * 1.1, 0.13], [cupR, 0.14], [cupR * 0.4, 0.04]], 16), T(0, -p.s - 0.05, 0));
+    d.add(MO.brass, lathe([[0.02, 0], [cupR * 0.4, 0.015], [cupR, 0.1], [cupR * 1.1, 0.13], [cupR, 0.14], [cupR * 0.4, 0.04]], 16), T(0, -p.s - 0.05, 0));
     // A half-meridian, skipped where rings would foul it.
     if (!['saturn', 'uranus', 'neptune'].includes(p.key)) {
-      d.add(M.brass, tor(p.s * 1.1, 0.008 + p.s * 0.012, 6, 32, Math.PI), T(0, 0, 0, 0, 0, Math.PI / 2 + 0.0));
-      d.add(M.gold, sph(0.02 + p.s * 0.03, 8, 6), T(0, p.s * 1.1, 0));
+      d.add(MO.brass, tor(p.s * 1.1, 0.008 + p.s * 0.012, 6, 32, Math.PI), T(0, 0, 0, 0, 0, Math.PI / 2 + 0.0));
+      d.add(MO.gold, sph(0.02 + p.s * 0.03, 8, 6), T(0, p.s * 1.1, 0));
     }
-    d.bake(holder, { brassy: true });
+    d.bake(holder, { brassy: MO });
 
     const glowAmt = 0.2;
     const body = new THREE.Mesh(sph(p.s, 40, 28), planetMat(p.key, glowAmt));
@@ -1478,6 +1563,7 @@ function buildOrrery() {
     holder.add(light);
     p.light3 = light;
     const halo = glow(V(), 1.4 + p.s * 4.6, p.light, holder, 0.34);
+    powered.push({ sprite: halo, op: 0.34 });
     p.halo = halo;
 
     if (p.key === 'saturn') {
@@ -1485,7 +1571,7 @@ function buildOrrery() {
       const ring = ringMesh(1.28, 1.85, tex); ring.rotation.z = p.tilt;
       holder.add(ring);
       const ringBand = new Bucket();
-      ringBand.add(M.gold, tor(1.85, 0.015, 6, 96).rotateX(Math.PI / 2));
+      ringBand.add(MO.gold, tor(1.85, 0.015, 6, 96).rotateX(Math.PI / 2));
       ringBand.bake(ring);
     }
     if (p.key === 'uranus') {
@@ -1502,10 +1588,10 @@ function buildOrrery() {
       const carrier = new THREE.Group();
       carrier.position.y = h;
       const c = new Bucket();
-      c.beam(M.brass, V(0, 0, 0), V(r, 0, 0), 0.012, 5);
-      c.add(M.ironDark, cyl(0.03, 0.03, 0.05, 8), T(0, 0, 0));
-      c.add(M.gold, cyl(0.03, 0.03, s + 0.04, 6), T(r, -s / 2, 0));
-      c.bake(carrier, { brassy: true });
+      c.beam(MO.brass, V(0, 0, 0), V(r, 0, 0), 0.012, 5);
+      c.add(MO.ironDark, cyl(0.03, 0.03, 0.05, 8), T(0, 0, 0));
+      c.add(MO.gold, cyl(0.03, 0.03, s + 0.04, 6), T(r, -s / 2, 0));
+      c.bake(carrier, { brassy: MO });
       const moon = new THREE.Mesh(sph(s, 18, 12), planetMat(key, 0.22));
       moon.position.set(r, 0, 0);
       carrier.add(moon);
@@ -1523,13 +1609,13 @@ function buildOrrery() {
     const az = i / 8 * TAU + 0.4;
     const dist = gr + rp;
     const px = Math.cos(az) * dist, pz = -Math.sin(az) * dist;
-    const pin = new THREE.Mesh(flat(gearGeo(Tp, MODULE, 0.09, { hole: 0.02, bevel: 0.008 })), M.copper);
+    const pin = new THREE.Mesh(flat(gearGeo(Tp, MODULE, 0.09, { hole: 0.02, bevel: 0.008 })), MO.copper);
     pin.position.set(px, gearY, pz);
     orreryRoot.add(pin);
     const shaft = new Bucket();
-    shaft.add(M.ironDark, cyl(0.045, 0.045, 3.45 - gearY, 8), T(px, (3.45 + gearY) / 2, pz));
-    shaft.add(M.ironDark, cyl(0.045, 0.045, gearY - 1.06, 8), T(px, (gearY + 1.06) / 2, pz));
-    shaft.add(M.gold, cyl(0.07, 0.07, 0.04, 10), T(px, 3.56, pz));
+    shaft.add(MO.ironDark, cyl(0.045, 0.045, 3.45 - gearY, 8), T(px, (3.45 + gearY) / 2, pz));
+    shaft.add(MO.ironDark, cyl(0.045, 0.045, gearY - 1.06, 8), T(px, (gearY + 1.06) / 2, pz));
+    shaft.add(MO.gold, cyl(0.07, 0.07, 0.04, 10), T(px, 3.56, pz));
     shaft.bake(orreryRoot);
     pinions.push({ mesh: pin, az, Tg: p.T, Tp, planet: p });
   });
@@ -1546,12 +1632,13 @@ const NOISE = /* glsl */`
   float fbm(vec3 p){ float a=.5,s=0.; for(int i=0;i<4;i++){ s+=a*gn(p); p=p*2.03+7.1; a*=.5; } return s; }`;
 const SUN_R = 1.32;
 let sunCore, sunFlame;
+const powered = [];          // glow sprites that belong to the orrery's power
 function buildSun() {
   sunCore = new THREE.Mesh(sph(SUN_R, 64, 48), new THREE.ShaderMaterial({
-    uniforms: { uTime: shared.uTime },
+    uniforms: { uTime: shared.uTime, uPower: shared.uPower },
     vertexShader: `varying vec3 vP; varying vec3 vN; varying vec3 vV;
-      void main(){ vP=position; vN=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.); vV=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }`,
-    fragmentShader: `uniform float uTime; varying vec3 vP; varying vec3 vN; varying vec3 vV; ${NOISE}
+      void main(){ vP=position; vN=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.); vV=projectionMatrix[3][3]>.5?vec3(0.,0.,1.):normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }`,
+    fragmentShader: `uniform float uTime, uPower; varying vec3 vP; varying vec3 vN; varying vec3 vV; ${NOISE}
       void main(){
         vec3 p=normalize(vP);
         float w=fbm(p*2.2+vec3(0.,uTime*.12,0.));
@@ -1561,35 +1648,38 @@ function buildSun() {
         vec3 c;
         // Four hard-edged paint colours, then pushed well over 1 for the bloom.
         if(t<.62) c=vec3(1.,.2,.03)*1.5; else if(t<.76) c=vec3(1.,.38,.04)*1.9; else if(t<.9) c=vec3(1.,.62,.12)*2.4; else c=vec3(1.,.86,.5)*3.2;
-        gl_FragColor=vec4(c,1.);
+        // Switched off: a cold cinder with a few cracks still faintly glowing.
+        vec3 cold=vec3(.006,.004,.007)+vec3(.018,.014,.03)*pow(limb,3.)+vec3(.6,.12,.03)*smoothstep(.88,.96,t)*.4;
+        gl_FragColor=vec4(mix(cold,c,uPower),1.);
       }`,
   }));
   sunCore.position.copy(SUN);
   orreryRoot.add(sunCore);
 
   sunFlame = new THREE.Mesh(sph(SUN_R * 1.02, 72, 54), new THREE.ShaderMaterial({
-    uniforms: { uTime: shared.uTime },
+    uniforms: { uTime: shared.uTime, uPower: shared.uPower },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     vertexShader: `uniform float uTime; varying vec3 vP; varying float vH; ${NOISE}
       void main(){ vec3 d=normalize(position); float h=fbm(d*2.8+vec3(0.,-uTime*.34,uTime*.1));
         h=max(0.,h+.1); vH=h; vP=d; vec3 q=position+d*h*1.5; gl_Position=projectionMatrix*modelViewMatrix*vec4(q,1.); }`,
-    fragmentShader: `uniform float uTime; varying vec3 vP; varying float vH; ${NOISE}
+    fragmentShader: `uniform float uTime, uPower; varying vec3 vP; varying float vH; ${NOISE}
       void main(){ float f=fbm(vP*5.+vec3(0.,-uTime*.6,0.))+vH;
-        if(f<.13) discard;
+        if(f<.13+(1.-uPower)*.7) discard;    // tongues shrink back into the sphere as power drops
         vec3 c = f<.24 ? vec3(1.,.16,.02)*.5 : f<.42 ? vec3(1.,.34,.04)*.7 : vec3(1.,.6,.14)*.9;
-        gl_FragColor=vec4(c,1.);
+        gl_FragColor=vec4(c*uPower,1.);
       }`,
   }));
   sunFlame.position.copy(SUN);
   sunFlame.layers.set(1);
   orreryRoot.add(sunFlame);
 
-  glow(SUN, 9, 0xff7a24, orreryRoot, 0.3);
-  glow(SUN, 26, 0xc0401a, orreryRoot, 0.13);
+  powered.push({ sprite: glow(SUN, 9, 0xff7a24, orreryRoot, 0.3), op: 0.3 });
+  powered.push({ sprite: glow(SUN, 26, 0xc0401a, orreryRoot, 0.13), op: 0.13 });
 }
 
 /* ---- Lights ---- */
 const SUN_I = 150;
+let boxLight;
 const sunLight = new THREE.PointLight(0xffc27a, SUN_I, 70, 1.25);
 function buildLights() {
   sunLight.position.copy(SUN);
@@ -1604,9 +1694,9 @@ function buildLights() {
   scene.add(sunLight);
   scene.add(new THREE.HemisphereLight(0x5570c8, 0x46224f, 0.8));
   // The gear train gets its own lantern, so the machinery reads even under the top plate.
-  const box = new THREE.PointLight(0xff9a48, 7, 9, 1.4);
-  box.position.set(3.2, 2.5, 1.5);
-  scene.add(box);
+  boxLight = new THREE.PointLight(0xff9a48, 7, 9, 1.4);
+  boxLight.position.set(3.2, 2.5, 1.5);
+  scene.add(boxLight);
   // Cold moonlight down from the oculus keeps the far corners from going dead.
   const moon = new THREE.DirectionalLight(0x6aa2e8, 0.32);
   moon.position.set(4, 30, -6);
@@ -1642,11 +1732,13 @@ function buildAtmosphere() {
     void len;
   }
 
+  atmos.shafts = list;
+
   // Points in three flavours sharing one shader.
   const pointMat = (extra) => new THREE.ShaderMaterial({
     uniforms: { uTime: shared.uTime, uPx: { value: 1 }, ...extra },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    vertexShader: `uniform float uTime,uPx; attribute vec4 aSeed; varying vec3 vC; varying float vA;
+    vertexShader: `uniform float uTime,uPx,uPower; attribute vec4 aSeed; varying vec3 vC; varying float vA;
       void main(){
         float life=fract(aSeed.w+uTime*aSeed.y*.05);
         float a=aSeed.x+uTime*.13*(aSeed.z-.5);
@@ -1655,8 +1747,8 @@ function buildAtmosphere() {
         p.xz += vec2(sin(uTime*.6+aSeed.x*9.),cos(uTime*.5+aSeed.y*7.))*.3;
         vec4 mv=modelViewMatrix*vec4(p,1.);
         vA=smoothstep(0.,.08,life)*(1.-smoothstep(.55,1.,life));
-        vC=mix(vec3(3.2,1.5,.35),vec3(2.2,.45,.1),life);
-        gl_PointSize=min((.022+.03*aSeed.y)*uPx/-mv.z,uPx/170.); gl_Position=projectionMatrix*mv; }`,
+        vC=mix(vec3(3.2,1.5,.35),vec3(2.2,.45,.1),life)*uPower;
+        gl_PointSize=min((.022+.03*aSeed.y)*uPx*projectionMatrix[1][1]*.5*(projectionMatrix[3][3]>.5?1.:1./-mv.z),uPx/170.); gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `varying vec3 vC; varying float vA; void main(){ vec2 d=gl_PointCoord-.5;
       if(abs(d.x)+abs(d.y)>.5) discard; gl_FragColor=vec4(vC*vA,1.); }`,
   });
@@ -1666,7 +1758,7 @@ function buildAtmosphere() {
   const eg = new THREE.BufferGeometry();
   eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nEmb * 3), 3));
   eg.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
-  const embers = new THREE.Points(eg, pointMat({}));
+  const embers = new THREE.Points(eg, pointMat({ uPower: shared.uPower }));
   embers.frustumCulled = false; embers.layers.set(1); scene.add(embers);
   embers.material.uniforms.uPx.value = innerHeight * pixelRatio;
   atmos.embers = embers;
@@ -1687,7 +1779,7 @@ function buildAtmosphere() {
     vertexShader: `uniform float uTime,uPx; attribute float aS; varying float vA;
       void main(){ vec3 p=position; p.y+=sin(uTime*.08+aS)*.7; p.x+=sin(uTime*.05+aS*2.)*.9; p.z+=cos(uTime*.07+aS*3.)*.9;
         float d=length(p-vec3(0.,8.6,0.)); vA=clamp(10./(d+3.),.04,.9)*(.6+.4*sin(uTime*.7+aS*5.));
-        vec4 mv=modelViewMatrix*vec4(p,1.); gl_PointSize=min((.009+.01*fract(aS))*uPx/-mv.z,uPx/300.); gl_Position=projectionMatrix*mv; }`,
+        vec4 mv=modelViewMatrix*vec4(p,1.); gl_PointSize=clamp((.03+.03*fract(aS))*uPx*projectionMatrix[1][1]*.5*(projectionMatrix[3][3]>.5?1.:1./-mv.z),1.5,uPx/300.); gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `varying float vA; void main(){ vec2 d=gl_PointCoord-.5; if(dot(d,d)>.25) discard; gl_FragColor=vec4(vec3(1.,.72,.42)*vA*.55,1.); }`,
   }));
   dust.frustumCulled = false; dust.layers.set(1); scene.add(dust);
@@ -1748,13 +1840,13 @@ const compositeMat = new THREE.ShaderMaterial({
   uniforms: {
     tScene: { value: sceneRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: normalRT.depthTexture },
     tBloom: { value: null }, tRays: { value: raysRT.texture },
-    res: { value: new THREE.Vector2() }, near: { value: camera.near }, far: { value: camera.far }, uTime: shared.uTime, pxScale: { value: 1 },
+    res: { value: new THREE.Vector2() }, near: { value: camera.near }, far: { value: camera.far }, uTime: shared.uTime, pxScale: { value: 1 }, uZoom: { value: 1 },
   },
   vertexShader: VS, depthTest: false, depthWrite: false,
   fragmentShader: /* glsl */`
     #include <packing>
-    uniform sampler2D tScene,tNormal,tDepth,tBloom,tRays; uniform vec2 res; uniform float near,far,uTime,pxScale; varying vec2 vUv;
-    float zAt(vec2 uv){ return -perspectiveDepthToViewZ(texture2D(tDepth,uv).x,near,far); }
+    uniform sampler2D tScene,tNormal,tDepth,tBloom,tRays; uniform vec2 res; uniform float near,far,uTime,pxScale,uZoom; varying vec2 vUv;
+    float zAt(vec2 uv){ return -orthographicDepthToViewZ(texture2D(tDepth,uv).x,near,far); }
     vec3 nAt(vec2 uv){ return texture2D(tNormal,uv).xyz*2.-1.; }
     float vn(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);
       float a=fract(sin(dot(i,vec2(127.1,311.7)))*43758.5),b=fract(sin(dot(i+vec2(1,0),vec2(127.1,311.7)))*43758.5),c=fract(sin(dot(i+vec2(0,1),vec2(127.1,311.7)))*43758.5),d=fract(sin(dot(i+vec2(1,1),vec2(127.1,311.7)))*43758.5);
@@ -1763,8 +1855,8 @@ const compositeMat = new THREE.ShaderMaterial({
       vec2 e=px/res;
       float z=zAt(uv); vec3 n=nAt(uv);
       float zl=zAt(uv-vec2(e.x,0.)),zr=zAt(uv+vec2(e.x,0.)),zu=zAt(uv+vec2(0.,e.y)),zd=zAt(uv-vec2(0.,e.y));
-      float dz=max(abs(zl+zr-2.*z),abs(zu+zd-2.*z))/max(z,.4);
-      float depth=smoothstep(.012,.04,dz);
+      float dz=max(abs(zl+zr-2.*z),abs(zu+zd-2.*z));
+      float depth=smoothstep(.1,.35,dz*clamp(uZoom,1.,3.));
       vec3 nl=nAt(uv-vec2(e.x,0.)),nr=nAt(uv+vec2(e.x,0.)),nu=nAt(uv+vec2(0.,e.y)),nd=nAt(uv-vec2(0.,e.y));
       float dn=max(max(1.-dot(n,nl),1.-dot(n,nr)),max(1.-dot(n,nu),1.-dot(n,nd)));
       float normal=smoothstep(.2,.5,dn);
@@ -1776,12 +1868,12 @@ const compositeMat = new THREE.ShaderMaterial({
       // A slight tremble in the pen: lines swell, thin and wander like a brush.
       vec2 wob=(vec2(vn(px/30.),vn(px/30.+41.))-.5)*1.6*pxScale/res;
       float z0=zAt(vUv);
-      float width=(.75+.75*vn(px/70.+11.))*pxScale*clamp(9./z0+.7,.75,1.55);
+      float width=(.75+.75*vn(px/70.+11.))*pxScale*clamp(.7+uZoom*.2,.85,1.7);
       float e=edgeAt(vUv+wob,width);
             vec3 col=texture2D(tScene,vUv).rgb;
       float lum=max(col.r,max(col.g,col.b));
       e*=1.-smoothstep(1.4,3.,lum);          // the sun's fire burns the ink away
-      e*=1.-.35*smoothstep(26.,44.,z0);      // atmospheric thinning at the far wall
+      e*=1.-.35*smoothstep(92.,112.,z0);     // thinner ink on the far wall and dome
       // Ink is a deep plum, warming near anything hot.
       vec3 ink=vec3(.012,.004,.02)+col*.1;
       col=mix(col,ink,e);
@@ -1815,7 +1907,7 @@ function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(w, h);
-  camera.aspect = w / h; camera.updateProjectionMatrix();
+  frameCamera();
   const W = Math.floor(w * pixelRatio), H = Math.floor(h * pixelRatio);
   sceneRT.setSize(W, H); normalRT.setSize(W, H);
   raysRT.setSize(W >> 3, H >> 3);
@@ -1879,10 +1971,11 @@ function renderFrame() {
   const onScreen = sunNDC.z < 1 ? 1 - THREE.MathUtils.smoothstep(Math.max(Math.abs(sunNDC.x), Math.abs(sunNDC.y)), 1.0, 1.9) : 0;
   raysMat.uniforms.t.value = down[1].texture;
   raysMat.uniforms.c.value.set(sunNDC.x * 0.5 + 0.5, sunNDC.y * 0.5 + 0.5);
-  raysMat.uniforms.amt.value = onScreen * 1.5;
+  raysMat.uniforms.amt.value = onScreen * 1.5 * pw;
   pass(raysMat, raysRT);
 
   compositeMat.uniforms.tBloom.value = last.texture;
+  compositeMat.uniforms.uZoom.value = camera.zoom;
   pass(compositeMat, null);
 }
 
@@ -1891,11 +1984,28 @@ function renderFrame() {
 /* ------------------------------------------------------------------ */
 buildShell();
 buildFurniture();
+ROOM_FLAG = 0;
 buildOrrery();
 buildSun();
+ROOM_FLAG = 1;
 buildLights();
 buildAtmosphere();
+{
+  // The cut through the floor shows a slab of masonry, so the room reads as a diorama.
+  const w = 2 * Math.sqrt(26 * 26 - CUT * CUT), h = 2.6;
+  const g = new THREE.PlaneGeometry(w, h);
+  g.translate(0, -h / 2, 0);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / 2.6, uv.getY(i) * h / 2.6);
+  capMesh = new THREE.Group();
+  const slab = new THREE.Mesh(g, M.brick);
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(w, 0.14, 0.14), M.brass);
+  trim.position.set(0, -0.07, -0.07);
+  capMesh.add(slab, trim);
+  scene.add(capMesh);
+}
 resize();
+updateClip();
 
 /* ---- HUD: follow a body ---- */
 const bodiesEl = document.getElementById('bodies');
@@ -1911,17 +2021,9 @@ const addChip = (label, p) => {
     follow = p;
     chips.forEach((c) => c.setAttribute('aria-pressed', c === b ? 'true' : 'false'));
     controls.autoRotate = p === null;
-    controls.minDistance = p ? Math.max(1.2, p.s * 2.4) : 1.5;
-    if (p) {
-      // Swing to a three-quarter view of the body, on the sunward side so it is lit.
-      const w = p.holder.getWorldPosition(V());
-      const toward = w.clone().setY(0).normalize();
-      const side = V(-toward.z, 0, toward.x);
-      camTarget = { offset: toward.multiplyScalar(-(p.s * 3.4 + 1.2)).add(side.multiplyScalar(p.s * 2 + 0.7)).add(V(0, p.s * 0.9 + 0.3, 0)), t: 0 };
-    } else {
-      camTarget = { pos: V(15.2, 5.4, 11), target: V(0, 7.4, 0), t: 0 };
-    }
-    prevFollowPos = null;
+    // Frame the body at roughly a quarter of the screen height; rings count towards its size.
+    const size = p ? p.s * (p.key === 'saturn' ? 1.9 : 1) + 0.6 : 0;
+    zoomGoal = p ? THREE.MathUtils.clamp(13.5 / (2.6 * size), 1.6, 6) : 1;
   };
   chips.push(b);
   bodiesEl.append(b);
@@ -1929,21 +2031,144 @@ const addChip = (label, p) => {
 addChip('The Room', null);
 PLANETS.forEach((p) => addChip(p.name, p));
 
+/* ---- Intro: the seer speaks, then steps aside ---- */
+// The dialogue frame is painted, not drawn: ragged dry-brush ink, with a red swash for the name.
+function brushPanel() {
+  const c = document.createElement('canvas'); c.width = 1600; c.height = 400;
+  const g = c.getContext('2d');
+  const stroke = (y, x0, x1, w, col) => {
+    g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x0, y + rnd(-4, 4));
+    g.bezierCurveTo(x0 + 500, y + rnd(-10, 10), x1 - 500, y + rnd(-10, 10), x1, y + rnd(-6, 6)); g.stroke();
+  };
+  g.fillStyle = 'rgba(8,5,6,.97)'; g.fillRect(60, 44, 1480, 312);
+  for (let i = 0; i < 90; i++) stroke(rnd(40, 360), rnd(10, 90), rnd(1500, 1590), rnd(10, 46), `rgba(9,6,7,${rnd(0.25, 0.7)})`);
+  // Bristle drag: thin lighter and darker hairs through the ink.
+  for (let i = 0; i < 160; i++) stroke(rnd(60, 340), rnd(60, 400), rnd(1100, 1560), rnd(1, 2.5), rnd() < 0.5 ? 'rgba(70,52,48,.22)' : 'rgba(0,0,0,.5)');
+  // Ragged, dry ends: punch speckles out of the edges.
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 900; i++) {
+    const side = rnd() < 0.5, x = side ? rnd(0, 110) : rnd(1490, 1600), y = rnd(0, 400);
+    g.fillStyle = `rgba(0,0,0,${rnd(0.3, 1)})`; g.fillRect(x, y, rnd(4, 26), rnd(1, 3));
+  }
+  // Hand-drawn border: several dry passes of a bone-coloured brush, each slightly off the last.
+  g.globalCompositeOperation = 'source-over';
+  g.lineCap = 'round';
+  const L = 58, Rr = 1542, T = 34, B = 366;
+  const edge = (x0, y0, x1, y1, w) => {
+    for (let k = 0; k < 4; k++) {
+      g.strokeStyle = k === 0 ? 'rgba(225,205,170,.85)' : `rgba(210,190,158,${rnd(0.18, 0.4)})`;
+      g.lineWidth = w * (k === 0 ? 1 : rnd(0.4, 0.9));
+      const j = () => rnd(-3, 3);
+      g.beginPath(); g.moveTo(x0 + j(), y0 + j());
+      g.quadraticCurveTo((x0 + x1) / 2 + j() * 2, (y0 + y1) / 2 + j() * 2, x1 + j(), y1 + j());
+      g.stroke();
+    }
+  };
+  edge(L - 10, T, Rr + 14, T + 2, 7);      // top, overshooting the corners like a quick brush
+  edge(L - 14, B, Rr + 8, B - 2, 7);
+  edge(L, T - 8, L + 2, B + 10, 9);       // sides are drawn thicker: they get squashed when the box is wide
+  edge(Rr, T - 10, Rr - 2, B + 8, 9);
+  // A thin red inner rule echoes the seer's robes.
+  g.strokeStyle = 'rgba(196,40,28,.7)'; g.lineWidth = 3;
+  g.strokeRect(L + 16, T + 14, Rr - L - 32, B - T - 28);
+  return c.toDataURL();
+}
+function brushSwash() {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 120;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 46; i++) {
+    const y = rnd(28, 94);
+    g.strokeStyle = `rgba(${200 + rnd(40) | 0},${30 + rnd(26) | 0},${22 + rnd(14) | 0},${rnd(0.3, 0.8)})`;
+    g.lineWidth = rnd(6, 22); g.lineCap = 'round';
+    g.beginPath(); g.moveTo(rnd(6, 40), y); g.quadraticCurveTo(320, y + rnd(-8, 6), rnd(560, 630), y + rnd(-10, 4)); g.stroke();
+  }
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(0,0,0,${rnd(0.4, 1)})`; g.fillRect(rnd(440, 640), rnd(0, 120), rnd(6, 30), rnd(1, 2.5)); }
+  return c.toDataURL();
+}
+const SEER_PAGES = [
+  'Welcome, traveler\u2026 the stars spoke your name long before your footsteps found my door.',
+  'See how the spheres turn in their brass \u2014 slow, patient, certain. Tonight they lean toward one another, and toward you.',
+  'When they align, fortune will open its hand. Walk softly\u2026 and be ready to catch what falls.',
+];
+function runIntro() {
+  const intro = document.getElementById('intro'), veil = document.getElementById('veil');
+  if (params.has('nointro')) {
+    intro.remove(); veil.remove();
+    env.v = env.goal = ENV_LIT;
+    power.v = power.goal = 1;
+    return;
+  }
+  document.body.classList.add('intro');
+  const line = document.getElementById('line'), next = document.getElementById('next');
+  document.getElementById('dlg').style.backgroundImage = `url(${brushPanel()})`;
+  document.getElementById('nameplate').style.backgroundImage = `url(${brushSwash()})`;
+  document.getElementById('said').textContent = SEER_PAGES.join(' ');
+  let page = 0, i = 0, typing = true, timer = 0, gone = false;
+  const text = () => SEER_PAGES[page];
+  const finishTyping = () => {
+    typing = false; clearTimeout(timer);
+    line.textContent = text();
+    next.classList.add('on');
+    // Time to read, scaled to the length of the page, then move on unprompted.
+    timer = setTimeout(nextPage, 1400 + text().length * 24);
+  };
+  const type = () => {
+    if (i >= text().length) return finishTyping();
+    const ch = text()[i++];
+    line.textContent = text().slice(0, i);
+    // Linger on ellipses, dashes and stops, as if reading the stars.
+    timer = setTimeout(type, ch === '\u2026' ? 650 : ch === '\u2014' || ch === '.' ? 380 : ch === ',' ? 240 : 36);
+  };
+  const nextPage = () => {
+    clearTimeout(timer);
+    if (page === SEER_PAGES.length - 1) return dismiss();
+    page++; i = 0; typing = true;
+    line.textContent = '';
+    next.classList.remove('on');
+    timer = setTimeout(type, 280);
+  };
+  const onKey = (e) => {
+    if (!['Enter', ' ', 'Escape'].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key === 'Escape') dismiss(); else advance();
+  };
+  function dismiss() {
+    if (gone) return;
+    gone = true; clearTimeout(timer);
+    intro.classList.add('out'); veil.classList.add('out');
+    document.body.classList.remove('intro');
+    env.goal = ENV_LIT;
+    setTimeout(() => { power.goal = 1; }, 450);   // the seer leaves, then the machine wakes
+    removeEventListener('keydown', onKey);
+    setTimeout(() => { intro.remove(); veil.remove(); }, 2700);
+  }
+  const advance = () => (typing ? finishTyping() : nextPage());
+  intro.addEventListener('click', advance);
+  addEventListener('keydown', onKey);
+  requestAnimationFrame(() => requestAnimationFrame(() => intro.classList.add('in')));
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) typing = false, finishTyping();
+  else timer = setTimeout(type, 1200);
+}
+runIntro();
+
 /* ---- Loop ---- */
-let camTarget = null, prevFollowPos = null;
+let zoomGoal = null;
 let simT = 0, lastNow = performance.now(), fpsSum = 0, fpsN = 0;
 const Y0 = 1887;
 const tmp = V(), tmp2 = V();
 
 function setPose(t, dt) {
   shared.uTime.value = t;
-  simT += dt * Number(speedEl.value);
+  simT += dt * Number(speedEl.value) * pw;   // the gears wind up with the power
   for (const p of PLANETS) {
     p.pivot.rotation.y = p.phase + p.rate * simT;
     // Hold the holder's own frame steady so tilted axes stay fixed in space.
     p.holder.rotation.y = -p.pivot.rotation.y;
     p.body.rotation.y = simT * p.spin;
-    p.light3.intensity = p.I * 0.95 * (0.94 + 0.06 * Math.sin(t * 2.3 + p.phase * 4));
+    p.light3.intensity = p.I * 0.95 * (0.94 + 0.06 * Math.sin(t * 2.3 + p.phase * 4)) * pw;
+    p.body.material.emissiveIntensity = 0.2 * pw;
   }
   for (const m of moons) m.carrier.rotation.y = m.phase + simT * m.rate;
   for (const q of pinions) {
@@ -1963,14 +2188,27 @@ function setPose(t, dt) {
     // Tick the seconds hand rather than sweeping it.
     clockHands[2].rotation.z = -Math.floor(sec) / 60 * TAU;
   }
-  sunLight.intensity = SUN_I * (0.96 + 0.04 * Math.sin(t * 3.1) * Math.sin(t * 7.7));
+  sunLight.intensity = SUN_I * (0.96 + 0.04 * Math.sin(t * 3.1) * Math.sin(t * 7.7)) * pw;
+  boxLight.intensity = 7 * pw;
+  for (const g of powered) g.sprite.material.opacity = g.op * pw;
   sunCore.rotation.y = t * 0.04;
+  const lampK = Math.min(1, 0.22 + env.v * 1.3);
+  for (const g of glowSprites) {
+    g.op ??= g.sprite.material.opacity;
+    g.sprite.material.opacity = g.op * lampK;
+  }
+  for (const k of ['glass', 'lampGlass', 'moonDisc']) {
+    const m = M[k];
+    m.userData.base ??= m.color.clone();
+    m.color.copy(m.userData.base).multiplyScalar(0.3 + 0.7 * lampK);
+  }
+  for (const sh of atmos.shafts || []) sh.material.opacity = 0.4 * lampK;
   for (const g of glowSprites) g.sprite.scale.setScalar(g.base * (0.92 + 0.08 * Math.sin(t * 9 + g.ph) * Math.sin(t * 3.7 + g.ph * 2)));
   for (const f of fires) {
     const fl = 0.8 + 0.2 * Math.sin(t * 11) * Math.sin(t * 7.3 + 1) + 0.1 * Math.sin(t * 23);
-    f.light.intensity = f.base * fl;
+    f.light.intensity = f.base * fl * (0.4 + 0.6 * lampK);
     f.mesh.material.color.setRGB(4.4 * fl, 1.5 * fl, 0.22);
-    f.spr.material.opacity = 0.42 + 0.26 * fl;
+    f.spr.material.opacity = (0.42 + 0.26 * fl) * lampK;
   }
   for (const s of atmos.steam) {
     if (!vents.length) break;
@@ -1979,37 +2217,22 @@ function setPose(t, dt) {
     const v = vents[s.vent % vents.length];
     s.s.position.set(v.x + s.drift.x * s.t * 3, v.y + s.t * 4.5, v.z + s.drift.z * s.t * 3);
     s.s.scale.setScalar(0.3 + s.t * 2.8);
-    s.s.material.opacity = Math.sin(Math.min(s.t * 3, 1) * Math.PI / 2) * (1 - s.t) * 0.5;
+    s.s.material.opacity = Math.sin(Math.min(s.t * 3, 1) * Math.PI / 2) * (1 - s.t) * 0.5 * lampK;
   }
 }
 
 function updateCamera(dt) {
-  // Keep inside the balustrade and above the floor, whatever the user does.
-  if (camTarget) {
-    camTarget.t = Math.min(1, camTarget.t + dt / 1.6);
-    const e = camTarget.t * camTarget.t * (3 - 2 * camTarget.t);
-    if (camTarget.offset && follow) {
-      const w = follow.holder.getWorldPosition(tmp);
-      controls.target.lerp(w, e);
-      camera.position.lerp(tmp2.copy(w).add(camTarget.offset), e * 0.45);
-    } else if (camTarget.pos) {
-      controls.target.lerp(camTarget.target, e * 0.25);
-      camera.position.lerp(camTarget.pos, e * 0.25);
-    }
-    if (camTarget.t >= 1) camTarget = null;
-  } else if (follow) {
-    const w = follow.holder.getWorldPosition(tmp);
-    if (prevFollowPos) {
-      const d = tmp2.copy(w).sub(prevFollowPos);
-      camera.position.add(d); controls.target.add(d);
-    } else controls.target.lerp(w, 0.2);
-    prevFollowPos = (prevFollowPos || V()).copy(w);
+  // Glide the look-at point (and the camera with it) to the followed body; the isometric angle never changes.
+  const goal = follow ? follow.holder.getWorldPosition(tmp) : ROOM_TARGET;
+  tmp2.copy(goal).sub(controls.target).multiplyScalar(1 - Math.exp(-dt * (follow ? 4 : 2)));
+  controls.target.add(tmp2); camera.position.add(tmp2);
+  if (zoomGoal !== null) {
+    camera.zoom += (zoomGoal - camera.zoom) * (1 - Math.exp(-dt * 2.4));
+    camera.updateProjectionMatrix();
+    if (Math.abs(camera.zoom - zoomGoal) < 0.004) zoomGoal = null;
   }
   controls.update();
-  const rr = Math.hypot(camera.position.x, camera.position.z);
-  if (rr > 19.6) { camera.position.x *= 19.6 / rr; camera.position.z *= 19.6 / rr; }
-  if (camera.position.y < 0.9) camera.position.y = 0.9;
-  if (camera.position.y > 21) camera.position.y = 21;
+  updateClip();
 }
 
 function animate(now) {
@@ -2017,6 +2240,13 @@ function animate(now) {
   if (window.__freeze) return;
   const dt = Math.min(0.05, (now - lastNow) / 1000);
   lastNow = now;
+  env.v += (env.goal - env.v) * (1 - Math.exp(-dt * 1.3));
+  shared.uEnv.value = env.v;
+  // Ignition: a steady 2.5 s climb, sputtering on the way up like a lamp catching.
+  power.v = Math.min(power.goal, power.v + dt / 2.5);
+  const e = power.v * power.v * (3 - 2 * power.v), tt = now / 1000;
+  pw = power.v < 1 ? e * (0.78 + 0.22 * Math.abs(Math.sin(tt * 37) * Math.sin(tt * 11))) : 1;
+  shared.uPower.value = pw;
   setPose(now / 1000, dt);
   updateCamera(dt);
   yearEl.textContent = 'Anno ' + (Y0 + (simT * PLANETS[2].rate) / TAU).toFixed(1);
@@ -2032,12 +2262,17 @@ requestAnimationFrame(animate);
 
 // A small hook for headless screenshots.
 window.__orrery = {
-  frame(camPos, target, t = 20, sim = 60) {
+  frame(az = Math.PI / 4, zoom = 1, target = [0, 5.5, 0], t = 20, sim = 60) {
     window.__freeze = true;
     simT = sim;
+    shared.uEnv.value = env.v;
+    pw = shared.uPower.value = power.v;
     setPose(t, 0);
-    camera.position.set(...camPos); controls.target.set(...target); camera.lookAt(...target);
-    camera.updateMatrixWorld();
+    controls.target.set(...target);
+    camera.position.copy(controls.target).addScaledVector(isoDir(az), CAM_D);
+    camera.zoom = zoom; camera.updateProjectionMatrix();
+    camera.lookAt(controls.target); camera.updateMatrixWorld();
+    updateClip();
     renderFrame();
     return renderer.info.render;
   },
