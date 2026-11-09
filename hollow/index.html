@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Day 7 - Hollow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #d9d9d6; --soft: #8d8d8a; --bg: #000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; position: fixed; inset: 0; }
+  .title { position: fixed; top: 22px; right: 28px; text-align: right; pointer-events: none; font-family: Cinzel, Georgia, serif; font-weight: 700; font-size: 24px; letter-spacing: .08em; color: var(--ink); text-shadow: 0 0 14px rgba(0,0,0,.9); transition: opacity 2s ease 2.5s; }
+  .title small { display: block; margin-top: 4px; font: 500 11px Inter, sans-serif; letter-spacing: .18em; text-transform: uppercase; color: var(--soft); }
+  #sound { position: fixed; right: 24px; bottom: 20px; padding: 7px 14px; font: 500 11px Inter, sans-serif; letter-spacing: .18em; text-transform: uppercase; color: var(--soft); background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 3px; cursor: pointer; transition: opacity 2s ease 2.5s, color .2s, border-color .2s; }
+  #sound:hover, #sound[aria-pressed="true"] { color: var(--ink); border-color: rgba(255,255,255,.45); }
+  body.intro .title, body.intro #sound { opacity: 0; }
+  #error { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; font-family: Cinzel, Georgia, serif; }
+  @media (max-width: 620px) { .title { top: 14px; right: 16px; left: 16px; font-size: 17px; } #sound { right: 16px; bottom: 16px; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body class="intro">
+<div class="title">Vibecodevember - Day 7 - Hollow<small>Nov 7th 2026 · the horseman rides · space pauses</small></div>
+<button id="sound" aria-pressed="false">Sound off</button>
+<div id="error">This forest needs WebGL 2.</div>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------------------------------------------------------------- utils
+const TAU = Math.PI * 2;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const hash1 = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const rr = (rng, a, b) => a + (b - a) * rng();
+
+const QS = new URLSearchParams(location.search);
+const FILM = QS.has('film');      // square, Muybridge-style locked-off composition with film damage
+const RECORD = QS.has('record');  // step time at 24 fps and POST every frame to the recorder
+const VIEW_H = 10;          // world units visible vertically
+const NF = 11;              // frames in the gallop cycle (Muybridge's loop)
+const FPS = 12;             // playback rate of the cycle: deliberately choppy
+const DUTY = 0.27;
+const HORSE_K = FILM ? 1.42 : 1.25;       // rig units -> world units
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+if (!renderer.capabilities.isWebGL2) { document.getElementById('error').style.display = 'flex'; throw new Error('WebGL2'); }
+renderer.setPixelRatio(RECORD ? 1 : Math.min(devicePixelRatio, 1.75));
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = true;
+document.body.prepend(renderer.domElement);
+const MAX_TEX = renderer.capabilities.maxTextureSize;
+
+// ---------------------------------------------------------------- shared uniforms
+const U = {
+  uCamX: { value: 0 }, uViewW: { value: VIEW_H * innerWidth / innerHeight }, uAspect: { value: innerWidth / innerHeight },
+  uTime: { value: 0 }, uOcc: { value: 0 },
+  uL0: { value: new THREE.Vector2(0.5, 0.85) }, uL1: { value: new THREE.Vector2(2, 2) },
+  uI0: { value: 1 }, uI1: { value: 0 },
+};
+
+const GLSL_COMMON = /* glsl */`
+  uniform float uCamX, uViewW, uAspect, uTime, uOcc;
+  uniform vec2 uL0, uL1; uniform float uI0, uI1;
+  float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+  float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+  float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return s; }
+  float glowAt(vec2 uv, vec2 l, float k) { vec2 d = (uv - l) * vec2(uAspect, 1.0); return exp(-dot(d, d) * k); }
+  float lights(vec2 uv, float k) { return glowAt(uv, uL0, k) * uI0 + glowAt(uv, uL1, k) * uI1; }
+`;
+const VS_FULL = /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy * 2.0, 0.0, 1.0); }`;
+
+const quadGeo = new THREE.PlaneGeometry(1, 1);
+const scene = new THREE.Scene();
+const cam = new THREE.Camera();
+function addQuad(material, order, sc = scene) {
+  const m = new THREE.Mesh(quadGeo, material); m.frustumCulled = false; m.renderOrder = order; sc.add(m); return m;
+}
+const matOpts = { transparent: true, depthTest: false, depthWrite: false };
+
+// ---------------------------------------------------------------- forest strips (procedural silhouettes)
+function groundFn(cfg) {
+  const { W, ground, amp, seed } = cfg; const r = mulberry32(seed * 7 + 1); const ph = [r() * TAU, r() * TAU, r() * TAU];
+  return x => ground + amp * (0.6 * Math.sin(TAU * 3 * x / W + ph[0]) + 0.3 * Math.sin(TAU * 7 * x / W + ph[1]) + 0.1 * Math.sin(TAU * 17 * x / W + ph[2]));
+}
+
+function genBranch(out, rng, x, y, ang, len, w, depth, gnarl, hang) {
+  const n = 3 + (rng() * 3 | 0), step = len / n; let cw = w;
+  for (let i = 0; i < n; i++) {
+    ang += (rng() - 0.5) * 0.55 * gnarl;
+    ang -= Math.cos(ang) * 0.04 * gnarl * Math.sign(Math.sin(ang) + 0.3); // creepy droop toward horizontal
+    const nx = x + Math.cos(ang) * step, ny = y + Math.sin(ang) * step, nw = w * (1 - 0.72 * (i + 1) / n);
+    out.segs.push([x, y, nx, ny, cw, nw]);
+    if (depth > 0 && rng() < 0.4) genBranch(out, rng, nx, ny, ang + (rng() < 0.5 ? -1 : 1) * (0.45 + rng() * 0.7), len * (0.4 + rng() * 0.25), nw * 0.85, depth - 1, gnarl, hang);
+    x = nx; y = ny; cw = nw;
+  }
+  if (depth > 0) {
+    const k = 1 + (rng() < 0.6 ? 1 : 0);
+    for (let j = 0; j < k; j++) genBranch(out, rng, x, y, ang + (j ? -1 : 1) * (0.3 + rng() * 0.6), len * (0.45 + rng() * 0.3), cw * 0.9, depth - 1, gnarl, hang);
+  } else if (rng() < hang) out.hangs.push([x, y, 0.25 + rng() * 1.1, rng() * 10]);
+}
+
+function genTree(rng, x, y, H, w, gnarl, branchy, depth, hang) {
+  const out = { segs: [], hangs: [] };
+  let px = x, py = y, ang = Math.PI / 2 + (rng() - 0.5) * 0.2 * gnarl;
+  const n = 16, step = H / n; let cw = w;
+  for (let i = 0; i < n; i++) {
+    ang += (rng() - 0.5) * 0.14 * gnarl; ang += (Math.PI / 2 - ang) * 0.12;
+    const nx = px + Math.cos(ang) * step, ny = py + Math.sin(ang) * step, nw = w * (1 - 0.62 * (i + 1) / n);
+    out.segs.push([px, py, nx, ny, cw, nw]);
+    const hf = (i + 1) / n;
+    if (hf > 0.18 && rng() < branchy) {
+      const side = rng() < 0.5 ? -1 : 1;
+      genBranch(out, rng, nx, ny, ang + side * (0.55 + rng() * 0.85), Math.min(H, 9) * (0.13 + rng() * 0.2) * (1.15 - hf * 0.5), nw * 0.6, depth, gnarl, hang);
+    }
+    px = nx; py = ny; cw = nw;
+  }
+  // root flare
+  const roots = 2 + (rng() * 3 | 0);
+  for (let k = 0; k < roots; k++) {
+    const side = k % 2 ? -1 : 1, rl = w * (1.1 + rng() * 1.6);
+    out.segs.push([x, y + w * 0.9, x + side * rl * 0.55, y + w * 0.2, w * 0.55, w * 0.3]);
+    out.segs.push([x + side * rl * 0.55, y + w * 0.2, x + side * rl, y - 0.08, w * 0.3, w * 0.04]);
+  }
+  let minX = Infinity, maxX = -Infinity;
+  for (const s of out.segs) { minX = Math.min(minX, s[0], s[2]); maxX = Math.max(maxX, s[0], s[2]); }
+  out.minX = minX - w; out.maxX = maxX + w;
+  return out;
+}
+
+function makeStrip(cfg) {
+  const ppu = Math.min(cfg.ppu, (MAX_TEX - 8) / cfg.W);
+  const w = Math.round(cfg.W * ppu), h = Math.round(VIEW_H * ppu);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#000'; ctx.strokeStyle = '#000';
+  const rng = mulberry32(cfg.seed);
+  const g = groundFn(cfg);
+  const X = x => x * ppu, Y = y => h - y * ppu;
+  const minR = 0.45;
+
+  const seg = (s, o) => {
+    const x0 = X(s[0] + o), y0 = Y(s[1]), x1 = X(s[2] + o), y1 = Y(s[3]);
+    const r0 = Math.max(s[4] * ppu / 2, minR), r1 = Math.max(s[5] * ppu / 2, minR);
+    const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    ctx.beginPath(); ctx.moveTo(x0 + nx * r0, y0 + ny * r0); ctx.lineTo(x1 + nx * r1, y1 + ny * r1);
+    ctx.lineTo(x1 - nx * r1, y1 - ny * r1); ctx.lineTo(x0 - nx * r0, y0 - ny * r0); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(x1, y1, r1, 0, TAU); ctx.fill();
+  };
+  const wrapOffsets = (a, b) => [-cfg.W, 0, cfg.W].filter(o => b + o > 0 && a + o < cfg.W);
+
+  const drawTree = t => {
+    for (const o of wrapOffsets(t.minX, t.maxX)) {
+      for (const s of t.segs) seg(s, o);
+      ctx.lineCap = 'round';
+      for (const [hx, hy, hl, hs] of t.hangs) {
+        ctx.lineWidth = Math.max(0.7, ppu * 0.012);
+        ctx.beginPath(); ctx.moveTo(X(hx + o), Y(hy));
+        for (let i = 1; i <= 8; i++) { const q = i / 8; ctx.lineTo(X(hx + o + Math.sin(hs + q * 4) * 0.04 * q), Y(hy - hl * q)); }
+        ctx.stroke();
+      }
+    }
+  };
+
+  // trees
+  const trees = [];
+  for (let i = 0; i < cfg.trees; i++) {
+    const x = (i + rng() * 0.8) * cfg.W / cfg.trees;
+    const short = rng() < (cfg.shortP ?? 0.2);
+    const H = short ? rr(rng, 2.5, 5.5) : rr(rng, cfg.H[0], cfg.H[1]);
+    const tw = rr(rng, cfg.w[0], cfg.w[1]) * (short ? 1.15 : 1);
+    trees.push(genTree(rng, x, g(x) - 0.12, H, tw, cfg.gnarl * (short ? 1.6 : 1), short ? 0.75 : cfg.branchy, cfg.depth ?? 3, cfg.hang ?? 0));
+  }
+  trees.forEach(drawTree);
+
+  // graves & broken fences (Sleepy Hollow churchyard)
+  for (let i = 0; i < (cfg.graves || 0); i++) {
+    const gx = rng() * cfg.W, gy = g(gx), gh = rr(rng, 0.32, 0.62) * (cfg.graveScale || 1), gw = gh * rr(rng, 0.5, 0.75), tilt = (rng() - 0.5) * 0.35;
+    for (const o of wrapOffsets(gx - 1, gx + 1)) {
+      ctx.save(); ctx.translate(X(gx + o), Y(gy - 0.06)); ctx.rotate(tilt); ctx.beginPath();
+      if (rng() < 0.3) { // cross
+        const t = gw * 0.22 * ppu; ctx.rect(-t / 2, -gh * 1.2 * ppu, t, gh * 1.2 * ppu); ctx.rect(-gw * 0.45 * ppu, -gh * 0.95 * ppu, gw * 0.9 * ppu, t);
+      } else {
+        const R = gw / 2 * ppu; ctx.moveTo(-R, 0); ctx.lineTo(-R, -gh * ppu + R); ctx.arc(0, -gh * ppu + R, R, Math.PI, 0); ctx.lineTo(R, 0);
+      }
+      ctx.fill(); ctx.restore();
+    }
+  }
+  for (let i = 0; i < (cfg.fences || 0); i++) {
+    const fx = rng() * cfg.W, posts = 3 + (rng() * 4 | 0), sp = 0.85 * (cfg.graveScale || 1);
+    for (const o of wrapOffsets(fx - 1, fx + posts * sp + 1)) {
+      let prev = null;
+      for (let p = 0; p < posts; p++) {
+        const px = fx + p * sp, py = g(px) - 0.05, ph = rr(rng, 0.6, 0.85) * (cfg.graveScale || 1), lean = (rng() - 0.5) * 0.3;
+        const top = [px + Math.sin(lean) * ph, py + Math.cos(lean) * ph];
+        seg([px, py, top[0], top[1], 0.07, 0.06], o);
+        if (prev && rng() < 0.8) seg([prev[0], prev[1] - 0.12, top[0], top[1] - 0.12 - (rng() - 0.5) * 0.2, 0.04, 0.04], o);
+        if (prev && rng() < 0.5) seg([prev[0], prev[1] - 0.42, lerp(prev[0], top[0], rr(rng, 0.4, 1)), top[1] - 0.45 - rng() * 0.25, 0.035, 0.035], o);
+        prev = top;
+      }
+    }
+  }
+
+  // ground
+  ctx.beginPath(); ctx.moveTo(0, h + 2);
+  for (let px = 0; px <= w + 4; px += 3) ctx.lineTo(px, Y(g(px / ppu)));
+  ctx.lineTo(w + 4, h + 2); ctx.closePath(); ctx.fill();
+
+  // grass, weeds
+  if (cfg.grass) {
+    ctx.lineCap = 'round';
+    const n = Math.round(cfg.W * cfg.grass);
+    for (let i = 0; i < n; i++) {
+      const gx = rng() * cfg.W, clump = 0.5 + 0.5 * Math.sin(gx * 2.3) * Math.sin(gx * 0.71 + 2);
+      const gh = (0.05 + rng() * rng() * cfg.grassH) * (0.4 + clump), lean = (rng() - 0.6) * 0.9;
+      const bw = Math.max(0.8, ppu * 0.012 * (cfg.bladeW || 1));
+      for (const o of wrapOffsets(gx - 0.5, gx + 0.5)) {
+        const x0 = X(gx + o), y0 = Y(g(gx) - 0.03);
+        const x1 = X(gx + o + Math.sin(lean) * gh), y1 = Y(g(gx) + Math.cos(lean) * gh);
+        ctx.beginPath(); ctx.moveTo(x0 - bw, y0); ctx.quadraticCurveTo((x0 + x1) / 2 - bw * 0.3, (y0 + y1) / 2, x1, y1);
+        ctx.quadraticCurveTo((x0 + x1) / 2 + bw * 0.3, (y0 + y1) / 2, x0 + bw, y0); ctx.fill();
+      }
+    }
+  }
+
+  // hanging tendrils from the top edge (foreground)
+  if (cfg.topVines) {
+    ctx.lineCap = 'round';
+    for (let i = 0; i < cfg.topVines; i++) {
+      const vx = rng() * cfg.W, vl = rr(rng, 0.8, 3.2), lw = rr(rng, 0.02, 0.07) * ppu;
+      for (const o of wrapOffsets(vx - 1, vx + 1)) {
+        ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(X(vx + o), -4);
+        for (let k = 1; k <= 10; k++) { const q = k / 10; ctx.lineTo(X(vx + o + Math.sin(q * 3 + i) * 0.12 * q), Y(VIEW_H - vl * q)); }
+        ctx.stroke();
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = true;
+  tex.anisotropy = 4;
+  return { tex, g, cv };
+}
+
+const LAYER_FS = /* glsl */`
+  ${GLSL_COMMON}
+  uniform sampler2D map; uniform float uF, uW, uTint, uFogGray, uFogAmt, uFogTop, uOccA, uBias, uRim;
+  varying vec2 vUv;
+  void main() {
+    float wx = uCamX * uF + (vUv.x - 0.5) * uViewW;
+    vec4 t = texture2D(map, vec2(wx / uW, vUv.y), uBias);
+    if (t.a < 0.004) discard;
+    if (uOcc > 1.5) { gl_FragColor = vec4(1.0, 1.0, 1.0, t.a); return; }
+    if (uOcc > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, t.a * uOccA); return; }
+    float wy = vUv.y * 10.0;
+    float fogv = uFogAmt * smoothstep(uFogTop, 0.0, wy);
+    float g = mix(uTint, uFogGray, fogv);
+    g += uRim * lights(vUv, 5.0);               // haze bleeding over silhouettes near the light
+    gl_FragColor = vec4(vec3(g), t.a);
+  }`;
+
+function addLayer(cfg, order) {
+  const strip = makeStrip(cfg);
+  const mat = new THREE.ShaderMaterial({
+    ...matOpts, vertexShader: VS_FULL, fragmentShader: LAYER_FS,
+    uniforms: { ...U, map: { value: strip.tex }, uF: { value: cfg.f }, uW: { value: cfg.W }, uTint: { value: cfg.tint },
+      uFogGray: { value: cfg.fogGray ?? cfg.tint }, uFogAmt: { value: cfg.fogAmt ?? 0 }, uFogTop: { value: cfg.fogTop ?? 3 },
+      uOccA: { value: cfg.occA ?? 1 }, uBias: { value: cfg.bias ?? 0 }, uRim: { value: cfg.rim ?? 0 } },
+  });
+  const mesh = addQuad(mat, order);
+  return { ...strip, mesh, cfg };
+}
+
+// ---------------------------------------------------------------- sky
+const skyMat = new THREE.ShaderMaterial({
+  ...matOpts, transparent: false, vertexShader: VS_FULL, uniforms: { ...U },
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    varying vec2 vUv;
+    void main() {
+      if (uOcc > 0.5) {
+        float l = lights(vUv, 110.0) * 2.4 + lights(vUv, 16.0) * 0.22;
+        gl_FragColor = vec4(vec3(l + 0.05 * smoothstep(0.35, 1.0, vUv.y)), 1.0); return;
+      }
+      float wx = uCamX * 0.05 + (vUv.x - 0.5) * uViewW;
+      float n = fbm(vec2(wx * 0.15 + uTime * 0.01, vUv.y * 2.0 - uTime * 0.005));
+      float g = mix(0.42, 0.2, smoothstep(0.1, 1.0, vUv.y)) + (n - 0.5) * 0.07;
+      g += lights(vUv, 40.0) * 0.22 + lights(vUv, 3.0) * 0.12;
+      gl_FragColor = vec4(vec3(g), 1.0);
+    }`,
+});
+addQuad(skyMat, 0);
+
+// ---------------------------------------------------------------- fog banks
+const fogs = [];
+function addFog(o, order) {
+  const mat = new THREE.ShaderMaterial({
+    ...matOpts, vertexShader: VS_FULL,
+    uniforms: { ...U, uF: { value: o.f }, uGray: { value: o.gray }, uDens: { value: o.dens }, uTop: { value: o.top }, uScale: { value: o.scale ?? 0.2 }, uWind: { value: o.wind ?? 0.25 }, uSeed: { value: order * 7.3 } },
+    fragmentShader: /* glsl */`
+      ${GLSL_COMMON}
+      uniform float uF, uGray, uDens, uTop, uScale, uWind, uSeed;
+      varying vec2 vUv;
+      void main() {
+        float wx = uCamX * uF + (vUv.x - 0.5) * uViewW, wy = vUv.y * 10.0;
+        vec2 p = vec2(wx * uScale + uTime * uWind * uScale + uSeed, wy * uScale * 2.2);
+        float n = fbm(p + 1.6 * vec2(fbm(p * 0.6 + uTime * 0.03), fbm(p * 0.6 - uTime * 0.025 + 3.1)));
+        float band = smoothstep(uTop, uTop * 0.15, wy);
+        float a = uDens * band * smoothstep(0.18, 0.85, n);
+        float lit = lights(vUv, 4.5);
+        gl_FragColor = vec4(vec3(uGray + lit * 0.32), clamp(a, 0.0, 1.0));
+      }`,
+  });
+  const m = addQuad(mat, order); fogs.push(m); return m;
+}
+
+// ---------------------------------------------------------------- layers (back to front)
+const L1 = addLayer({ W: 40, ppu: 34, seed: 11, f: 0.12, tint: 0.34, fogGray: 0.42, fogAmt: 0.6, fogTop: 6, trees: 36, H: [9, 15], w: [0.07, 0.18], gnarl: 0.4, branchy: 0.14, depth: 2, ground: 3.1, amp: 0.25, occA: 0.75, bias: 0.6, rim: 0.12, shortP: 0.08 }, 1);
+addFog({ f: 0.16, gray: 0.4, dens: 0.55, top: 7, scale: 0.12, wind: 0.2 }, 2);
+const L2 = addLayer({ W: 40, ppu: 48, seed: 22, f: 0.24, tint: 0.24, fogGray: 0.34, fogAmt: 0.7, fogTop: 5, trees: 22, H: [8, 14], w: [0.12, 0.3], gnarl: 0.7, branchy: 0.28, depth: 3, ground: 2.65, amp: 0.25, hang: 0.15, graves: 6, graveScale: 0.7, occA: 0.85, bias: 0.4, rim: 0.08 }, 3);
+addFog({ f: 0.32, gray: 0.3, dens: 0.5, top: 5, scale: 0.16, wind: 0.25 }, 4);
+const L3 = addLayer({ W: 44, ppu: 70, seed: 33, f: 0.45, tint: 0.13, fogGray: 0.25, fogAmt: 0.75, fogTop: 4, trees: 13, H: [8, 14], w: [0.2, 0.45], gnarl: 1.0, branchy: 0.42, depth: 3, ground: 2.2, amp: 0.2, hang: 0.3, graves: 9, graveScale: 0.85, fences: 2, grass: 30, grassH: 0.25, occA: 1, bias: 0.2, rim: 0.05 }, 5);
+addFog({ f: 0.7, gray: 0.21, dens: 0.48, top: 3.6, scale: 0.22, wind: 0.3 }, 6);
+const L4 = addLayer({ W: 56, ppu: 112, seed: 44, f: 1.0, tint: 0.02, fogGray: 0.1, fogAmt: 0.5, fogTop: 2.2, trees: 6, H: [9, 14], w: [0.38, 0.8], gnarl: 1.3, branchy: 0.5, depth: 3, ground: 1.65, amp: 0.1, hang: 0.45, graves: 4, fences: 2, grass: 260, grassH: 0.4, shortP: 0.35 }, 8);
+addFog({ f: 1.25, gray: 0.14, dens: 0.32, top: 2.4, scale: 0.35, wind: 0.5 }, 10);
+const L5 = addLayer({ W: 130, ppu: 22, seed: 55, f: 1.9, tint: 0.0, trees: 2, H: [14, 16], w: [1.3, 2.3], gnarl: 0.6, branchy: 0.12, depth: 2, ground: 0.4, amp: 0.15, grass: 90, grassH: 1.0, bladeW: 3, topVines: 12, bias: 1.4, shortP: 0 }, 11);
+
+if (FILM) scene.remove(L5.mesh);
+
+// ---------------------------------------------------------------- dust motes drifting through the shafts
+{
+  const N = 420, seeds = new Float32Array(N * 4), pos = new Float32Array(N * 3);
+  const r = mulberry32(9);
+  for (let i = 0; i < N * 4; i++) seeds[i] = r();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
+  const mat = new THREE.ShaderMaterial({
+    ...matOpts, uniforms: { ...U, uPx: { value: renderer.getPixelRatio() } },
+    vertexShader: /* glsl */`
+      ${GLSL_COMMON}
+      attribute vec4 aSeed; uniform float uPx; varying float vB;
+      void main() {
+        float f = mix(0.35, 1.3, aSeed.z), wrap = uViewW + 2.0;
+        float x = mod(aSeed.x * wrap - uCamX * f + uTime * 0.2 * (0.4 + aSeed.w) + sin(uTime * 0.6 + aSeed.y * 30.0) * 0.4, wrap) - wrap * 0.5;
+        float y = mod(aSeed.y * 10.0 - uTime * 0.1 * (0.3 + aSeed.w) + sin(uTime * 0.9 + aSeed.x * 20.0) * 0.15, 10.0);
+        vec2 clip = vec2(x / (uViewW * 0.5), y / 5.0 - 1.0);
+        gl_Position = vec4(clip, 0.0, 1.0);
+        gl_PointSize = (1.2 + aSeed.z * 2.6) * uPx;
+        vB = lights(clip * 0.5 + 0.5, 1.6) * (0.5 + 0.5 * sin(uTime * 2.0 + aSeed.w * 40.0));
+      }`,
+    fragmentShader: /* glsl */`
+      varying float vB;
+      void main() { float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d) * vB * 0.8;
+        gl_FragColor = vec4(vec3(0.75), a); }`,
+  });
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = 7; scene.add(pts); fogs.push(pts);
+}
+
+// ---------------------------------------------------------------- the horse & headless rider, Muybridge style
+// Left side faces the viewer (horse runs to the right): left legs are near, right legs far.
+const LEGS = [
+  { fore: false, start: 0.00, near: true },   // left hind
+  { fore: false, start: 0.08, near: false },  // right hind
+  { fore: true, start: 0.30, near: true },    // left fore
+  { fore: true, start: 0.40, near: false },   // right fore
+];
+const FR_W = 840, FR_H = 760, FR_OX = 440, FR_OY = 730, FR_S = 190, ATL_C = 4, ATL_R = 3;
+
+// The horseman is modelled, posed and rendered in Blender (blender/horseman.py): 11 gallop frames -> horseman.png
+let atlasLoaded; const atlasReady = new Promise(r => { atlasLoaded = r; });
+const atlasTex = new THREE.TextureLoader().load('horseman.png', () => atlasLoaded());
+atlasTex.minFilter = THREE.LinearMipmapLinearFilter; atlasTex.anisotropy = 8;
+
+const horseU = { uFrame: { value: 0 }, uPos: { value: new THREE.Vector2() }, uSize: { value: new THREE.Vector2(FR_W / FR_S * HORSE_K, FR_H / FR_S * HORSE_K) }, uRimDir: { value: new THREE.Vector2(0, 1) }, uRim: { value: 0 } };
+const horseMat = new THREE.ShaderMaterial({
+  ...matOpts, uniforms: { ...U, ...horseU, map: { value: atlasTex } },
+  vertexShader: /* glsl */`
+    uniform float uCamX, uViewW; uniform vec2 uPos, uSize; varying vec2 vUv;
+    void main() { vUv = uv; vec2 w = uPos + uv * uSize;
+      gl_Position = vec4((w.x - uCamX) / (uViewW * 0.5), w.y / 5.0 - 1.0, 0.0, 1.0); }`,
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    uniform sampler2D map; uniform float uFrame, uRim; uniform vec2 uRimDir; varying vec2 vUv;
+    vec2 cell(vec2 uv) {
+      float col = mod(uFrame, ${ATL_C}.0), row = floor(uFrame / ${ATL_C}.0);
+      uv = clamp(uv, 0.002, 0.998);
+      return vec2((col + uv.x) / ${ATL_C}.0, 1.0 - (row + 1.0 - uv.y) / ${ATL_R}.0);
+    }
+    void main() {
+      vec4 t = texture2D(map, cell(vUv), -0.8);
+      if (t.a < 0.004) discard;
+      if (uOcc > 1.5) { gl_FragColor = vec4(1.0, 1.0, 1.0, t.a); return; }
+      if (uOcc > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, t.a); return; }
+      vec2 px = vec2(1.0 / ${FR_W}.0, 1.0 / ${FR_H}.0);
+      // backlit rim: edges facing the light catch a thin halo
+      float a1 = texture2D(map, cell(vUv + uRimDir * px * 3.0)).a;
+      float a2 = texture2D(map, cell(vUv + uRimDir * px * 7.0)).a;
+      float rim = t.a * (1.0 - 0.6 * a1 - 0.4 * a2);
+      vec3 lit = t.rgb * 0.62;                                   // baked soft shading + rim from Blender
+      gl_FragColor = vec4(lit + rim * uRim * 0.5, t.a);
+    }`,
+});
+const horseMesh = addQuad(horseMat, 9);
+
+// ---------------------------------------------------------------- post: occlusion -> radial light scattering -> composite
+let rtMain, rtOcc, rtRays, rtNear;
+function makeTargets() {
+  const s = renderer.getDrawingBufferSize(new THREE.Vector2());
+  rtMain?.dispose(); rtOcc?.dispose(); rtRays?.dispose(); rtNear?.dispose();
+  rtNear = new THREE.WebGLRenderTarget(Math.ceil(s.x / 2), Math.ceil(s.y / 2));
+  rtMain = new THREE.WebGLRenderTarget(s.x, s.y, { type: THREE.HalfFloatType });
+  rtOcc = new THREE.WebGLRenderTarget(Math.ceil(s.x / 2), Math.ceil(s.y / 2), { type: THREE.HalfFloatType });
+  rtRays = new THREE.WebGLRenderTarget(Math.ceil(s.x / 2), Math.ceil(s.y / 2), { type: THREE.HalfFloatType });
+}
+makeTargets();
+
+const raysScene = new THREE.Scene();
+const raysMat = new THREE.ShaderMaterial({
+  depthTest: false, depthWrite: false, vertexShader: VS_FULL, uniforms: { ...U, tOcc: { value: null } },
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    uniform sampler2D tOcc; varying vec2 vUv;
+    #define N 72
+    float march(vec2 uv, vec2 lp, float j) {
+      vec2 d = (uv - lp) * (0.97 / float(N));
+      vec2 c = uv - d * j; float ill = 1.0, s = 0.0;
+      for (int i = 0; i < N; i++) { c -= d; s += texture2D(tOcc, c).r * ill; ill *= 0.976; }
+      return s * 0.05;
+    }
+    void main() {
+      float j = hash(gl_FragCoord.xy + fract(uTime) * 61.0);
+      float r = 0.0;
+      if (uI0 > 0.002) r += march(vUv, uL0, j) * uI0;
+      if (uI1 > 0.002) r += march(vUv, uL1, j) * uI1;
+      gl_FragColor = vec4(vec3(r), 1.0);
+    }`,
+});
+addQuad(raysMat, 0, raysScene);
+
+const compScene = new THREE.Scene();
+const compMat = new THREE.ShaderMaterial({
+  defines: new URLSearchParams(location.search).has('rays') ? { DEBUG_RAYS: 1 } : {},
+  depthTest: false, depthWrite: false, vertexShader: VS_FULL,
+  uniforms: { ...U, tScene: { value: null }, tRays: { value: null }, tNear: { value: null }, uRes: { value: new THREE.Vector2() }, uFade: { value: 0 }, uFlick: { value: 0 }, uFilmSeed: { value: 0 }, uFilm: { value: FILM ? 1 : 0 }, uFilmT: { value: 0 }, uWeave: { value: new THREE.Vector2() } },
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    uniform sampler2D tScene, tRays, tNear; uniform vec2 uRes; uniform float uFade, uFlick, uFilmSeed, uFilm, uFilmT; uniform vec2 uWeave; varying vec2 vUv;
+    void main() {
+      vec2 uv = vUv + uWeave * uFilm;                              // gate weave
+      vec3 c = texture2D(tScene, uv).rgb;
+      float r = texture2D(tRays, uv).r * (1.0 - 0.8 * texture2D(tNear, uv).r); // little air between camera and the near plane
+      c += pow(r, 1.5) * 1.05;
+      c = c / (1.0 + c * 0.35);                                  // soft shoulder
+      c = pow(max(c, 0.0), vec3(1.12));
+      vec2 q = vUv - 0.5; q.x *= mix(uAspect * 0.62, 1.0, uFilm);
+      c *= mix(0.12, 1.0, smoothstep(mix(0.78, 0.74, uFilm), 0.18, length(q)));   // heavy vignette
+      c *= 1.0 + uFlick;
+      if (uFilm > 0.5) {
+        // scratches: thin vertical lines that live for a few frames and wander
+        for (int k = 0; k < 5; k++) {
+          float fk = float(k), life = floor((uFilmT + fk * 3.0) / (3.0 + fk));
+          float on = hash(vec2(life, fk * 7.1));
+          if (on > 0.6) {
+            float x = hash(vec2(fk * 3.7, life)) + 0.004 * sin(vUv.y * 9.0 + uFilmT * 0.7 + fk);
+            float w = (0.7 + 1.6 * hash(vec2(fk, life + 0.5))) / uRes.x;
+            float len = smoothstep(0.0, 0.2, vnoise(vec2(vUv.y * 3.0, life * 1.7 + fk)) - 0.25);
+            float line = smoothstep(w, 0.0, abs(vUv.x - x)) * len;
+            c += line * (on > 0.85 ? -0.3 : 0.38);
+          }
+        }
+        // dust, hairs and blotches, different every frame
+        vec2 cu = vUv * 26.0, id = floor(cu);
+        float hh = hash(id + uFilmT * 3.13);
+        if (hh > 0.988) {
+          vec2 ctr = id + vec2(hash(id + uFilmT), hash(id - uFilmT));
+          float rad = 0.03 + 0.12 * hash(id * 1.7 + uFilmT);
+          float sp = smoothstep(rad, rad * 0.35, length((cu - ctr) * vec2(1.0, 0.6 + hash(id + 9.0))));
+          c += sp * (hash(id + 0.5 * uFilmT) > 0.45 ? 0.55 : -0.45);
+        }
+        vec2 hu = vUv * 5.0, hid = floor(hu);
+        if (hash(hid + uFilmT * 1.7) > 0.97) {                      // a stray hair
+          vec2 lp = hu - hid - 0.5; float a = hash(hid + uFilmT) * 6.28;
+          float d = abs(dot(lp, vec2(-sin(a), cos(a))) + 0.08 * sin(dot(lp, vec2(cos(a), sin(a))) * 9.0));
+          c += smoothstep(0.012, 0.0, d) * step(length(lp), 0.35) * 0.4;
+        }
+        c = smoothstep(0.02, 0.92, c);                               // contrasty orthochromatic plate
+        // breathing exposure, coarse grain
+        c *= 0.97 + 0.06 * hash(vec2(uFilmT, 3.3));
+        float g = hash(floor(vUv * uRes / 1.6) + uFilmSeed * 17.0) - 0.5;
+        float g2 = vnoise(vUv * uRes / 3.0 + uFilmT * 11.0) - 0.5;
+        c += (g * 0.15 + g2 * 0.1) * (0.35 + c);
+      } else {
+        float g = hash(floor(vUv * uRes) + uFilmSeed * 17.0) - 0.5;
+        c += g * 0.075 * (0.5 + c);                              // film grain
+      }
+      gl_FragColor = vec4(vec3(dot(c, vec3(0.3333))) * uFade, 1.0);
+      #ifdef DEBUG_RAYS
+      gl_FragColor = vec4(vec3(r), 1.0);
+      #endif
+    }`,
+});
+addQuad(compMat, 0, compScene);
+
+// ---------------------------------------------------------------- lights: placed in a far parallax plane, two nearest drive the shafts
+const LIGHT_F = 0.1, LIGHT_S = 9;
+function updateLights(camX, t) {
+  if (FILM) {
+    const k = Math.floor(t * 9), gutter = hash1(k * 13.1) > 0.986 ? 0.45 : 1;
+    U.uL0.value.set(0.6 + 0.015 * Math.sin(t * 0.3), 0.58 + 0.012 * Math.sin(t * 0.41));
+    U.uI0.value = (0.78 + 0.06 * Math.sin(t * 1.7) + 0.03 * Math.sin(t * 5.3)) * gutter;
+    U.uL1.value.set(0.1 + 0.01 * Math.sin(t * 0.23), 0.7); U.uI1.value = 0.35 + 0.05 * Math.sin(t * 2.1 + 1);
+    return;
+  }
+  const viewW = U.uViewW.value, base = camX * LIGHT_F, n0 = Math.round(base / LIGHT_S);
+  const cands = [];
+  for (let n = n0 - 2; n <= n0 + 2; n++) {
+    const sx = 0.5 + (n * LIGHT_S + (hash1(n) - 0.5) * 5 - base) / viewW;
+    const sy = 0.82 + 0.08 * hash1(n + 7.3) + 0.012 * Math.sin(t * 0.37 + n);
+    let I = (1 - sstep(0.42, 0.92, Math.abs(sx - 0.5))) * (0.75 + 0.45 * hash1(n + 3.1));
+    I *= 0.88 + 0.08 * Math.sin(t * 1.7 + n * 3) + 0.04 * Math.sin(t * 5.3 + n);
+    const k = Math.floor(t * 9);
+    if (hash1(k * 13.1 + n) > 0.986) I *= 0.4;            // unsteady, guttering light
+    cands.push({ sx, sy, I });
+  }
+  cands.sort((a, b) => Math.abs(a.sx - 0.5) - Math.abs(b.sx - 0.5));
+  U.uL0.value.set(cands[0].sx, cands[0].sy); U.uI0.value = cands[0].I;
+  U.uL1.value.set(cands[1].sx, cands[1].sy); U.uI1.value = cands[1].I;
+}
+
+// ---------------------------------------------------------------- audio: hoofbeats, wind, drone (opt-in)
+let actx = null, master = null, noiseBuf = null;
+const FOOTFALL = new Set(LEGS.map(l => Math.ceil(l.start * NF - 1e-6) % NF));
+function initAudio() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  master = actx.createGain(); master.gain.value = 0; master.connect(actx.destination);
+  noiseBuf = actx.createBuffer(1, actx.sampleRate * 3, actx.sampleRate);
+  const d = noiseBuf.getChannelData(0); let b = 0;
+  for (let i = 0; i < d.length; i++) { b = 0.97 * b + 0.03 * (Math.random() * 2 - 1); d[i] = b * 6; }
+  const wind = actx.createBufferSource(); wind.buffer = noiseBuf; wind.loop = true;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.7;
+  const lfo = actx.createOscillator(); lfo.frequency.value = 0.06; const lg = actx.createGain(); lg.gain.value = 260; lfo.connect(lg).connect(bp.frequency); lfo.start();
+  const wg = actx.createGain(); wg.gain.value = 0.22; wind.connect(bp).connect(wg).connect(master); wind.start();
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+  const dg = actx.createGain(); dg.gain.value = 0.05; lp.connect(dg).connect(master);
+  for (const f of [43.6, 44.1, 65.4]) { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); }
+}
+function thud(str) {
+  if (!actx || master.gain.value < 0.01) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6 * str, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.25);
+  const n = actx.createBufferSource(); n.buffer = noiseBuf; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+  const ng = actx.createGain(); ng.gain.setValueAtTime(0.35 * str, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  n.connect(f).connect(ng).connect(master); n.start(t, Math.random() * 2, 0.12);
+}
+const soundBtn = document.getElementById('sound');
+soundBtn.addEventListener('click', () => {
+  if (!actx) initAudio();
+  actx.resume();
+  const on = soundBtn.getAttribute('aria-pressed') !== 'true';
+  soundBtn.setAttribute('aria-pressed', on); soundBtn.textContent = on ? 'Sound on' : 'Sound off';
+  master.gain.cancelScheduledValues(actx.currentTime);
+  master.gain.setTargetAtTime(on ? 0.8 : 0, actx.currentTime, 0.3);
+});
+
+// ---------------------------------------------------------------- loop
+let paused = false, simT = +(new URLSearchParams(location.search).get('t') || 0), last = performance.now(), lastFrame = -1;
+addEventListener('keydown', e => { if (e.code === 'Space') { paused = !paused; e.preventDefault(); } });
+function resize() {
+  const w = FILM ? (+QS.get('size') || Math.min(innerWidth, innerHeight)) : innerWidth, h = FILM ? w : innerHeight;
+  renderer.setSize(w, h);
+  if (FILM) Object.assign(renderer.domElement.style, { left: `${(innerWidth - w) / 2}px`, top: `${(innerHeight - h) / 2}px` });
+  U.uAspect.value = w / h; U.uViewW.value = VIEW_H * U.uAspect.value;
+  makeTargets();
+  const s = renderer.getDrawingBufferSize(new THREE.Vector2()); compMat.uniforms.uRes.value.copy(s);
+}
+addEventListener('resize', resize); resize();
+
+// stance sweep speed so planted hooves stay planted between frames
+const SPEED = ((0.42 + 0.4) / (DUTY * NF / FPS)) * HORSE_K;
+const t0 = performance.now();
+if (FILM) document.querySelectorAll('.title, #sound').forEach(e => e.remove());
+setTimeout(() => document.body.classList.remove('intro'), 400);
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!paused) simT += dt;
+  renderAt(simT, now);
+}
+function renderAt(t, now) {
+  const fi = Math.floor(t * FPS);                              // film frame (12 fps, held)
+  const viewW = U.uViewW.value;
+  const horseQ = fi / FPS * SPEED;                              // horse advances only on frame ticks
+  const horseS = t * SPEED;
+  const camX = FILM ? horseQ : horseS + viewW * (0.08 + 0.14 * Math.sin(t * 0.09)); // film: locked on the horse, like the 1878 plates
+  U.uCamX.value = camX; U.uTime.value = t;
+  updateLights(camX, t);
+
+  const cycle = ((fi % NF) + NF) % NF;
+  horseU.uFrame.value = cycle;
+  const weave = FILM ? 0 : (hash1(fi * 1.7) - 0.5) * 0.012;
+  const gy = L4.g(horseQ) - 0.05;
+  horseU.uPos.value.set(horseQ - horseU.uSize.value.x * (FR_OX / FR_W), gy - (FR_H - FR_OY) / FR_S * HORSE_K + weave);
+  { // rim light comes from the nearest shaft source
+    const hx = 0.5 + (horseQ - camX) / viewW, hy = (gy + 1.6 * HORSE_K) / VIEW_H;
+    const dx = (U.uL0.value.x - hx) * U.uAspect.value, dy = U.uL0.value.y - hy, l = Math.hypot(dx, dy) || 1;
+    horseU.uRimDir.value.set(dx / l, dy / l); horseU.uRim.value = 0.22 * U.uI0.value + 0.08 * U.uI1.value;
+  }
+  if (fi !== lastFrame) { if (FOOTFALL.has(cycle) && !paused) thud(cycle < 3 ? 0.8 : 1); lastFrame = fi; }
+
+  compMat.uniforms.uFlick.value = (hash1(fi * 3.3) - 0.5) * 0.05;
+  compMat.uniforms.uFilmSeed.value = paused ? compMat.uniforms.uFilmSeed.value : hash1(Math.floor(t * 24)) * 100;
+  compMat.uniforms.uFade.value = FILM ? 1 : sstep(0, 3.5, (now - t0) / 1000);
+  const ft = Math.floor(t * 24);
+  compMat.uniforms.uFilmT.value = ft % 997;
+  compMat.uniforms.uWeave.value.set((hash1(ft * 1.31) - 0.5) * 0.004, (hash1(ft * 2.17) - 0.5) * 0.006);
+  if (FILM) compMat.uniforms.uFlick.value = (hash1(ft * 3.3) - 0.5) * 0.14;
+
+  // 1) scene
+  U.uOcc.value = 0; fogs.forEach(m => m.visible = true);
+  renderer.setRenderTarget(rtMain); renderer.render(scene, cam);
+  // 2) occlusion (light sources vs. black silhouettes)
+  U.uOcc.value = 1; fogs.forEach(m => m.visible = false);
+  renderer.setRenderTarget(rtOcc); renderer.render(scene, cam);
+  // 2b) near-plane mask (horse + nearest layers), white on black
+  const nearSet = new Set([horseMesh, L4.mesh, L5.mesh]);
+  const vis = scene.children.map(m => m.visible);
+  scene.children.forEach(m => { m.visible = nearSet.has(m); });
+  U.uOcc.value = 2; renderer.setRenderTarget(rtNear); renderer.render(scene, cam);
+  scene.children.forEach((m, i) => { m.visible = vis[i]; });
+  // 3) volumetric shafts
+  raysMat.uniforms.tOcc.value = rtOcc.texture;
+  renderer.setRenderTarget(rtRays); renderer.render(raysScene, cam);
+  // 4) composite
+  compMat.uniforms.tNear.value = rtNear.texture; compMat.uniforms.tScene.value = rtMain.texture; compMat.uniforms.tRays.value = rtRays.texture;
+  renderer.setRenderTarget(null); renderer.render(compScene, cam);
+}
+if (RECORD) {
+  // deterministic capture: 24 fps, each frame POSTed to the local recorder (see blender/record.py)
+  const N = +(QS.get('frames') || 240), T0 = simT;
+  (async () => {
+    await atlasReady; await new Promise(r => setTimeout(r, 500));
+    for (let i = 0; i < N; i++) {
+      renderAt(T0 + i / 24, 0);
+      await fetch('/frame?i=' + i, { method: 'POST', body: renderer.domElement.toDataURL('image/png') });
+    }
+    await fetch('/done', { method: 'POST' });
+  })();
+} else requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
