@@ -56,15 +56,6 @@
   #cap.on .rule { transform: scaleX(1); }
   #cap.on .sub { transition-delay: .7s; }
 
-  /* the meme, screened over the tesseract */
-  /* the meme across the whole frame: a blurred fill behind the full square GIF */
-  #meme { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transform: scale(1.05);
-    transition: opacity 1.1s ease, transform 7s cubic-bezier(.2,.8,.2,1); }
-  #meme img { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #meme .bg { object-fit: cover; filter: saturate(.45) blur(28px) brightness(.75); transform: scale(1.15); }
-  #meme .fg { left: 50%; width: auto; aspect-ratio: 1; transform: translateX(-50%); max-width: 100%; object-fit: cover; filter: saturate(.5) contrast(1.08) blur(.7px);
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent); mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent); }
-  #meme.on { opacity: .86; transform: scale(1); }
   #black { position: fixed; inset: 0; background: #000; z-index: 5; pointer-events: none; transition: opacity 2.4s ease .2s; }
   #black.out { opacity: 0; }
   #error { position: fixed; inset: 0; z-index: 6; display: none; align-items: center; justify-content: center; font: italic 400 26px 'Cormorant Garamond', Georgia, serif; }
@@ -97,7 +88,6 @@
   <button id="sound" aria-pressed="false"><i><b></b><b></b><b></b></i><span>Sound</span></button>
 </div>
 <div id="cap" class="bc"><div class="l"></div></div>
-<div id="meme"><img class="bg" alt="" src="mindblown.gif" /><img class="fg" alt="" src="mindblown.gif" /></div>
 <div id="black"></div>
 <div id="error">This needs WebGL 2.</div>
 
@@ -142,7 +132,9 @@ const T = {
   w1: 23.4,                       // cube → tesseract
 };
 const CAPS = [];                  // the dimension labels live in the scene now
-const MEME = { a: 24.6, b: 30.4 };  // mind blown, screened over the tesseract
+// mind blown plays over everything; its head explosion (GIF frames 8–15) peaks right as the supernova
+// detonates, and in that flash the meme drops behind the scene and the tesseract unfolds on top of it
+const MEME = { start: 20.6 - 1.5, frames: 53, fps: 10, cols: 10, rows: 6, a: 18.8, b: 24.4, swap: 20.6 };
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById('c');
@@ -354,11 +346,22 @@ const bgMat = new THREE.ShaderMaterial({
       // stage III: radiant blue field with a slow sunburst and binary rain
       vec2 pl = p - uLight*.6;
       float rl = length(pl);
-      vec3 b = mix(vec3(.012, .06, .3), vec3(.02, .1, .45), smoothstep(.05, .55, rl));
-      b = mix(b, vec3(.002, .015, .1), smoothstep(.55, 1.2, rl));
+      // a dark heart behind the tesseract so it pops; deep blue field, nebulae and stars toward the edges
+      vec3 b = mix(vec3(.002, .008, .035), vec3(.01, .045, .2), smoothstep(.12, .62, rl));
+      b = mix(b, vec3(.002, .01, .06), smoothstep(.75, 1.3, rl));
+      vec2 np = p*1.25 + vec2(uT*.006, -uT*.003);
+      float n1 = fbm5(np*1.1 + 20.), n2 = fbm5(np*2.4 + vec2(7., 3.) + n1*1.5);
+      float nm = smoothstep(.2, .75, rl);
+      vec3 neb = mix(vec3(.16, .03, .26), vec3(.02, .16, .26), smoothstep(.3, .7, n2))*smoothstep(.42, .8, n1);
+      neb += vec3(.45, .08, .35)*pow(smoothstep(.55, .9, n2), 2.)*smoothstep(.5, .8, n1)*.8;
+      neb += vec3(.9, .5, .3)*pow(smoothstep(.72, .95, n2), 3.)*.25;
+      b += neb*nm*1.15;
+      vec2 sc = floor(gl_FragCoord.xy/uDpr/2.);
+      float star = step(.9965, h21(sc + 17.))*(.6 + .4*sin(uT*3. + h21(sc)*40.))*smoothstep(.08, .4, rl);
+      b += vec3(.8, .9, 1.)*star*.9;
       float a = atan(pl.y, pl.x);
       float burst = pow(abs(sin(a*9. + uT*.04 + sin(a*3. - uT*.03)*.8)), 40.) + .6*pow(abs(sin(a*13. - uT*.03)), 60.);
-      b += vec3(.1, .3, .7)*burst*smoothstep(1.1, .2, rl)*smoothstep(.12, .4, rl)*.3;
+      b += vec3(.1, .3, .7)*burst*smoothstep(1.1, .2, rl)*smoothstep(.15, .45, rl)*.22;
       vec2 px = gl_FragCoord.xy/uDpr;
       vec2 cs = vec2(17., 22.);
       vec2 cell = floor(px/cs), lc = fract(px/cs);
@@ -658,13 +661,40 @@ function updateLabels(t, ec, ek, coreW, glowW, zE) {
   LBL.lineMat.color.setRGB(.8 * la, .95 * la, 1.25 * la);
   return tip;
 }
-const meme = document.getElementById('meme');
-let memeOn = false;
+// the meme as a backdrop inside the scene: above the sky and smoke, beneath the tesseract
+const memeTex = new THREE.TextureLoader().load('mindblown-sheet.jpg');
+memeTex.colorSpace = THREE.SRGBColorSpace;
+const memeMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false,
+  uniforms: { uSheet: { value: memeTex }, uFrame: { value: 0 }, uOp: { value: 0 }, uZoom: { value: 1 }, uRes: smokeU.uRes },
+  vertexShader: `void main(){ gl_Position = vec4(position.xy, .998, 1.); }`,
+  fragmentShader: `
+    uniform sampler2D uSheet; uniform float uFrame, uOp, uZoom; uniform vec2 uRes;
+    vec2 cell(vec2 l){ l = clamp(l, .004, .996); float c = mod(uFrame, 10.), r = floor(uFrame/10.); return vec2((c + l.x)/10., 1. - (r + 1. - l.y)/6.); }
+    vec3 desat(vec3 c, float k){ return mix(vec3(dot(c, vec3(.2126, .7152, .0722))), c, k); }
+    void main(){
+      if (uOp <= 0.) discard;
+      vec2 q = (gl_FragCoord.xy - .5*uRes)/uZoom + .5*uRes;
+      // blurred fill across the whole frame (a high mip of the frame)
+      float side = max(uRes.x, uRes.y);
+      vec3 bg = textureLod(uSheet, cell((q - .5*(uRes - side))/side), 4.6).rgb;
+      bg = desat(bg, .6)*.95;
+      // the full square GIF at frame height, sides feathered into the fill
+      vec2 l = vec2((q.x - .5*(uRes.x - uRes.y))/uRes.y, q.y/uRes.y);
+      vec3 fg = desat(texture2D(uSheet, cell(l)).rgb, .72);
+      fg = pow(fg, vec3(.92))*1.45;                       // lift it so it holds up under the glow
+      float m = smoothstep(0., .16, l.x)*smoothstep(1., .84, l.x)*step(0., l.y)*step(l.y, 1.);
+      gl_FragColor = vec4(mix(bg, fg, m), uOp);
+    }`
+});
+const memeQuad = new THREE.Mesh(tri(), memeMat);
+memeQuad.frustumCulled = false; memeQuad.renderOrder = -900;
+scene.add(memeQuad);
 
 
 // soft dark falloff under each edge (normal blending) so the lines separate from whatever is behind them
 const edgeShadowMat = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, uniforms: { ...lens, uK: { value: .5 } },
+  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, uniforms: { ...lens, uK: { value: .55 } },
   vertexShader: ribbonMat.vertexShader,
   fragmentShader: `
     uniform float uK;
@@ -716,6 +746,47 @@ const rayBeam = ribbons(RAYS.length, scene);
 const rayFlare = sprites(RAYS.length, scene);
 const STREAM = Array.from({ length: 180 }, () => ({ a: R(0, TAU), z: R(-.5, .5), v: R(.9, 3.2), ph: R(0, 12), s: R(.015, .045) }));
 const stream = sprites(STREAM.length, scene);
+
+// the cosmic explosion as the tesseract forms
+const boomMat = new THREE.ShaderMaterial({
+  ...additive, depthTest: false, uniforms: { uAge: { value: -1 }, uSize: { value: 6 } },
+  vertexShader: `uniform float uSize; varying vec2 vUv;
+    void main(){ vec4 mv = modelViewMatrix*vec4(0., 0., 0., 1.); mv.xy += position.xy*uSize; vUv = position.xy; gl_Position = projectionMatrix*mv; }`,
+  fragmentShader: `uniform float uAge; varying vec2 vUv;
+    ${NOISE}
+    void main(){
+      if (uAge < 0. || uAge > 7.) discard;
+      vec2 uv = vUv; float r = length(uv); float ang = atan(uv.y, uv.x);
+      // supernova: a blinding point, then a slow, thin, filamentary shell (a young remnant) around a soft blue interior
+      float front = .86*(1. - exp(-uAge*1.25));
+      vec2 w = uv*3.2 + vec2(fbm3(uv*2.5 + 3.), fbm3(uv*2.5 - 5.))*1.4;
+      float n = fbm5(w + uAge*.08);
+      float ridge = pow(1. - abs(2.*fbm5(w*1.8 + 11.) - 1.), 4.);          // stringy filaments
+      float rr = r + (n - .5)*.16;
+      float th = .035 + .09*front;
+      float shell = exp(-pow((rr - front)/th, 2.));
+      float inner = exp(-pow((rr - front*.82)/(th*1.6), 2.));
+      vec3 red = vec3(1., .32, .14), teal = vec3(.2, .85, .8);
+      vec3 fil = mix(red, teal, smoothstep(.38, .68, fbm3(vec2(cos(ang), sin(ang))*1.6 + uv*1.2 + 7. + uAge*.05)));
+      float fade = exp(-uAge*.45);
+      vec3 o = fil*(shell*(.15 + 2.*ridge) + inner*ridge*.6)*fade*smoothstep(.0, .35, uAge)*.8;
+      o += vec3(.35, .55, 1.)*(1. - smoothstep(0., front, r))*(.12 + .25*n)*fade;      // synchrotron glow inside
+      float shock = exp(-pow((r - min(front*1.18 + .02, .97))/.006, 2.))*exp(-uAge*1.1)*.7;
+      o += vec3(.7, .88, 1.)*shock;
+      o += vec3(1., .97, .92)*(exp(-r*r*900.)*6. + exp(-r*r*60.)*.9)*exp(-uAge*1.3);   // the star itself
+      o *= 1. - smoothstep(.9, 1., r);
+      gl_FragColor = vec4(min(o, vec3(20.)), 1.);
+    }`
+});
+const boom = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), boomMat);
+boom.frustumCulled = false; boom.renderOrder = 5;
+scene.add(boom);
+const DEBRIS = Array.from({ length: 280 }, () => {
+  const d = new THREE.Vector3(R(-1, 1), R(-1, 1), R(-1, 1)).normalize();
+  const c = [WARM, [.85, .25, .7], HOT, [1, .9, .75]][Math.floor(R(0, 4))];
+  return { d, v: R(1.2, 4.8), life: R(1.8, 4.5), s: R(.008, .026), c };
+});
+const debris = sprites(DEBRIS.length, scene);
 
 // ---------------------------------------------------------------- sound (synthesized, off until asked)
 const NOTES = [220, 261.63, 329.63, 293.66, 392, 440, 329.63, 261.63];
@@ -911,7 +982,7 @@ function update(t) {
 
   // shape
   const ec = mix3(mix3(DEEP, GLASS, s2), HOT, s3);
-  const ek = 1.0 + .35 * s2 + .9 * s3 + build * .8 + flash * 3;
+  const ek = 1.0 + .35 * s2 + 1.4 * s3 + build * .8 + flash * 3;
   const coreW = .007 + .002 * s3, glowW = .085 + .03 * s3 + .02 * s2;
   EDGES.forEach((e, k) => {
     let A = P[e.i], B = P[e.j], w = weight(e.i, [e.axis]);
@@ -1029,6 +1100,16 @@ function update(t) {
   });
   stream.flush();
 
+  const age = t - T.burst;
+  boomMat.uniforms.uAge.value = age;
+  boomMat.uniforms.uSize.value = 5.6;
+  DEBRIS.forEach((d, i) => {
+    const on = age > 0 && age < d.life;
+    tmp.copy(d.d).multiplyScalar(d.v * (1 - Math.exp(-Math.max(age, 0) * 1.4)) / 1.4);
+    setSpr(debris, i, tmp, d.c, on ? 2.2 * Math.pow(1 - age / d.life, 1.5) : 0, d.s, 0, 0, .5, 1.3);
+  });
+  debris.flush();
+
   // smoke lighting: the pen while drawing, then the subject's heart
   if (p > 0 && p < 4) lightW.copy(penAt(p, tmp)).applyMatrix4(group.matrixWorld); else lightW.set(0, 0, 0);
   const lp = tmp.copy(lightW).project(camera);
@@ -1036,7 +1117,7 @@ function update(t) {
   smokeU.uLight.value.set(lp.x * .5 * camera.aspect, lp.y * .5);
   const blueI = (p > 0 && p < 4 ? .9 : .25 + .35 * s1) * (1 - s3);
   const warmI = Math.min(warmSum, 14) * .03 * (1 - s3);
-  const hotI = s3 * .6 + flash * 3 + build * .4;
+  const hotI = s3 * .6 + flash * 1.4 + build * .4;
   smokeU.uLightCol.value.set(
     (DEEP[0] * blueI + WARM[0] * warmI + HOT[0] * hotI) * behind,
     (DEEP[1] * blueI + WARM[1] * warmI + HOT[1] * hotI) * behind,
@@ -1048,24 +1129,24 @@ function update(t) {
   smokeU.uT.value = t;
   smokeU.uS2.value = s2;
   smokeU.uS3.value = s3;
-  smokeU.uFlash.value = flash * .6;
+  smokeU.uFlash.value = flash * .3;
 
   bloom.strength = .28 + flash * .5 + build * .15;
   bloom.radius = .45 + .15 * s3;
   bloom.threshold = .7 + .3 * s3;
-  renderer.toneMappingExposure = 1 + flash * .5;
+  renderer.toneMappingExposure = 1 + flash * .3;
   finalPass.uniforms.uT.value = t;
   finalPass.uniforms.uCA.value = .0006 + .0006 * s3 + flash * .008;
   finalPass.uniforms.uFade.value = fade;
 
   // labels and the meme
   const fcL = mix3(DEEP, GLASS, s2);
-  const mOn = t >= MEME.a && t < MEME.b;
-  if (mOn !== memeOn) {
-    if (mOn) { const src = 'mindblown.gif?r=' + Date.now(); meme.querySelectorAll('img').forEach(i => i.src = src); }   // always from its first frame
-    meme.classList.toggle('on', mOn);
-    memeOn = mOn;
-  }
+  // fades in just before, out as its galaxy dissolve melts into the nebulae
+  const mOp = sstep(MEME.a, MEME.a + .4, t) * (1 - sstep(22.9, MEME.b, t));
+  memeMat.uniforms.uOp.value = mOp * (t < MEME.swap ? .96 : 1);
+  memeQuad.renderOrder = t < MEME.swap ? 2000 : -900;
+  memeMat.uniforms.uZoom.value = 1.05 - .05 * clamp01((t - MEME.a) / 5);
+  memeMat.uniforms.uFrame.value = Math.min(MEME.frames - 1, Math.max(0, Math.floor((t - MEME.start) * MEME.fps)));
 
   // ui
   const ci2 = CAPS.findIndex(c => t >= c.a && t < c.b);
