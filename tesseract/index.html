@@ -60,6 +60,12 @@
   #black.out { opacity: 0; }
   #error { position: fixed; inset: 0; z-index: 6; display: none; align-items: center; justify-content: center; font: italic 400 26px 'Cormorant Garamond', Georgia, serif; }
 
+  /* ?capture: clean square frame for social video, titled like the other days */
+  .ctitle { display: none; }
+  body.capture .bar, body.capture #cap, body.capture #black { display: none !important; }
+  body.capture .ctitle { display: block; position: fixed; top: 40px; left: 44px; z-index: 3; pointer-events: none; color: var(--ink); font: 400 34px Inter, sans-serif; letter-spacing: .005em; text-shadow: 0 1px 12px rgba(0,0,0,.6); }
+  body.capture .ctitle small { display: block; margin-top: 8px; font: 500 15px Inter, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--soft); }
+
   @media (max-width: 640px) {
     .brand, .hint { display: none; }
     #nav button { letter-spacing: .2em; font-size: 9px; }
@@ -89,6 +95,7 @@
 </div>
 <div id="cap" class="bc"><div class="l"></div></div>
 <div id="black"></div>
+<div class="ctitle">Vibecodevember - Tesseract<small>Nov 8th 2026</small></div>
 <div id="error">This needs WebGL 2.</div>
 
 <script type="module">
@@ -138,8 +145,11 @@ const MEME = { start: 20.6 - 1.5, frames: 53, fps: 10, cols: 10, rows: 6, a: 18.
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById('c');
+// ?capture renders deterministic frames on demand (window.__frame); ?audiorec plays in real time and records the mix
+const CAPTURE = /[?&]capture\b/.test(location.search), AUDIOREC = /[?&]audiorec\b/.test(location.search);
+if (CAPTURE) document.body.classList.add('capture');
 let renderer;
-try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); }
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE }); }
 catch (e) { document.getElementById('error').style.display = 'flex'; throw e; }
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -223,7 +233,7 @@ const ribbonMat = new THREE.ShaderMaterial({
       float g1 = vW.y*.12 + vBlur*.5, g2 = vW.y*.4 + vBlur*.7;
       float glow = exp(-dist/g1)*.3*(vW.y*.12/g1) + exp(-dist/g2)*.07*(vW.y*.4/g2);
       float f = vW.z > 0. ? smoothstep(0., vW.z, vP.x)*pow(1. - smoothstep(.35*vLen, vLen, vP.x), 1.5) : 1.;
-      vec3 col = (vC.rgb*glow*edge*.75 + mix(vC.rgb, vec3(1.), .85)*core*2.6)*vC.a*f;
+      vec3 col = (vC.rgb*glow*edge*.75 + mix(vC.rgb, vec3(1.), vW.z < 0. ? .12 : .85)*core*2.6)*vC.a*f;
       gl_FragColor = vec4(min(col, vec3(64.)), 1.);
     }`
 });
@@ -320,7 +330,7 @@ const NOISE = `
 const smokeU = {
   uRes: { value: new THREE.Vector2() }, uDpr: { value: 1 }, uT: { value: 0 }, uS2: { value: 0 }, uS3: { value: 0 }, uFlash: { value: 0 },
   uSeed: { value: 0 }, uPar: { value: new THREE.Vector2() }, uLight: { value: new THREE.Vector2() }, uLightCol: { value: new THREE.Vector3() },
-  uFall: { value: 2 }, uDensity: { value: .6 },
+  uFall: { value: 2 }, uDensity: { value: .6 }, uRayK: { value: 1 },
 };
 function glyphAtlas() {
   // the rain spells MIND BLOWN down every column
@@ -337,6 +347,7 @@ const bgMat = new THREE.ShaderMaterial({
   vertexShader: `void main(){ gl_Position = vec4(position.xy, .999, 1.); }`,
   fragmentShader: `
     uniform vec2 uRes, uPar, uLight; uniform vec3 uLightCol; uniform float uDpr, uT, uS2, uS3, uFlash, uSeed, uFall, uDensity; uniform sampler2D uGlyph;
+    uniform float uRayK;
     ${NOISE}
     void main(){
       vec2 p = (gl_FragCoord.xy - .5*uRes)/uRes.y;
@@ -361,7 +372,7 @@ const bgMat = new THREE.ShaderMaterial({
       b += vec3(.8, .9, 1.)*star*.9;
       float a = atan(pl.y, pl.x);
       float burst = pow(abs(sin(a*9. + uT*.04 + sin(a*3. - uT*.03)*.8)), 40.) + .6*pow(abs(sin(a*13. - uT*.03)), 60.);
-      b += vec3(.1, .3, .7)*burst*smoothstep(1.1, .2, rl)*smoothstep(.15, .45, rl)*.22;
+      b += vec3(.1, .3, .7)*burst*smoothstep(1.1, .2, rl)*smoothstep(.15, .45, rl)*.22*uRayK;
       vec2 px = gl_FragCoord.xy/uDpr;
       vec2 cs = vec2(17., 22.);
       vec2 cell = floor(px/cs), lc = fract(px/cs);
@@ -739,7 +750,7 @@ const dust = sprites(DUST.length, scene);
 // ---------------------------------------------------------------- rays
 const RAYS = Array.from({ length: 18 }, (_, i) => ({
   a: i / 18 * TAU + R(-.12, .12), z: R(-.35, .35), ts: 20.7 + R(0, 1.1) + (i % 3) * .12,
-  L: R(3.6, 8.5), ph: R(0, TAU), sz: R(.55, 1.05)
+  L: R(3.6, 8.5), ph: R(0, TAU), sz: R(.55, 1.05), hold: R(2.2, 3.4), dim: R(4, 7)
 }));
 const rayCore = ribbons(RAYS.length, scene);
 const rayBeam = ribbons(RAYS.length, scene);
@@ -788,6 +799,25 @@ const DEBRIS = Array.from({ length: 280 }, () => {
 });
 const debris = sprites(DEBRIS.length, scene);
 
+// hot metal sparks: the straining cube shorts out in bursts at failing seams.
+// Each channel is one failure point that sprays a cluster of incandescent fragments; they fly
+// ballistically (gravity + air drag), streak by a 180-degree shutter, and cool white -> orange -> red.
+const CUBE_EDGES = EDGES.filter(e => !(e.i >> 3 & 1) && e.axis < 3);
+const SP_CH = 26, SP_N = 15;
+const SPCH = Array.from({ length: SP_CH }, (_, i) => ({ per: R(.6, 1.5), ph: R(0, 2), gate: R(0, 1), seed: i * 7.31 }));
+const sparkRib = ribbons(SP_CH * SP_N, scene);
+const sparkArc = sprites(SP_CH, scene);
+const GRAV = new THREE.Vector3(0, -3.4, 0), SHUTTER = 1 / 26;
+const prAt = x => x < T.burst ? Math.pow(sstep(13.6, T.burst, x), 1.8) : 0;
+const blackbody = (th, o) => { // th: 1 = white hot, 0 = cold
+  if (th > .6) { const u = (th - .6) / .4; o[0] = 1; o[1] = lerp(.55, .95, u); o[2] = lerp(.14, .8, u * u); }
+  else { const u = th / .6; o[0] = lerp(.55, 1, u); o[1] = lerp(.06, .55, u * u); o[2] = lerp(.01, .14, u * u); }
+  return o;
+};
+const hsh = (a, b) => { const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return x - Math.floor(x); };
+const spCol = [0, 0, 0], spGW = new THREE.Vector3(), spN = new THREE.Vector3(), spA = new THREE.Vector3();
+const spO = new THREE.Vector3(), spV = new THREE.Vector3();
+
 // ---------------------------------------------------------------- sound (synthesized, off until asked)
 const NOTES = [220, 261.63, 329.63, 293.66, 392, 440, 329.63, 261.63];
 let ac = null, au = null, soundOn = false;
@@ -796,6 +826,7 @@ function initAudio() {
   const master = ac.createGain(); master.gain.value = 0;
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
   master.connect(comp).connect(ac.destination);
+  if (AUDIOREC) { const d = ac.createMediaStreamDestination(); comp.connect(d); window.__audioStream = d.stream; }
   const len = ac.sampleRate * 4.5, ir = ac.createBuffer(2, len, ac.sampleRate);
   for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
   const rev = ac.createConvolver(); rev.buffer = ir;
@@ -864,7 +895,7 @@ function updateAudio(t, s) {
   set(au.hissG.gain, live && s.pen ? .05 : 0, .08);
   set(au.riseF.frequency, 250 + 3800 * s.build * s.build, .1);
   set(au.riseG.gain, live && t < T.burst ? .35 * s.build : 0, .1);
-  set(au.rumbleG.gain, live ? .25 + .3 * s.build : 0, .5);
+  set(au.rumbleG.gain, live ? .25 + .3 * s.build + .5 * s.pr : 0, .2);
   set(au.padG.gain, live ? .16 * s.s3 : 0, 1.2);
   if (live && t > lastAT && t - lastAT < .25) {
     const crossed = x => lastAT < x && t >= x;
@@ -886,8 +917,26 @@ let capOn = -1;
 const navBtns = [...document.querySelectorAll('#nav button')];
 const trackFill = document.querySelector('#track i');
 const qs = new URLSearchParams(location.search);
-let t = +(qs.get('t') || 0), paused = qs.has('pause');
-const jump = to => { t = to; capOn = -1; cap.classList.remove('on'); };
+// Story time runs 1.4× faster through the square and its extrusion, easing back to real time as the cube
+// completes; everything is authored in story time, the clock advances in real time.
+const WARP = (() => {
+  const dt = .002, n = 8000, tab = new Float32Array(n + 1); let acc = 0;
+  for (let i = 0; i <= n; i++) { tab[i] = acc; acc += (1 + .4 * (1 - sstep(7.4, 8.6, i * dt))) * dt; }
+  return { dt, n, tab, end: n * dt };
+})();
+const storyT = r => {
+  if (r >= WARP.end) return WARP.tab[WARP.n] + (r - WARP.end);
+  const f = Math.max(0, r) / WARP.dt, i = Math.floor(f);
+  return lerp(WARP.tab[i], WARP.tab[i + 1], f - i);
+};
+const realT = st => {
+  if (st >= WARP.tab[WARP.n]) return WARP.end + (st - WARP.tab[WARP.n]);
+  let lo = 0, hi = WARP.n;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (WARP.tab[m] <= st) lo = m; else hi = m; }
+  return (lo + (st - WARP.tab[lo]) / (WARP.tab[hi] - WARP.tab[lo])) * WARP.dt;
+};
+let t = +(qs.get('t') || 0), clock = realT(t), paused = qs.has('pause');
+const jump = to => { t = to; clock = realT(to); capOn = -1; cap.classList.remove('on'); };
 navBtns.forEach(b => b.addEventListener('click', () => jump(+b.dataset.t)));
 addEventListener('keydown', e => {
   if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
@@ -932,7 +981,7 @@ function shoot(t, p) {
   camTgt.set(0, lerp(lerp(-.2, .12, a), 0, k) - .45 * v, 0);
   camPos.y += camTgt.y * (1 - a);   // perfectly level while the square is drawn
   const fov = lerp(lerp(lerp(30, 32, a), 36, k), 30, v);
-  const ap = lerp(lerp(lerp(.012, .015, a), .03, k), .008, v);
+  const ap = lerp(lerp(lerp(.012, .015, a), .012, k), .008, v);
   let focus;
   const seed = 3.7;
   // never let the shape leave the frame
@@ -964,6 +1013,15 @@ function update(t) {
 
   group.rotation.y = .09 * ramp(t - 9, 2.5);
   group.rotation.x = .05 * Math.sin(t * .13) * s2;
+  // pressure: the cube starts to tremble, then shudders harder and faster until it can't hold
+  const pr = t < T.burst ? Math.pow(sstep(13.6, T.burst, t), 1.8) : 0;
+  const jf = 1 + pr * 1.6;   // the tremor gets quicker too
+  const jit = (a, b, c) => Math.sin(t * a * jf) + .6 * Math.sin(t * b * jf + 1.7) + .35 * Math.sin(t * c * jf + 4.1);
+  group.position.set(jit(71.3, 113.9, 167.1), jit(83.7, 129.1, 191.3), jit(67.9, 101.3, 157.7)).multiplyScalar(.022 * pr);
+  group.rotation.x += jit(59.1, 97.3, 143.9) * .012 * pr;
+  group.rotation.z = jit(63.7, 89.9, 151.1) * .012 * pr;
+  const throb = 1 + pr * (.012 * Math.sin(t * 19 * jf) + .02 * Math.max(0, Math.sin(t * 5.3 * jf)) ** 8);
+  group.scale.setScalar(throb);
   group.updateMatrixWorld();
   project(zE, wE, th);
 
@@ -982,7 +1040,7 @@ function update(t) {
 
   // shape
   const ec = mix3(mix3(DEEP, GLASS, s2), HOT, s3);
-  const ek = 1.0 + .35 * s2 + 1.4 * s3 + build * .8 + flash * 3;
+  const ek = (1.0 + .35 * s2 + 1.4 * s3 + build * .8 + flash * 3) * (1 + pr * (.18 * Math.sin(t * 47 * jf) + .5 * pr));
   const coreW = .007 + .002 * s3, glowW = .085 + .03 * s3 + .02 * s2;
   EDGES.forEach((e, k) => {
     let A = P[e.i], B = P[e.j], w = weight(e.i, [e.axis]);
@@ -1081,7 +1139,8 @@ function update(t) {
     const len = .25 + r.L * g;
     const A = tmp.copy(dir).multiplyScalar(.25), B = tmp3.copy(dir).multiplyScalar(len);
     const tw = 1 + .2 * Math.sin(t * 2.6 + r.ph);
-    const on = g > 0 ? 1 : 0;
+    // after the blast the rays bleed away slowly, each at its own pace
+    const on = g > 0 ? (1 - sstep(r.ts + r.hold, r.ts + r.hold + r.dim, t)) ** 1.4 : 0;
     setRib(rayCore, i, A, B, HOT, on * .75 * tw, .005, .07, 1.6);
     B.copy(dir).multiplyScalar(.25 + 16 * g);
     setRib(rayBeam, i, A, B, [.15, .45, 1], on * .05, 0, .45, 3.5);
@@ -1110,6 +1169,43 @@ function update(t) {
   });
   debris.flush();
 
+  // sparks: failure bursts get more frequent and violent as the pressure climbs
+  group.updateMatrixWorld();
+  spGW.setFromMatrixPosition(group.matrixWorld);
+  SPCH.forEach((ch, c) => {
+    const cyc = Math.floor((t + ch.ph) / ch.per), bt = cyc * ch.per - ch.ph, q = prAt(bt);
+    const live = q > .02 && ch.gate < q * 1.15;
+    const e = CUBE_EDGES[Math.floor(hsh(ch.seed, cyc) * CUBE_EDGES.length)];
+    spO.lerpVectors(P[e.i], P[e.j], .1 + .8 * hsh(ch.seed + 1, cyc)).applyMatrix4(group.matrixWorld);
+    spN.copy(spO).sub(spGW).normalize();
+    const ab = t - bt; // arc flash: a blue-white short at the failure point
+    setSpr(sparkArc, c, spO, [.8, .88, 1], live ? (2.2 + 2 * q) * Math.exp(-ab * 22) * (1 + .5 * Math.sin(ab * 300)) : 0, .07 + .06 * q, 0, 0, 0, 1.5);
+    for (let j = 0; j < SP_N; j++) {
+      const i = c * SP_N + j, sd = ch.seed + j * 13.7;
+      const a = ab - .16 * hsh(sd + 2, cyc) ** 2; // fragments sputter out over ~0.16s
+      const life = lerp(.45, 1.6, hsh(sd + 3, cyc)) * (.8 + .4 * q);
+      if (!live || a <= 0 || a > life || j > 5 + q * SP_N) { setRib(sparkRib, i, ZERO, ZERO, HOT, 0, 0, .01); continue; }
+      // launch: mostly outward from the seam, wide spray, a few fast ones
+      spV.set(hsh(sd + 4, cyc) - .5, hsh(sd + 5, cyc) - .5, hsh(sd + 6, cyc) - .5).multiplyScalar(2.2).addScaledVector(spN, 1)
+        .normalize().multiplyScalar(lerp(1.1, 4.6, hsh(sd + 7, cyc) ** 1.6) * (1 + .7 * q));
+      const drag = lerp(1.1, 2.6, hsh(sd + 8, cyc));
+      // x(a) = o + (v - g/k)(1 - e^-ka)/k + (g/k)a ; v(a) = (v - g/k)e^-ka + g/k
+      const ek = Math.exp(-drag * a);
+      spA.copy(spV).addScaledVector(GRAV, -1 / drag);
+      const head = tmp2.copy(spO).addScaledVector(spA, (1 - ek) / drag).addScaledVector(GRAV, a / drag);
+      const vel = spA.multiplyScalar(ek).addScaledVector(GRAV, 1 / drag);
+      const tail = tmp3.copy(head).addScaledVector(vel, -SHUTTER);
+      if (tail.distanceToSquared(head) < 1e-6) tail.y += .001;
+      // cooling: radiative, small fragments die first; some pop (carbon burst) late in life
+      const th = Math.exp(-a / (life * .32));
+      let k = (.5 + 2.4 * th ** 3) * (1 - sstep(.75, 1, a / life));
+      if (hsh(sd + 9, cyc) < .18) { const pa = life * lerp(.4, .7, hsh(sd + 10, cyc)); k *= 1 + 5 * Math.exp(-(((a - pa) / .025) ** 2)); }
+      k *= 1 + .25 * Math.sin(a * 140 + i * 2.1); // shimmer as they tumble
+      setRib(sparkRib, i, tail, head, blackbody(th, spCol), k * (1.2 + q), .0016, .009, -1);
+    }
+  });
+  sparkRib.flush(); sparkArc.flush();
+
   // smoke lighting: the pen while drawing, then the subject's heart
   if (p > 0 && p < 4) lightW.copy(penAt(p, tmp)).applyMatrix4(group.matrixWorld); else lightW.set(0, 0, 0);
   const lp = tmp.copy(lightW).project(camera);
@@ -1124,6 +1220,7 @@ function update(t) {
     (DEEP[2] * blueI + WARM[2] * warmI + HOT[2] * hotI) * behind);
   smokeU.uFall.value = lerp(2.0, 1.1, s3);
   smokeU.uDensity.value = .7 + .15 * build - .1 * s3;
+  smokeU.uRayK.value = 1 - .8 * sstep(T.burst + 3, T.burst + 9, t);
   smokeU.uSeed.value = shot.seed;
   smokeU.uPar.value.set(Math.atan2(camPos.x, camPos.z) * .35, Math.asin(clamp01((camPos.y / camPos.length() + 1) / 2) * 2 - 1) * .35);
   smokeU.uT.value = t;
@@ -1164,13 +1261,13 @@ function update(t) {
   navBtns.forEach((b, i) => b.classList.toggle('on', i === stage));
   trackFill.style.width = (clamp01(t / 25) * 100).toFixed(2) + '%';
 
-  updateAudio(t, { p, s2, s3, build, fade, pen: (p > 0 && p < 4) || !!lTip });
+  updateAudio(t, { p, s2, s3, build, fade, pr, pen: (p > 0 && p < 4) || !!lTip });
 }
 
 // ---------------------------------------------------------------- resize / loop
 function resize() {
   const w = innerWidth, h = innerHeight;
-  const bar = Math.round(Math.min(h * .11, Math.max(h * .055, (h - w / 2.2) / 2)));
+  const bar = CAPTURE ? 0 : Math.round(Math.min(h * .11, Math.max(h * .055, (h - w / 2.2) / 2)));
   document.documentElement.style.setProperty('--bar', bar + 'px');
   visFrac = (h - 2 * bar) / h;
   renderer.setSize(w, h, false);
@@ -1184,14 +1281,34 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
+if (CAPTURE) {
+  window.__frame = i => { clock = i / 30; t = storyT(clock); update(t); composer.render(); return t; };
+  window.__ready = true;
+} else if (AUDIOREC) {
+  window.__recordAudio = secs => new Promise(res => {
+    setSound(true); au.master.gain.cancelScheduledValues(0); au.master.gain.value = .8;
+    const rec = new MediaRecorder(window.__audioStream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 256000 }), parts = [];
+    rec.ondataavailable = e => parts.push(e.data);
+    rec.onstop = async () => { const b = new Uint8Array(await new Blob(parts).arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768)); res(btoa(s)); };
+    rec.start();
+    const t0 = performance.now();
+    renderer.setAnimationLoop(now => {
+      clock = (now - t0) / 1000; t = storyT(clock); update(t); composer.render();
+      if (clock > secs) { renderer.setAnimationLoop(null); rec.stop(); }
+    });
+  });
+  window.__ready = true;
+} else {
 let last = performance.now();
 renderer.setAnimationLoop(now => {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (!paused) t += dt;
+  if (!paused) clock += dt;
+  t = storyT(clock);
   update(t);
   composer.render();
 });
 requestAnimationFrame(() => document.getElementById('black').classList.add('out'));
+}
 </script>
 </body>
 </html>
