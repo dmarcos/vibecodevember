@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Day 10 - Caustics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400&family=Fredoka:wght@600&family=Inter:wght@400;500&family=Silkscreen&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #e6f2f4; --soft: #6f8f96; --bar: 56px; --sz: 600px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+
+  .bar { position: fixed; left: 0; right: 0; height: var(--bar); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 3vw, 36px); z-index: 2; }
+  .bar.top { top: 0; } .bar.bottom { bottom: 0; }
+  .brand, .hint { font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; color: var(--soft); }
+  .hint { font-size: 9.5px; letter-spacing: .3em; color: #4b6268; }
+  .hint a { color: inherit; text-decoration: none; border-bottom: 1px solid #2c3b3f; }
+  .hint a:hover { color: var(--ink); }
+  .name { font: italic 400 22px 'Cormorant Garamond', Georgia, serif; letter-spacing: .05em; }
+
+  #stage { position: fixed; left: 50%; top: 50%; width: var(--sz); height: var(--sz); transform: translate(-50%, -50%); }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+
+  .tag { position: absolute; pointer-events: none; opacity: 0; transition: opacity .45s ease, transform .6s cubic-bezier(.2,.8,.2,1); }
+  .tag.on { opacity: 1; transform: none; }
+  .t0 { right: 18px; top: 14px; transform: translateY(-6px); text-align: right; font: italic 400 24px 'Cormorant Garamond', Georgia, serif; letter-spacing: .04em; color: #fff; text-shadow: 0 1px 2px rgba(0,30,40,.6), 0 0 18px rgba(0,40,60,.55); }
+  .t0 small { display: block; font: 500 8.5px Inter, sans-serif; letter-spacing: .38em; text-transform: uppercase; margin-top: 2px; opacity: .85; }
+  .t1 { right: 16px; top: 14px; transform: translateY(-6px); font: 600 21px Fredoka, sans-serif; color: #fff; letter-spacing: .02em;
+        -webkit-text-stroke: 5px #123a52; paint-order: stroke fill; }
+  .t1 small { display: block; text-align: right; font: 600 10px Fredoka, sans-serif; letter-spacing: .14em; text-transform: uppercase; -webkit-text-stroke: 3px #123a52; }
+  .t2 { right: 16px; top: 16px; transform: translateY(-6px); font: 400 13px Silkscreen, monospace; color: #e5ffff; background: #333319; padding: 6px 9px 5px; letter-spacing: .06em; text-align: right; }
+  .t2 small { display: block; font-size: 8px; opacity: .8; margin-top: 3px; }
+
+  #load { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font: 500 9px Inter, sans-serif; letter-spacing: .4em; text-transform: uppercase; color: rgba(255,255,255,.75); text-shadow: 0 0 8px rgba(0,0,0,.6); transition: opacity 1s; pointer-events: none; }
+  #load.done { opacity: 0; }
+  @media (max-width: 640px) { .hint.r { display: none; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header class="bar top"><span class="brand">Vibecodevember · Day 10</span><span class="name">Caustics</span></header>
+<main id="stage">
+  <canvas id="c"></canvas>
+  <div class="tag t0">Photoreal<small>Refracted light</small></div>
+  <div class="tag t1">Cel shaded<small>Toon water</small></div>
+  <div class="tag t2">1-BIT<small>DITHERED</small></div>
+  <div id="load">Fish are coming</div>
+</main>
+<footer class="bar bottom"><span class="hint">Hover a band · touch the water</span><span class="hint r">Fish · <a href="https://cda-social.github.io/fish/gallery.html" target="_blank" rel="noopener">CC0 fish kit</a></span></footer>
+
+<script type="module">
+import * as THREE from 'three';
+import { loadFish, createFish } from './fish-kit.js';
+
+// ---------------------------------------------------------------- constants
+// Floor frame: X right, Y up-screen, Z up (metres). World: x = X - S/2, y = Z, z = S/2 - Y.
+const S = 1.9;          // viewport covers S x S metres of sea floor
+const WL = 0.42;        // water level above the mean floor
+const CAM_H = 6.0;
+const MARGIN = 0.12;    // surface / caustic mesh extends beyond the view
+const SIM = 256, SURF = 512, CAUST = 1024, FLOOR = 2048;
+const REST = [0.72, 1.28];   // band boundaries on s = u + (1 - v)
+
+const SUN = new THREE.Vector3(0.42, 0.30, 1).normalize();          // toward the sun, above water
+const ETA = 1 / 1.333;
+function refractV(I, n, eta) {
+  const ci = -n.dot(I), k = 1 - eta * eta * (1 - ci * ci);
+  return I.clone().multiplyScalar(eta).add(n.clone().multiplyScalar(eta * ci - Math.sqrt(k)));
+}
+const SUN_IN = refractV(SUN.clone().negate(), new THREE.Vector3(0, 0, 1), ETA);   // travelling, underwater
+const SUN_R = SUN_IN.clone().negate();                                             // toward light, underwater
+
+// ---------------------------------------------------------------- renderer
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.autoClear = false;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(DPR);
+
+const HF = { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping };
+const simA = new THREE.WebGLRenderTarget(SIM, SIM, HF);
+const simB = new THREE.WebGLRenderTarget(SIM, SIM, HF);
+const surfRT = new THREE.WebGLRenderTarget(SURF, SURF, HF);
+const caustRT = new THREE.WebGLRenderTarget(CAUST, CAUST, { ...HF, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+const floorRT = new THREE.WebGLRenderTarget(FLOOR, FLOOR, { ...HF, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+let fishRT = null, shadowRT = null;
+
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+quad.frustumCulled = false;
+const quadScene = new THREE.Scene(); quadScene.add(quad);
+function pass(mat, target, clear = true) {
+  quad.material = mat;
+  renderer.setRenderTarget(target);
+  if (clear) renderer.clear();
+  renderer.render(quadScene, quadCam);
+}
+
+// ---------------------------------------------------------------- shared GLSL
+const COMMON = /* glsl */`
+#define S ${S.toFixed(4)}
+#define WL ${WL.toFixed(4)}
+#define CAM_H ${CAM_H.toFixed(4)}
+#define MARGIN ${MARGIN.toFixed(4)}
+float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6. - 15.) + 10.);
+  float a = dot(hash22(i) * 2. - 1., f);
+  float b = dot(hash22(i + vec2(1, 0)) * 2. - 1., f - vec2(1, 0));
+  float c = dot(hash22(i + vec2(0, 1)) * 2. - 1., f - vec2(0, 1));
+  float d = dot(hash22(i + vec2(1, 1)) * 2. - 1., f - vec2(1, 1));
+  return 1.4 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p){ float s = 0., a = .5; for (int i = 0; i < 5; i++) { s += a * noise(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= .5; } return s; }
+// gentle large-scale relief of the sea floor (m)
+float floorH(vec2 X){ return 0.075 * noise(X * 0.62 + vec2(3.1, 1.7)) + 0.03 * noise(X * 1.5 - 7.3); }
+float luma(vec3 c){ return dot(c, vec3(.2126, .7152, .0722)); }
+vec3 toSRGB(vec3 c){ c = max(c, 0.); return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - .055, step(.0031308, c)); }
+vec3 toLin(vec3 c){ return pow(c, vec3(2.2)); }
+`;
+const QUAD_VS = /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
+
+// ---------------------------------------------------------------- sea floor (baked once)
+const floorMat = new THREE.ShaderMaterial({
+  vertexShader: QUAD_VS,
+  fragmentShader: COMMON + /* glsl */`
+  varying vec2 vUv;
+  vec3 palette(float k){
+    if (k < .20) return vec3(.46, .44, .40);
+    if (k < .36) return vec3(.62, .56, .47);
+    if (k < .50) return vec3(.27, .26, .25);
+    if (k < .62) return vec3(.84, .82, .76);
+    if (k < .78) return vec3(.60, .43, .30);
+    if (k < .88) return vec3(.40, .43, .36);
+    return vec3(.70, .56, .40);
+  }
+  void stones(vec2 X, float cs, float dens, vec2 rr, float seed, float hk, bool rock,
+              inout float h, inout vec3 col, inout float ao, inout float isStone){
+    vec2 gi = floor(X / cs);
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 c = gi + vec2(i, j);
+      float pr = hash12(c * 1.37 + seed * 3.1);
+      float cl = .5 + .5 * noise(c * cs * 1.7 + seed);
+      if (pr > dens * (.25 + 1.5 * cl * cl)) continue;
+      vec2 ctr = (c + .22 + .56 * hash22(c + seed)) * cs;
+      float rad = mix(rr.x, rr.y, pow(hash12(c + seed + 7.), 1.6));
+      float ang = hash12(c + seed + 13.) * 6.2832;
+      float asp = mix(.55, 1., hash12(c + seed + 19.));
+      vec2 d = X - ctr;
+      d = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * d; d.y /= asp;
+      float dist = length(d) / rad;
+      if (rock) dist *= 1. + .16 * noise(normalize(d) * 2.2 + c * 3.) + .05 * noise(d / rad * 7.);
+      ao = min(ao, mix(.55, 1., smoothstep(.95, 1.45, dist)));
+      if (dist < 1.) {
+        float hh = rad * hk * pow(1. - dist * dist, .55);
+        if (hh > h) {
+          h = hh; isStone = 1.;
+          vec3 sc = palette(hash12(c + seed + 29.));
+          sc *= .82 + .3 * (.5 + .5 * noise(X / rad * 2.5 + c * 7.));
+          sc *= .9 + .1 * hash12(floor(X * 900.));
+          if (rock) sc = mix(sc, vec3(.20, .30, .12), smoothstep(.1, .8, 1. - dist) * .55 * (.5 + .5 * noise(X * 22.)));
+          sc *= mix(.8, 1.05, smoothstep(0., .6, 1. - dist));   // a bit darker at the rim
+          col = sc;
+        }
+      }
+    }
+  }
+  void main(){
+    vec2 X = vUv * S;
+    float n1 = fbm(X * 4.), n2 = fbm(X * 22. + 11.);
+    vec3 col = mix(vec3(.78, .73, .62), vec3(.96, .93, .85), smoothstep(-.55, .6, n1));
+    col *= .92 + .1 * n2;
+    col *= .93 + .12 * hash12(floor(X * 700.));
+    float alg = smoothstep(.2, .6, fbm(X * 1.1 + 5.));
+    col = mix(col, col * vec3(.72, .84, .52), alg * .45);
+    // wave-formed sand ripples
+    float w = dot(X, normalize(vec2(.7, .55))) / .085 + 1.6 * fbm(X * 1.8);
+    float r = fract(w);
+    float rip = smoothstep(0., .72, r) * smoothstep(1., .72, r);
+    float h = rip * .0032 * (.55 + .45 * smoothstep(-.6, .6, n1));
+    col *= .94 + .1 * rip;
+    float ao = 1., isStone = 0.;
+    vec3 sc = col;
+    stones(X, .55, .22, vec2(.07, .15), 1., .45, true, h, sc, ao, isStone);
+    stones(X, .075, .26, vec2(.01, .024), 17., .6, false, h, sc, ao, isStone);
+    stones(X, .026, .22, vec2(.0035, .008), 41., .7, false, h, sc, ao, isStone);
+    col = isStone > .5 ? sc : col * ao;
+    gl_FragColor = vec4(toLin(col), h);
+  }`,
+});
+
+// ---------------------------------------------------------------- ripple simulation
+const MAX_DROPS = 20;
+const drops = [];
+const dropU = Array.from({ length: MAX_DROPS }, () => new THREE.Vector4());
+const simMat = new THREE.ShaderMaterial({
+  uniforms: { tPrev: { value: null }, uDrops: { value: dropU }, uN: { value: 0 } },
+  vertexShader: QUAD_VS,
+  fragmentShader: /* glsl */`
+  uniform sampler2D tPrev; uniform vec4 uDrops[${MAX_DROPS}]; uniform int uN;
+  varying vec2 vUv;
+  void main(){
+    vec2 e = vec2(1. / ${SIM}.0, 0.);
+    vec4 info = texture2D(tPrev, vUv);
+    float avg = (texture2D(tPrev, vUv - e.xy).r + texture2D(tPrev, vUv + e.xy).r + texture2D(tPrev, vUv - e.yx).r + texture2D(tPrev, vUv + e.yx).r) * .25;
+    info.g += (avg - info.r) * 2.;
+    info.g *= .993;
+    info.r += info.g;
+    info.r *= .9995;
+    for (int i = 0; i < ${MAX_DROPS}; i++) {
+      if (i >= uN) break;
+      vec4 d = uDrops[i];
+      float k = max(0., 1. - length(d.xy - vUv) / d.z);
+      info.r += (.5 - cos(k * 3.14159) * .5) * d.w;
+    }
+    gl_FragColor = info;
+  }`,
+});
+pass(new THREE.ShaderMaterial({ vertexShader: QUAD_VS, fragmentShader: 'void main(){ gl_FragColor = vec4(0.); }' }), simA);
+pass(quad.material, simB);
+let simSrc = simA, simDst = simB;
+
+// ---------------------------------------------------------------- water surface: gradient + height
+const surfMat = new THREE.ShaderMaterial({
+  uniforms: { tSim: { value: null }, uTime: { value: 0 }, uAmp: { value: 1 } },
+  vertexShader: QUAD_VS,
+  fragmentShader: COMMON + /* glsl */`
+  uniform sampler2D tSim; uniform float uTime, uAmp;
+  varying vec2 vUv;
+  float waves(vec2 X){
+    float t = uTime;
+    float h = 0.;
+    h += .0030 * sin(dot(X, vec2(.80, .60)) * 6.2832 / .95 - t * 1.25);
+    h += .0022 * sin(dot(X, vec2(-.45, .89)) * 6.2832 / .63 - t * 1.55);
+    h += .0235 * noise(X * 3.4 + vec2(t * .26, t * .09));
+    h += .0125 * noise(mat2(.8, -.6, .6, .8) * X * 6. - vec2(t * .17, t * .40));
+    h += .0030 * noise(mat2(.28, .96, -.96, .28) * X * 12. + vec2(t * .48, -t * .26));
+    h += .0008 * noise(X * 23. + vec2(-t * .45, t * .6));
+    return h * uAmp;
+  }
+  float simH(vec2 uv){ return texture2D(tSim, clamp(uv, 0., 1.)).r * (1. - step(1., max(abs(uv.x - .5), abs(uv.y - .5)) * 2.)); }
+  void main(){
+    vec2 uv = vUv * (1. + 2. * MARGIN) - MARGIN;
+    vec2 X = uv * S;
+    float e = .003;
+    float gx = (waves(X + vec2(e, 0)) - waves(X - vec2(e, 0))) / (2. * e);
+    float gy = (waves(X + vec2(0, e)) - waves(X - vec2(0, e))) / (2. * e);
+    float u = 1. / ${SIM}.0;
+    gx += (simH(uv + vec2(u, 0)) - simH(uv - vec2(u, 0))) / (2. * u * S);
+    gy += (simH(uv + vec2(0, u)) - simH(uv - vec2(0, u))) / (2. * u * S);
+    gl_FragColor = vec4(gx, gy, waves(X) + simH(uv), 0.);
+  }`,
+});
+
+// ---------------------------------------------------------------- caustics: refracted light mesh (Evan Wallace's area method)
+const GRID = 448;
+const causticGeo = (() => {
+  const n = GRID + 1, pos = new Float32Array(n * n * 3), idx = new Uint32Array(GRID * GRID * 6);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = (j * n + i) * 3;
+    pos[k] = -MARGIN + (1 + 2 * MARGIN) * i / GRID;
+    pos[k + 1] = -MARGIN + (1 + 2 * MARGIN) * j / GRID;
+  }
+  let t = 0;
+  for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+    const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+    idx[t++] = a; idx[t++] = b; idx[t++] = d; idx[t++] = a; idx[t++] = d; idx[t++] = c;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+})();
+const causticScene = new THREE.Scene();
+const causticMats = [];
+[[1 / 1.318, [1, 0, 0]], [1 / 1.333, [0, 1, 0]], [1 / 1.352, [0, 0, 1]]].forEach(([eta, mask]) => {
+  const m = new THREE.ShaderMaterial({
+    uniforms: { tSurf: { value: surfRT.texture }, uEta: { value: eta }, uMask: { value: new THREE.Vector3(...mask) }, uSun: { value: SUN } },
+    vertexShader: COMMON + /* glsl */`
+    uniform sampler2D tSurf; uniform float uEta; uniform vec3 uSun;
+    varying vec2 vOld, vNew;
+    void main(){
+      vec2 uv = position.xy;
+      vec3 s = textureLod(tSurf, (uv + MARGIN) / (1. + 2. * MARGIN), 0.).xyz;
+      vec3 n = normalize(vec3(-s.xy, 1.));
+      vec2 X = uv * S;
+      float fh = floorH(X);
+      vec3 I = -uSun;
+      vec3 r = refract(I, n, uEta);
+      vec3 r0 = refract(I, vec3(0, 0, 1), uEta);
+      vNew = X + r.xy * ((WL + s.z - fh) / -r.z);
+      vOld = X + r0.xy * ((WL - fh) / -r0.z);
+      gl_Position = vec4(vNew / S * 2. - 1., 0., 1.);
+    }`,
+    fragmentShader: /* glsl */`
+    uniform vec3 uMask;
+    varying vec2 vOld, vNew;
+    void main(){
+      float oldA = length(dFdx(vOld)) * length(dFdy(vOld));
+      float newA = length(dFdx(vNew)) * length(dFdy(vNew));
+      gl_FragColor = vec4(uMask * min(oldA / max(newA, 1e-14), 28.), 1.);
+    }`,
+    blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(causticGeo, m);
+  mesh.frustumCulled = false;
+  causticScene.add(mesh);
+  causticMats.push(m);
+});
+
+// ---------------------------------------------------------------- fish scene
+const fov = THREE.MathUtils.radToDeg(2 * Math.atan((S / 2) / CAM_H));
+const camera = new THREE.PerspectiveCamera(fov, 1, 0.5, 20);
+camera.position.set(0, CAM_H, 0);
+camera.up.set(0, 0, -1);
+camera.lookAt(0, 0, 0);
+
+const fishScene = new THREE.Scene();
+const fishRoot = new THREE.Group();
+fishRoot.matrixAutoUpdate = false;
+fishScene.add(fishRoot);
+const sunW = new THREE.Vector3(SUN_R.x, SUN_R.z, -SUN_R.y);       // floor frame -> world
+const dl = new THREE.DirectionalLight(0xfff4e0, 2.6);
+dl.position.copy(sunW).multiplyScalar(5);
+fishScene.add(dl, new THREE.HemisphereLight(0xbfe6ff, 0xc9b48a, 1.25));
+fishScene.add(dl.target);
+
+// flattens the fish onto the floor along the underwater sun ray (planar shadow)
+const Lw = new THREE.Vector3(SUN_IN.x, SUN_IN.z, -SUN_IN.y);
+const shadowMatrix = new THREE.Matrix4().set(
+  1, -Lw.x / Lw.y, 0, 0,
+  0, 0, 0, 0,
+  0, -Lw.z / Lw.y, 1, 0,
+  0, 0, 0, 1);
+const IDENT = new THREE.Matrix4();
+
+// add G-buffer outputs (albedo, view normal + height) to the kit's fish material
+function patchFish(actor) {
+  actor.setDetail('high');
+  actor.mesh.shade(1);
+  actor.object.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.material.isMeshBasicMaterial) { o.layers.set(1); return; }
+    const m = o.material;
+    if (m.userData.mrt) return;
+    m.userData.mrt = true;
+    const prev = m.onBeforeCompile;
+    m.onBeforeCompile = (sh, r) => {
+      prev.call(m, sh, r);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float vWY;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvWY = (modelMatrix * vec4(transformed, 1.0)).y;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', 'layout(location = 1) out highp vec4 gAlbedo;\nlayout(location = 2) out highp vec4 gInfo;\nvarying float vWY;\n#include <common>')
+        .replace('#include <dithering_fragment>', '#include <dithering_fragment>\ngAlbedo = vec4(diffuseColor.rgb, 1.0);\ngInfo = vec4(normalize(normal), vWY);');
+    };
+    m.customProgramCacheKey = () => 'photo-fish-mrt';
+    m.needsUpdate = true;
+  });
+}
+
+// ---------------------------------------------------------------- composite: the three styles
+const compMat = new THREE.ShaderMaterial({
+  uniforms: {
+    tFloor: { value: floorRT.texture }, tSurf: { value: surfRT.texture }, tCaust: { value: caustRT.texture },
+    tFishCol: { value: null }, tFishAlb: { value: null }, tFishInfo: { value: null }, tShadow: { value: null },
+    uRes: { value: new THREE.Vector2() }, uB1: { value: REST[0] }, uB2: { value: REST[1] }, uCell: { value: 2 }, uPx: { value: 1 },
+    uSun: { value: SUN }, uSunR: { value: SUN_R },
+  },
+  vertexShader: QUAD_VS,
+  fragmentShader: COMMON + /* glsl */`
+  uniform sampler2D tFloor, tSurf, tCaust, tFishCol, tFishAlb, tFishInfo, tShadow;
+  uniform vec2 uRes; uniform float uB1, uB2, uCell, uPx;
+  uniform vec3 uSun, uSunR;
+  varying vec2 vUv;
+
+  const vec3 SUNC = vec3(1.0, .95, .86) * 1.05;
+  const vec3 AMB = vec3(.30, .48, .55) * .16;
+  const vec3 SIGMA = vec3(1.25, .30, .17);
+  const vec3 WATER = vec3(.01, .14, .19);
+  const vec3 SKY = vec3(.55, .74, .95);
+  const float EXPOSURE = 1.0;
+
+  vec3 aces(vec3 x){ return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), 0., 1.); }
+  vec3 surf(vec2 uv){ return texture2D(tSurf, (uv + MARGIN) / (1. + 2. * MARGIN)).xyz; }
+  vec3 floorNormal(vec2 uv){
+    float e = 1.5 / ${FLOOR}.0;
+    float hx = texture2D(tFloor, uv + vec2(e, 0)).a - texture2D(tFloor, uv - vec2(e, 0)).a;
+    float hy = texture2D(tFloor, uv + vec2(0, e)).a - texture2D(tFloor, uv - vec2(0, e)).a;
+    return normalize(vec3(-hx, -hy, 2. * e * S));
+  }
+  float shadowAt(vec2 uv, float r){
+    float s = texture2D(tShadow, uv).a * .2;
+    for (int i = 0; i < 8; i++) { float a = float(i) * .7854 + .39; s += texture2D(tShadow, uv + vec2(cos(a), sin(a)) * r).a * .1; }
+    return s;
+  }
+  struct W { vec3 n; vec3 s; float depth; vec2 off; vec2 X; };
+  W water(vec2 uv){
+    W w; w.s = surf(uv); w.n = normalize(vec3(-w.s.xy, 1.)); w.X = uv * S;
+    w.depth = WL + w.s.z - floorH(w.X);
+    w.off = w.s.xy * w.depth * .42 / S;        // apparent shift of what lies below
+    return w;
+  }
+  float fishEdge(vec2 uv, float r){
+    float m = texture2D(tFishCol, uv).a;
+    float hc = texture2D(tFishInfo, uv).a / max(m, 1e-3);
+    float e = 0.;
+    for (int i = 0; i < 8; i++) {
+      float a = float(i) * .7854;
+      vec2 o = vec2(cos(a), sin(a)) * r / uRes;
+      float mn = texture2D(tFishCol, uv + o).a;
+      e = max(e, mn - m);
+      if (m > .98 && mn > .98) e = max(e, smoothstep(.015, .03, texture2D(tFishInfo, uv + o).a / mn - hc));
+    }
+    return clamp(e * 1.4, 0., 1.);
+  }
+
+  // ---------- 1. photoreal (linear HDR)
+  vec3 shadeReal(vec2 uv){
+    W w = water(uv);
+    vec2 fu = uv + w.off;
+    vec4 fl = texture2D(tFloor, fu);
+    vec3 N = floorNormal(fu);
+    vec3 caust = texture2D(tCaust, fu).rgb;
+    float sh = shadowAt(fu, .0045);
+    float ndl = max(dot(N, uSunR), 0.);
+    vec3 lit = fl.rgb * (AMB + SUNC * ndl * caust * (1. - .82 * sh));
+    vec3 T = exp(-SIGMA * w.depth * 1.6);
+    vec3 col = lit * T + WATER * (1. - T);
+
+    vec2 fuF = uv + w.off * .45;
+    vec4 fc = texture2D(tFishCol, fuF);
+    if (fc.a > .002) {
+      vec3 fcol = fc.rgb / fc.a;
+      float fy = texture2D(tFishInfo, fuF).a / fc.a;
+      vec3 fca = textureLod(tCaust, fuF * .97 + .015, 1.2).rgb;
+      fcol *= .5 + .62 * fca;
+      vec3 Tf = exp(-SIGMA * max(WL - fy, 0.) * 1.6);
+      fcol = fcol * Tf + WATER * (1. - Tf);
+      col = mix(col, fcol, fc.a);
+    }
+    vec3 V = normalize(vec3(vec2(S * .5) - w.X, CAM_H - WL));
+    float F = .02 + .98 * pow(1. - max(dot(w.n, V), 0.), 5.);
+    vec3 H = normalize(uSun + V);
+    float nh = max(dot(w.n, H), 0.);
+    col = col * (1. - F) + SKY * F + SUNC * (pow(nh, 5000.) * 45. + pow(nh, 600.) * .12);
+    return col;
+  }
+  vec3 finishReal(vec3 c){ c = aces(c * EXPOSURE); c = clamp(mix(vec3(luma(c)), c, 1.22), 0., 1.); return toSRGB(c); }
+
+  // ---------- 2. cel shaded (sRGB)
+  vec3 posterize(vec3 c, float n, float sat){
+    float L = luma(c);
+    float Lq = (floor(L * n) + .6) / n;
+    return clamp(Lq + (c - L) * sat, 0., 1.);
+  }
+  vec3 shadeToon(vec2 uv){
+    W w = water(uv);
+    vec2 fu = uv + w.off;
+    vec4 fl = texture2D(tFloor, fu);
+    float stone = smoothstep(.0068, .0078, fl.a);
+    vec3 blur = toSRGB(textureLod(tFloor, fu, 5.).rgb);
+    vec3 sandLight = vec3(1., .97, .84), sandMid = vec3(.98, .86, .62);
+    float bl = luma(blur);
+    vec3 sand = mix(sandMid, sandLight, smoothstep(.555, .565, bl));
+    sand = mix(sand, vec3(.55, .92, .30), smoothstep(.04, .045, blur.g - blur.r) * .6);   // algae patches
+    float ridge = smoothstep(.0024, .0027, fl.a) * (1. - stone);
+    sand = mix(sand, sandLight * 1.05, ridge * .7);
+    vec3 st = posterize(toSRGB(textureLod(tFloor, fu, 1.5).rgb), 4., 2.6);
+    vec3 base = mix(sand, st, stone);
+    vec3 N = floorNormal(fu);
+    base *= mix(.74, 1., smoothstep(.5, .55, dot(N, uSunR)));
+    float edge = clamp(fwidth(stone) * 1.3, 0., 1.);
+    base = mix(base, vec3(.04, .16, .42), edge * .85);
+    float sh = smoothstep(.36, .42, shadowAt(fu, .0025));
+    base *= mix(vec3(1.), vec3(.30, .52, .98), sh * .85);
+    float c = luma(texture2D(tCaust, fu).rgb);
+    float aa = fwidth(c) * .75 + .002;
+    float glow = smoothstep(1.45 - aa, 1.45 + aa, c);
+    float line = smoothstep(2.1 - aa, 2.1 + aa, c);
+    // water: flat turquoise, stepped by depth
+    float db = clamp((w.depth - .30) / .26, 0., .999);
+    float band = floor(db * 3.);
+    vec3 waterC = band < .5 ? vec3(.22, .97, 1.) : band < 1.5 ? vec3(.02, .82, 1.) : vec3(0., .58, .98);
+    vec3 col = base * waterC;
+    col = mix(col, waterC * vec3(.6, .95, 1.), .16 + .06 * band);
+    col = mix(col, col * 1.08 + vec3(.10, .18, .14), glow * (1. - sh));
+    col = mix(col, vec3(1.), line * (1. - sh * .8));
+    // fish
+    vec2 fuF = uv + w.off * .45;
+    vec4 fc = texture2D(tFishCol, fuF);
+    if (fc.a > .01) {
+      vec2 px = 1.5 * uPx / uRes;
+      vec3 a = texture2D(tFishAlb, fuF).rgb + texture2D(tFishAlb, fuF + vec2(px.x, 0)).rgb + texture2D(tFishAlb, fuF - vec2(px.x, 0)).rgb
+             + texture2D(tFishAlb, fuF + vec2(0, px.y)).rgb + texture2D(tFishAlb, fuF - vec2(0, px.y)).rgb;
+      vec3 ta = posterize(toSRGB(a / (5. * fc.a)) * 1.12, 4., 2.6);
+      vec3 Nf = normalize(texture2D(tFishInfo, fuF).xyz);
+      ta *= mix(vec3(.42, .55, .95), vec3(1.), smoothstep(.22, .28, dot(Nf, uSunR)));
+      vec3 R = reflect(-uSunR, Nf);
+      ta = mix(ta, vec3(1.), smoothstep(.955, .962, R.z) * .9);
+      float cf = luma(textureLod(tCaust, fuF * .97 + .015, 1.2).rgb);
+      ta = mix(ta, vec3(1.), smoothstep(1.55, 1.62, cf) * .45);
+      vec3 fcol = mix(ta, ta * vec3(.55, .95, 1.), .14);
+      col = mix(col, fcol, smoothstep(.35, .65, fc.a));
+    }
+    col = mix(col, vec3(.02, .10, .34), fishEdge(fuF, 2.2 * uPx));
+    // sun sparkles on the surface
+    vec3 V = normalize(vec3(vec2(S * .5) - w.X, CAM_H - WL));
+    float nh = dot(w.n, normalize(uSun + V));
+    float aa2 = fwidth(nh) + 1e-5;
+    col = mix(col, vec3(1.), smoothstep(.9995 - aa2, .9995 + aa2, nh));
+    return clamp(mix(vec3(luma(col)), col, 1.12), 0., 1.);
+  }
+
+  // ---------- 3. one-bit dithered
+  float bayer2(vec2 a){ a = floor(a); return fract(dot(a, vec2(.5, a.y * .75))); }
+  float bayer4(vec2 a){ return bayer2(.5 * a) * .25 + bayer2(a); }
+  float bayer8(vec2 a){ return bayer4(.5 * a) * .25 + bayer2(a); }
+  vec3 shadeObra(vec2 uv){
+    vec2 cell = floor(gl_FragCoord.xy / uCell);
+    vec2 cuv = (cell + .5) * uCell / uRes;
+    float L = luma(shadeReal(cuv));
+    L = smoothstep(.05, .7, L);
+    L = pow(L, .9);
+    float fm = texture2D(tFishCol, cuv + water(cuv).off * .45).a;
+    L = mix(L, min(1., L * 1.5 + .06), fm);
+    float bit = step(bayer8(cell) + .002, L);
+    W w = water(cuv);
+    float ol = fishEdge(cuv + w.off * .45, uCell);
+    vec2 fu = cuv + w.off;
+    vec2 d = uCell / uRes;
+    float s0 = step(.007, texture2D(tFloor, fu).a);
+    float s1 = step(.007, texture2D(tFloor, fu + vec2(d.x, 0)).a);
+    float s2 = step(.007, texture2D(tFloor, fu + vec2(0, d.y)).a);
+    float se = max(abs(s0 - s1), abs(s0 - s2));
+    bit = mix(bit, 0., se);
+    bit = max(bit, step(.5, ol));
+    return mix(vec3(.2, .2, .098), vec3(.898, 1., 1.), bit);
+  }
+
+  void main(){
+    float s = vUv.x + (1. - vUv.y);
+    vec3 col;
+    if (s < uB1) col = finishReal(shadeReal(vUv));
+    else if (s < uB2) col = shadeToon(vUv);
+    else col = shadeObra(vUv);
+    gl_FragColor = vec4(col, 1.);
+  }`,
+});
+
+// ---------------------------------------------------------------- sizing
+let size = 0;
+function resize() {
+  const bar = 56;
+  const sz = Math.max(240, Math.floor(Math.min(innerWidth - 32, innerHeight - bar * 2 - 8)));
+  document.documentElement.style.setProperty('--sz', sz + 'px');
+  if (sz === size) return;
+  size = sz;
+  renderer.setSize(sz, sz, false);
+  const px = Math.round(sz * DPR);
+  fishRT?.dispose(); shadowRT?.dispose();
+  fishRT = new THREE.WebGLRenderTarget(px, px, { count: 3, samples: 4, type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  shadowRT = new THREE.WebGLRenderTarget(px >> 1, px >> 1, { depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  const u = compMat.uniforms;
+  u.tFishCol.value = fishRT.textures[0]; u.tFishAlb.value = fishRT.textures[1]; u.tFishInfo.value = fishRT.textures[2];
+  u.tShadow.value = shadowRT.texture;
+  u.uRes.value.set(px, px);
+  u.uPx.value = DPR;
+  u.uCell.value = Math.max(2, Math.round(2 * DPR));
+}
+addEventListener('resize', resize);
+resize();
+
+renderer.setClearColor(0x000000, 0);
+pass(floorMat, floorRT);
+
+// ---------------------------------------------------------------- fish behaviour
+const rand = (a, b) => a + (b - a) * Math.random();
+const CAST = [
+  { id: 'madai', cm: 44 }, { id: 'kurodai', cm: 38 }, { id: 'isaki', cm: 30 }, { id: 'isaki', cm: 27 },
+  { id: 'saba', cm: 32 }, { id: 'mebaru', cm: 22 },
+  { id: 'aji', cm: 21, school: 'a' }, { id: 'aji', cm: 19, school: 'a' }, { id: 'aji', cm: 22, school: 'a' },
+  { id: 'aji', cm: 20, school: 'a' }, { id: 'aji', cm: 18, school: 'a' },
+];
+const swimmers = [];
+const schools = {};
+const EDGE = S / 2 + 0.55;
+
+function placeAcross(sw, inside) {
+  const th = rand(0, Math.PI * 2);
+  const fwd = new THREE.Vector2(Math.sin(th), Math.cos(th));       // world (x, z)
+  const side = new THREE.Vector2(fwd.y, -fwd.x);
+  const lat = rand(-0.85, 0.85);
+  const back = inside ? rand(-0.9, 0.6) : EDGE;
+  sw.x = -fwd.x * back + side.x * lat;
+  sw.z = -fwd.y * back + side.y * lat;
+  sw.heading = th;
+}
+function spawnSchool(key, inside) {
+  const members = swimmers.filter((s) => s.school === key);
+  const lead = members[0];
+  placeAcross(lead, inside);
+  const fx = Math.sin(lead.heading), fz = Math.cos(lead.heading);
+  members.forEach((m, i) => {
+    if (i) {
+      const back = 0.16 * Math.ceil(i / 2) + rand(-0.03, 0.03), lat = (i % 2 ? 1 : -1) * (0.09 + rand(0, 0.05)) * Math.ceil(i / 2) * 0.8;
+      m.x = lead.x - fx * back + fz * lat;
+      m.z = lead.z - fz * back - fx * lat;
+      m.heading = lead.heading + rand(-0.08, 0.08);
+    }
+    m.y = rand(0.15, 0.2);
+    m.wait = 0;
+  });
+  schools[key] = { phase: rand(0, 100), speed: rand(0.26, 0.32) };
+}
+function spawn(sw, inside) {
+  if (sw.school) return spawnSchool(sw.school, inside);
+  placeAcross(sw, inside);
+  sw.y = rand(0.11, 0.27);
+  sw.speed = rand(0.17, 0.27);
+  sw.phase = rand(0, 100);
+  sw.wait = 0;
+}
+
+let ready = false;
+(async () => {
+  await loadFish('./fish/', [...new Set(CAST.map((c) => c.id))]);
+  for (const c of CAST) {
+    let actor = null;
+    try { actor = createFish(c.id, c.cm); } catch (e) { console.warn(e.message); }
+    if (!actor) continue;
+    patchFish(actor);
+    actor.setMotion('swim');
+    fishRoot.add(actor.object);
+    swimmers.push({ actor, school: c.school, x: 0, y: 0.2, z: 0, heading: 0, speed: 0.2, phase: 0, wait: 0 });
+  }
+  const done = new Set();
+  for (const sw of swimmers) {
+    if (sw.school) { if (done.has(sw.school)) continue; done.add(sw.school); }
+    spawn(sw, Math.random() < 0.6);
+  }
+  ready = true;
+  document.getElementById('load').classList.add('done');
+})().catch((e) => { console.error(e); document.getElementById('load').textContent = 'Fish failed to load ' + e.message; });
+
+function updateFish(dt, t) {
+  for (const key in schools) {
+    const members = swimmers.filter((s) => s.school === key);
+    if (members.every((m) => m.out)) { members.forEach((m) => (m.out = false)); spawnSchool(key, false); }
+  }
+  for (const sw of swimmers) {
+    const { actor } = sw;
+    if (sw.wait > 0) { sw.wait -= dt; actor.object.visible = false; if (sw.wait <= 0) spawn(sw, false); continue; }
+    actor.object.visible = true;
+    const sc = sw.school ? schools[sw.school] : null;
+    const ph = sc ? sc.phase : sw.phase;
+    const speed = sc ? sc.speed : sw.speed;
+    const turn = 0.32 * Math.sin(t * 0.37 + ph) + 0.18 * Math.sin(t * 0.83 + ph * 1.7) + (sc ? 0.04 * Math.sin(t * 2.1 + sw.heading * 9) : 0);
+    actor.drive = { speed, turnRate: turn };
+    actor.update(dt);
+    sw.heading += turn * dt;
+    const v = actor.currentSpeed;
+    sw.x += Math.sin(sw.heading) * v * dt;
+    sw.z += Math.cos(sw.heading) * v * dt;
+    actor.object.position.set(sw.x, sw.y, sw.z);
+    actor.object.rotation.y = sw.heading;
+    const outside = Math.abs(sw.x) > EDGE || Math.abs(sw.z) > EDGE;
+    const away = sw.x * Math.sin(sw.heading) + sw.z * Math.cos(sw.heading) > 0;
+    if (outside && away) {
+      if (sw.school) { sw.out = true; actor.object.visible = false; sw.wait = 0; }
+      else sw.wait = rand(0.5, 4);
+    }
+    if (sw.school && sw.out) actor.object.visible = false;
+    // a faint wake on the surface
+    if (!sw.out && drops.length < MAX_DROPS - 4) {
+      const u = 0.5 + sw.x / S, vv = 0.5 - sw.z / S;
+      if (u > -0.05 && u < 1.05 && vv > -0.05 && vv < 1.05) drops.push([u, vv, 0.016, -0.000045 * v / 0.25 * (0.45 - sw.y) / 0.25]);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- interaction: bands + ripples
+let hovered = null;
+const B = { b1: REST[0], b2: REST[1] };
+const TARGET = { null: REST, 0: [2.06, 2.12], 1: [-0.12, 2.12], 2: [-0.12, -0.06] };
+function bandAt(u, yDown) { const s = u + yDown; return s < REST[0] ? 0 : s < REST[1] ? 1 : 2; }
+let last = null;
+function local(e) { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; }
+canvas.addEventListener('pointermove', (e) => {
+  const [u, y] = local(e);
+  if (e.pointerType === 'mouse') hovered = bandAt(u, y);
+  if (last) {
+    const d = Math.hypot(u - last[0], y - last[1]);
+    if (d > 0.004 && drops.length < MAX_DROPS) drops.push([u, 1 - y, 0.014, 0.0011 * Math.min(1, d * 40)]);
+  }
+  last = [u, y];
+});
+canvas.addEventListener('pointerleave', (e) => { last = null; if (e.pointerType === 'mouse') hovered = null; });
+canvas.addEventListener('pointerdown', (e) => {
+  const [u, y] = local(e);
+  drops.push([u, 1 - y, 0.03, 0.006]);
+  if (e.pointerType !== 'mouse') { const b = bandAt(u, y); hovered = hovered === b ? null : b; }
+});
+const tags = [...document.querySelectorAll('.tag')];
+
+// ---------------------------------------------------------------- loop
+const clock = new THREE.Timer();
+let time = 0;
+renderer.setAnimationLoop(() => {
+  clock.update();
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  time += dt;
+  if (ready) updateFish(dt, time);
+
+  // bands
+  const [t1, t2] = TARGET[hovered];
+  const k = 1 - Math.exp(-dt * 7);
+  B.b1 += (t1 - B.b1) * k; B.b2 += (t2 - B.b2) * k;
+  compMat.uniforms.uB1.value = B.b1; compMat.uniforms.uB2.value = B.b2;
+  tags.forEach((t, i) => t.classList.toggle('on', hovered === i));
+
+  // ripple sim, two substeps
+  renderer.setClearColor(0x000000, 0);
+  for (let i = 0; i < 2; i++) {
+    const n = i === 0 ? Math.min(drops.length, MAX_DROPS) : 0;
+    for (let j = 0; j < n; j++) dropU[j].set(...drops[j]);
+    simMat.uniforms.uN.value = n;
+    simMat.uniforms.tPrev.value = simSrc.texture;
+    pass(simMat, simDst, false);
+    [simSrc, simDst] = [simDst, simSrc];
+  }
+  drops.length = 0;
+
+  surfMat.uniforms.tSim.value = simSrc.texture;
+  surfMat.uniforms.uTime.value = time;
+  pass(surfMat, surfRT, false);
+
+  renderer.setRenderTarget(caustRT);
+  renderer.clear();
+  renderer.render(causticScene, quadCam);
+
+  // fish G-buffer
+  fishRoot.matrix.copy(IDENT); fishRoot.matrixWorldNeedsUpdate = true;
+  camera.layers.set(0);
+  renderer.setRenderTarget(fishRT);
+  renderer.clear();
+  renderer.render(fishScene, camera);
+  // planar shadows
+  fishRoot.matrix.copy(shadowMatrix); fishRoot.matrixWorldNeedsUpdate = true;
+  camera.layers.set(1);
+  renderer.setRenderTarget(shadowRT);
+  renderer.clear();
+  renderer.render(fishScene, camera);
+
+  pass(compMat, null);
+});
+</script>
+</body>
+</html>
