@@ -214,9 +214,10 @@ const simMat = new THREE.ShaderMaterial({
     vec4 info = texture2D(tPrev, vUv);
     float avg = (texture2D(tPrev, vUv - e.xy).r + texture2D(tPrev, vUv + e.xy).r + texture2D(tPrev, vUv - e.yx).r + texture2D(tPrev, vUv + e.yx).r) * .25;
     info.g += (avg - info.r) * 2.;
-    info.g *= .993;
+    info.g *= .99;
     info.r += info.g;
-    info.r *= .9995;
+    info.r += (avg - info.r) * .08;     // viscosity: kills short, jittery waves first
+    info.r *= .999;
     for (int i = 0; i < ${MAX_DROPS}; i++) {
       if (i >= uN) break;
       vec4 d = uDrops[i];
@@ -283,7 +284,14 @@ const causticGeo = (() => {
 })();
 const causticScene = new THREE.Scene();
 const causticMats = [];
-[[1 / 1.318, [1, 0, 0]], [1 / 1.333, [0, 1, 0]], [1 / 1.352, [0, 0, 1]]].forEach(([eta, mask]) => {
+// six wavelengths, red -> violet, with exaggerated dispersion so caustic lines split into rainbows
+const SPECTRUM = (() => {
+  const hues = [0, 0.08, 0.16, 0.33, 0.55, 0.72];
+  const cols = hues.map((h) => new THREE.Color().setHSL(h, 1, 0.5));
+  const sum = cols.reduce((a, c) => a.add(c), new THREE.Color(0, 0, 0));
+  return cols.map((c, i) => [1 / (1.27 + 0.15 * i / (hues.length - 1)), [c.r / sum.r, c.g / sum.g, c.b / sum.b]]);
+})();
+SPECTRUM.forEach(([eta, mask]) => {
   const m = new THREE.ShaderMaterial({
     uniforms: { tSurf: { value: surfRT.texture }, uEta: { value: eta }, uMask: { value: new THREE.Vector3(...mask) }, uSun: { value: SUN } },
     vertexShader: COMMON + /* glsl */`
@@ -376,18 +384,21 @@ const compMat = new THREE.ShaderMaterial({
     tFishCol: { value: null }, tFishAlb: { value: null }, tFishInfo: { value: null }, tShadow: { value: null },
     uRes: { value: new THREE.Vector2() }, uB1: { value: REST[0] }, uB2: { value: REST[1] }, uCell: { value: 2 }, uPx: { value: 1 },
     uSun: { value: SUN }, uSunR: { value: SUN_R },
+    uJump: { value: new THREE.Vector4() }, uSplash: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
   },
   vertexShader: QUAD_VS,
   fragmentShader: COMMON + /* glsl */`
   uniform sampler2D tFloor, tSurf, tCaust, tFishCol, tFishAlb, tFishInfo, tShadow;
   uniform vec2 uRes; uniform float uB1, uB2, uCell, uPx;
   uniform vec3 uSun, uSunR;
+  uniform vec4 uJump;          // jumping fish: uv, radius, how far out of the water
+  uniform vec4 uSplash[4];     // uv, age (s), size (m)
   varying vec2 vUv;
 
   const vec3 SUNC = vec3(1.0, .95, .86) * 1.05;
-  const vec3 AMB = vec3(.30, .48, .55) * .16;
-  const vec3 SIGMA = vec3(1.25, .30, .17);
-  const vec3 WATER = vec3(.01, .14, .19);
+  const vec3 AMB = vec3(.42, .50, .52) * .17;
+  const vec3 SIGMA = vec3(.82, .20, .11);
+  const vec3 WATER = vec3(.01, .12, .17);
   const vec3 SKY = vec3(.55, .74, .95);
   const float EXPOSURE = 1.0;
 
@@ -425,6 +436,28 @@ const compMat = new THREE.ShaderMaterial({
     return clamp(e * 1.4, 0., 1.);
   }
 
+  // fish refraction: none near a fish that is out of the water
+  float fishK(vec2 uv){ return .45 * (1. - uJump.w * (1. - smoothstep(uJump.z * .8, uJump.z, length(uv - uJump.xy)))); }
+  float foam(vec2 uv){
+    float f = 0.;
+    for (int i = 0; i < 4; i++) {
+      vec4 sp = uSplash[i];
+      if (sp.w <= 0.) continue;
+      float age = sp.z;
+      vec2 d = (uv - sp.xy) * S;
+      float r = length(d);
+      float R = sp.w * (.35 + 1.7 * sqrt(age));
+      float n = noise(d * 40. + sp.xy * 91.);
+      float n2 = noise(normalize(d + 1e-5) * 4. + sp.xy * 40.);
+      float ring = 1. - smoothstep(0., .014 + .02 * age, abs(r - R) - .014 * n2);
+      float core = (1. - smoothstep(0., R * .9, r)) * (1. - smoothstep(.04, .4, age));
+      float bub = smoothstep(.2, .55, n) * (1. - smoothstep(R * .3, R * 1.05, r));
+      float fade = 1. - smoothstep(.25, 1.15, age);
+      f = max(f, clamp(ring * (.65 + .35 * n2) + core + bub * .7, 0., 1.) * fade);
+    }
+    return f;
+  }
+
   // ---------- 1. photoreal (linear HDR)
   vec3 shadeReal(vec2 uv){
     W w = water(uv);
@@ -432,17 +465,19 @@ const compMat = new THREE.ShaderMaterial({
     vec4 fl = texture2D(tFloor, fu);
     vec3 N = floorNormal(fu);
     vec3 caust = texture2D(tCaust, fu).rgb;
+    caust = max(mix(vec3(luma(caust)), caust, 1.45), 0.);      // let the spectral fringes sing
     float sh = shadowAt(fu, .0045);
     float ndl = max(dot(N, uSunR), 0.);
     vec3 lit = fl.rgb * (AMB + SUNC * ndl * caust * (1. - .82 * sh));
     vec3 T = exp(-SIGMA * w.depth * 1.6);
     vec3 col = lit * T + WATER * (1. - T);
 
-    vec2 fuF = uv + w.off * .45;
+    vec2 fuF = uv + w.off * fishK(uv);
     vec4 fc = texture2D(tFishCol, fuF);
-    if (fc.a > .002) {
+    float fy = fc.a > .002 ? texture2D(tFishInfo, fuF).a / fc.a : 0.;
+    bool air = fy > WL;
+    if (fc.a > .002 && !air) {
       vec3 fcol = fc.rgb / fc.a;
-      float fy = texture2D(tFishInfo, fuF).a / fc.a;
       vec3 fca = textureLod(tCaust, fuF * .97 + .015, 1.2).rgb;
       fcol *= .5 + .62 * fca;
       vec3 Tf = exp(-SIGMA * max(WL - fy, 0.) * 1.6);
@@ -454,6 +489,8 @@ const compMat = new THREE.ShaderMaterial({
     vec3 H = normalize(uSun + V);
     float nh = max(dot(w.n, H), 0.);
     col = col * (1. - F) + SKY * F + SUNC * (pow(nh, 5000.) * 45. + pow(nh, 600.) * .12);
+    col = mix(col, vec3(1.5, 1.55, 1.55), foam(uv) * .88);
+    if (fc.a > .002 && air) col = mix(col, fc.rgb / fc.a * 1.3, fc.a);     // airborne: above the surface, dry and sunlit
     return col;
   }
   vec3 finishReal(vec3 c){ c = aces(c * EXPOSURE); c = clamp(mix(vec3(luma(c)), c, 1.22), 0., 1.); return toSRGB(c); }
@@ -463,6 +500,16 @@ const compMat = new THREE.ShaderMaterial({
     float L = luma(c);
     float Lq = (floor(L * n) + .6) / n;
     return clamp(Lq + (c - L) * sat, 0., 1.);
+  }
+  vec3 toonFish(vec2 p, float cov){
+    vec2 px = 1.5 * uPx / uRes;
+    vec3 a = texture2D(tFishAlb, p).rgb + texture2D(tFishAlb, p + vec2(px.x, 0)).rgb + texture2D(tFishAlb, p - vec2(px.x, 0)).rgb
+           + texture2D(tFishAlb, p + vec2(0, px.y)).rgb + texture2D(tFishAlb, p - vec2(0, px.y)).rgb;
+    vec3 ta = posterize(toSRGB(a / (5. * cov)) * 1.12, 4., 2.6);
+    vec3 Nf = normalize(texture2D(tFishInfo, p).xyz);
+    ta *= mix(vec3(.42, .55, .95), vec3(1.), smoothstep(.22, .28, dot(Nf, uSunR)));
+    vec3 R = reflect(-uSunR, Nf);
+    return mix(ta, vec3(1.), smoothstep(.955, .962, R.z) * .9);
   }
   vec3 shadeToon(vec2 uv){
     W w = water(uv);
@@ -483,42 +530,43 @@ const compMat = new THREE.ShaderMaterial({
     float edge = clamp(fwidth(stone) * 1.3, 0., 1.);
     base = mix(base, vec3(.04, .16, .42), edge * .85);
     float sh = smoothstep(.36, .42, shadowAt(fu, .0025));
-    base *= mix(vec3(1.), vec3(.30, .52, .98), sh * .85);
+    base *= mix(vec3(1.), vec3(.38, .48, .86), sh * .9);
     float c = luma(texture2D(tCaust, fu).rgb);
     float aa = fwidth(c) * .75 + .002;
-    float glow = smoothstep(1.45 - aa, 1.45 + aa, c);
-    float line = smoothstep(2.1 - aa, 2.1 + aa, c);
+    float glow = smoothstep(1.3 - aa, 1.3 + aa, c);
+    float line = smoothstep(1.65 - aa, 1.65 + aa, c);
     // water: flat turquoise, stepped by depth
     float db = clamp((w.depth - .30) / .26, 0., .999);
     float band = floor(db * 3.);
-    vec3 waterC = band < .5 ? vec3(.22, .97, 1.) : band < 1.5 ? vec3(.02, .82, 1.) : vec3(0., .58, .98);
-    vec3 col = base * waterC;
-    col = mix(col, waterC * vec3(.6, .95, 1.), .16 + .06 * band);
-    col = mix(col, col * 1.08 + vec3(.10, .18, .14), glow * (1. - sh));
-    col = mix(col, vec3(1.), line * (1. - sh * .8));
+    // Wind Waker sea: flat royal blue, darker blue pools, thick white light lines
+    vec3 waterC = band < .5 ? vec3(.10, .47, 1.) : band < 1.5 ? vec3(.07, .41, .97) : vec3(.05, .35, .90);
+    vec3 col = mix(base * waterC, waterC, .62);
+    col = mix(col, vec3(.30, .62, 1.), glow * .55 * (1. - sh));
+    col = mix(col, vec3(.93, .99, 1.), line * (1. - sh * .8));
     // fish
-    vec2 fuF = uv + w.off * .45;
+    vec2 fuF = uv + w.off * fishK(uv);
     vec4 fc = texture2D(tFishCol, fuF);
-    if (fc.a > .01) {
-      vec2 px = 1.5 * uPx / uRes;
-      vec3 a = texture2D(tFishAlb, fuF).rgb + texture2D(tFishAlb, fuF + vec2(px.x, 0)).rgb + texture2D(tFishAlb, fuF - vec2(px.x, 0)).rgb
-             + texture2D(tFishAlb, fuF + vec2(0, px.y)).rgb + texture2D(tFishAlb, fuF - vec2(0, px.y)).rgb;
-      vec3 ta = posterize(toSRGB(a / (5. * fc.a)) * 1.12, 4., 2.6);
-      vec3 Nf = normalize(texture2D(tFishInfo, fuF).xyz);
-      ta *= mix(vec3(.42, .55, .95), vec3(1.), smoothstep(.22, .28, dot(Nf, uSunR)));
-      vec3 R = reflect(-uSunR, Nf);
-      ta = mix(ta, vec3(1.), smoothstep(.955, .962, R.z) * .9);
+    float fy = fc.a > .01 ? texture2D(tFishInfo, fuF).a / fc.a : 0.;
+    bool air = fy > WL;
+    if (fc.a > .01 && !air) {
+      vec3 ta = toonFish(fuF, fc.a);
       float cf = luma(textureLod(tCaust, fuF * .97 + .015, 1.2).rgb);
       ta = mix(ta, vec3(1.), smoothstep(1.55, 1.62, cf) * .45);
-      vec3 fcol = mix(ta, ta * vec3(.55, .95, 1.), .14);
+      vec3 fcol = mix(ta, ta * vec3(.55, .78, 1.), .2);
       col = mix(col, fcol, smoothstep(.35, .65, fc.a));
     }
-    col = mix(col, vec3(.02, .10, .34), fishEdge(fuF, 2.2 * uPx));
     // sun sparkles on the surface
     vec3 V = normalize(vec3(vec2(S * .5) - w.X, CAM_H - WL));
     float nh = dot(w.n, normalize(uSun + V));
     float aa2 = fwidth(nh) + 1e-5;
     col = mix(col, vec3(1.), smoothstep(.9995 - aa2, .9995 + aa2, nh));
+    // splash foam: flat cartoon shapes
+    float fo = foam(uv);
+    float fa = fwidth(fo) + 1e-3;
+    col = mix(col, vec3(.55, .80, 1.), smoothstep(.22 - fa, .22 + fa, fo) * .85);
+    col = mix(col, vec3(1.), smoothstep(.5 - fa, .5 + fa, fo));
+    if (fc.a > .01 && air) col = mix(col, toonFish(fuF, fc.a) * 1.06, smoothstep(.35, .65, fc.a));
+    col = mix(col, vec3(.02, .08, .30), fishEdge(fuF, 2.2 * uPx));
     return clamp(mix(vec3(luma(col)), col, 1.12), 0., 1.);
   }
 
@@ -532,11 +580,11 @@ const compMat = new THREE.ShaderMaterial({
     float L = luma(shadeReal(cuv));
     L = smoothstep(.05, .7, L);
     L = pow(L, .9);
-    float fm = texture2D(tFishCol, cuv + water(cuv).off * .45).a;
+    float fm = texture2D(tFishCol, cuv + water(cuv).off * fishK(cuv)).a;
     L = mix(L, min(1., L * 1.5 + .06), fm);
     float bit = step(bayer8(cell) + .002, L);
     W w = water(cuv);
-    float ol = fishEdge(cuv + w.off * .45, uCell);
+    float ol = fishEdge(cuv + w.off * fishK(cuv), uCell);
     vec2 fu = cuv + w.off;
     vec2 d = uCell / uRes;
     float s0 = step(.007, texture2D(tFloor, fu).a);
@@ -653,7 +701,95 @@ let ready = false;
   document.getElementById('load').classList.add('done');
 })().catch((e) => { console.error(e); document.getElementById('load').textContent = 'Fish failed to load ' + e.message; });
 
+// ---------------------------------------------------------------- leaps
+const splashes = [];      // foam rings drawn by the composite
+const splashDrops = [];   // impulses for the ripple sim
+let nextJump = rand(3, 6);
+const uvOf = (sw) => [0.5 + sw.x / S, 0.5 - sw.z / S];
+function splashAt(sw, k) {
+  const [u, v] = uvOf(sw);
+  splashDrops.push([u, v, 0.045 * k, 0.0035 * k]);
+  splashes.push({ u, v, age: 0, size: 0.075 * k });
+  if (splashes.length > 4) splashes.shift();
+}
+function tryJump(dt) {
+  if ((nextJump -= dt) > 0) return;
+  const lim = S / 2 - 0.12;
+  const c = swimmers.filter((s) => !s.school && s.wait <= 0 && !s.jump &&
+    [0, 1.1].every((d) => Math.abs(s.x + Math.sin(s.heading) * d) < lim && Math.abs(s.z + Math.cos(s.heading) * d) < lim));
+  if (!c.length) { nextJump = 0.5; return; }
+  const sw = c[Math.floor(Math.random() * c.length)];
+  sw.jump = { phase: 0, t: 0, y0: sw.y, vh: 0.4, vy: 0 };
+  sw.actor.setMotion('power');
+  nextJump = rand(6, 12);
+}
+function stepJump(sw, dt) {
+  const j = sw.jump, a = sw.actor;
+  j.t += dt;
+  let pitch = 0;
+  if (j.phase === 0) {             // accelerate up toward the surface
+    const k = Math.min(1, j.t / 0.6), yPrev = sw.y;
+    sw.y = j.y0 + (WL - 0.04 - j.y0) * k * k;
+    j.vh = 0.4 + 0.75 * k;
+    pitch = Math.atan2((sw.y - yPrev) / Math.max(dt, 1e-3), j.vh);
+    if (k >= 1) { j.phase = 1; j.vy = rand(2.3, 2.8); a.setMotion('air'); splashAt(sw, 0.8); }
+  } else if (j.phase === 1) {      // ballistic flight
+    j.vy -= 9.8 * dt;
+    sw.y += j.vy * dt;
+    pitch = Math.atan2(j.vy, j.vh);
+    if (j.vy < 0 && sw.y < WL - 0.02) { j.phase = 2; j.t = 0; a.setMotion('power'); splashAt(sw, 1.25); }
+  } else {                         // dive, then settle back to cruising depth
+    j.vy += -j.vy * Math.min(1, dt * 6);
+    sw.y = Math.max(j.y0 - 0.05, sw.y + j.vy * dt);
+    sw.y += (j.y0 - sw.y) * Math.min(1, dt * 1.2) * Math.min(1, j.t);
+    j.vh += (sw.speed - j.vh) * Math.min(1, dt * 1.5);
+    pitch = Math.atan2(j.vy, j.vh) * Math.max(0, 1 - j.t);
+    if (j.t > 1.6) { sw.jump = null; a.setMotion('swim'); }
+  }
+  a.drive = { speed: j.vh, turnRate: 0 };
+  a.update(dt);
+  sw.x += Math.sin(sw.heading) * j.vh * dt;
+  sw.z += Math.cos(sw.heading) * j.vh * dt;
+  sw.pitch = pitch;
+}
+
+// keep fish from passing through each other: steer apart and stack vertically when close
+function separate(dt) {
+  for (const s of swimmers) s.avoid = 0;
+  const live = swimmers.filter((s) => s.wait <= 0 && !s.out && s.actor.object.visible);
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const a = live[i], b = live[j];
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz) || 1e-4;
+    const R = 0.5 * (a.actor.length + b.actor.length) * 0.95;
+    if (d >= R) continue;
+    const k = 1 - d / R, nx = dx / d, nz = dz / d;
+    const school = a.school && a.school === b.school;
+    // steer away: turn so the other fish ends up behind the shoulder
+    for (const [f, sx, sz] of [[a, nx, nz], [b, -nx, -nz]]) {
+      if (f.jump) continue;
+      const side = Math.sin(f.heading) * sz - Math.cos(f.heading) * sx;   // > 0: other is on the left
+      f.avoid += -Math.sign(side || 1) * k * (school ? 0.8 : 1.6);
+    }
+    // stack vertically so bodies never intersect
+    if (!a.jump && !b.jump) {
+      const dy = b.y - a.y, need = 0.11;
+      if (Math.abs(dy) < need) {
+        const push = (need - Math.abs(dy)) * k * Math.min(1, dt * 3) * (dy >= 0 ? 1 : -1);
+        a.y = THREE.MathUtils.clamp(a.y - push, 0.09, 0.32);
+        b.y = THREE.MathUtils.clamp(b.y + push, 0.09, 0.32);
+      }
+    }
+    // last resort: nudge apart when very close
+    if (k > 0.5 && !a.jump && !b.jump) {
+      const m = (k - 0.5) * 0.12 * dt;
+      a.x -= nx * m; a.z -= nz * m; b.x += nx * m; b.z += nz * m;
+    }
+  }
+}
+
 function updateFish(dt, t) {
+  tryJump(dt);
+  separate(dt);
   for (const key in schools) {
     const members = swimmers.filter((s) => s.school === key);
     if (members.every((m) => m.out)) { members.forEach((m) => (m.out = false)); spawnSchool(key, false); }
@@ -662,18 +798,26 @@ function updateFish(dt, t) {
     const { actor } = sw;
     if (sw.wait > 0) { sw.wait -= dt; actor.object.visible = false; if (sw.wait <= 0) spawn(sw, false); continue; }
     actor.object.visible = true;
-    const sc = sw.school ? schools[sw.school] : null;
-    const ph = sc ? sc.phase : sw.phase;
-    const speed = sc ? sc.speed : sw.speed;
-    const turn = 0.32 * Math.sin(t * 0.37 + ph) + 0.18 * Math.sin(t * 0.83 + ph * 1.7) + (sc ? 0.04 * Math.sin(t * 2.1 + sw.heading * 9) : 0);
-    actor.drive = { speed, turnRate: turn };
-    actor.update(dt);
-    sw.heading += turn * dt;
-    const v = actor.currentSpeed;
-    sw.x += Math.sin(sw.heading) * v * dt;
-    sw.z += Math.cos(sw.heading) * v * dt;
+    let v;
+    if (sw.jump) { stepJump(sw, dt); v = sw.jump ? sw.jump.vh : sw.speed; }
+    else {
+      const sc = sw.school ? schools[sw.school] : null;
+      const ph = sc ? sc.phase : sw.phase;
+      const speed = sc ? sc.speed : sw.speed;
+      const turn = 0.32 * Math.sin(t * 0.37 + ph) + 0.18 * Math.sin(t * 0.83 + ph * 1.7) + (sc ? 0.04 * Math.sin(t * 2.1 + sw.heading * 9) : 0) + sw.avoid;
+      actor.drive = { speed, turnRate: turn };
+      actor.update(dt);
+      sw.heading += turn * dt;
+      v = actor.currentSpeed;
+      sw.x += Math.sin(sw.heading) * v * dt;
+      sw.z += Math.cos(sw.heading) * v * dt;
+      sw.pitch = 0;
+    }
+    sw.pitchS = (sw.pitchS || 0) + ((sw.pitch || 0) - (sw.pitchS || 0)) * Math.min(1, dt * 12);
     actor.object.position.set(sw.x, sw.y, sw.z);
+    actor.object.rotation.order = 'YXZ';
     actor.object.rotation.y = sw.heading;
+    actor.object.rotation.x = -sw.pitchS;
     const outside = Math.abs(sw.x) > EDGE || Math.abs(sw.z) > EDGE;
     const away = sw.x * Math.sin(sw.heading) + sw.z * Math.cos(sw.heading) > 0;
     if (outside && away) {
@@ -682,7 +826,7 @@ function updateFish(dt, t) {
     }
     if (sw.school && sw.out) actor.object.visible = false;
     // a faint wake on the surface
-    if (!sw.out && drops.length < MAX_DROPS - 4) {
+    if (!sw.out && !(sw.jump && sw.y > WL - 0.06) && drops.length < MAX_DROPS - 8) {
       const u = 0.5 + sw.x / S, vv = 0.5 - sw.z / S;
       if (u > -0.05 && u < 1.05 && vv > -0.05 && vv < 1.05) drops.push([u, vv, 0.016, -0.000045 * v / 0.25 * (0.45 - sw.y) / 0.25]);
     }
@@ -732,14 +876,23 @@ renderer.setAnimationLoop(() => {
   // ripple sim, two substeps
   renderer.setClearColor(0x000000, 0);
   for (let i = 0; i < 2; i++) {
-    const n = i === 0 ? Math.min(drops.length, MAX_DROPS) : 0;
-    for (let j = 0; j < n; j++) dropU[j].set(...drops[j]);
+    const all = splashDrops.concat(drops);
+    const n = i === 0 ? Math.min(all.length, MAX_DROPS) : 0;
+    for (let j = 0; j < n; j++) dropU[j].set(...all[j]);
     simMat.uniforms.uN.value = n;
     simMat.uniforms.tPrev.value = simSrc.texture;
     pass(simMat, simDst, false);
     [simSrc, simDst] = [simDst, simSrc];
   }
   drops.length = 0;
+  splashDrops.length = 0;
+
+  // splash foam + the leaping fish (drawn above the surface, unrefracted)
+  for (let i = splashes.length - 1; i >= 0; i--) if ((splashes[i].age += dt) > 1.2) splashes.splice(i, 1);
+  compMat.uniforms.uSplash.value.forEach((v4, i) => { const sp = splashes[i]; sp ? v4.set(sp.u, sp.v, sp.age, sp.size) : v4.set(0, 0, 0, 0); });
+  const jumper = swimmers.find((s) => s.jump);
+  if (jumper) { const [u, v] = uvOf(jumper); compMat.uniforms.uJump.value.set(u, v, 0.17, THREE.MathUtils.clamp((jumper.y - (WL - 0.15)) / 0.12, 0, 1)); }
+  else compMat.uniforms.uJump.value.w = 0;
 
   surfMat.uniforms.tSim.value = simSrc.texture;
   surfMat.uniforms.uTime.value = time;
