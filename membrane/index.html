@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Day 9 - Membrane</title>
+<style>
+  @font-face { font-family: Hershey; src: url(fonts/AVHersheySimplexLight.otf) format('opentype'); font-weight: 100 400; }
+  @font-face { font-family: Hershey; src: url(fonts/AVHersheySimplexMedium.otf) format('opentype'); font-weight: 401 900; }
+  :root {
+    --blue: #4fb6f2; --blue-mid: #3487c4; --blue-dim: #1f5f8c; --frame: #133954;
+    --green: #5be381; --red: #ff5d40; --pink: #ff73cf; --white: #eef6f8; --amber: #ffb340;
+    --bar: 64px; --font: Hershey, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--blue); }
+  body { font-family: var(--font); -webkit-font-smoothing: antialiased; user-select: none; }
+  canvas#c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  .glow { text-shadow: 0 0 1.5px currentColor, 0 0 8px color-mix(in srgb, currentColor 45%, transparent); }
+
+  .bar { position: fixed; left: 0; right: 0; height: var(--bar); background: #000; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 clamp(16px, 3vw, 36px); }
+  .bar.top { top: 0; border-bottom: 1px solid var(--frame); }
+  .bar.bottom { bottom: 0; border-top: 1px solid var(--frame); }
+  .brand { font-size: 12px; letter-spacing: .34em; text-transform: uppercase; color: var(--blue-mid); }
+  .name { font-size: 22px; font-weight: 500; letter-spacing: .32em; text-transform: uppercase; color: var(--blue); }
+  .hint { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--blue-dim); white-space: nowrap; }
+  .hint b { font-weight: 400; color: var(--blue-mid); }
+
+  #slots { display: flex; gap: 10px; min-width: 0; }
+  .slot { --c: var(--white); display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); box-shadow: 0 0 6px color-mix(in srgb, var(--c) 25%, transparent), inset 0 0 6px color-mix(in srgb, var(--c) 12%, transparent); color: var(--c); cursor: pointer; }
+  .slot { opacity: .32; transition: opacity .5s; } .slot.live { opacity: 1; }
+  .slot .nm { font-size: 13px; font-weight: 500; letter-spacing: .24em; text-shadow: 0 0 1.5px currentColor, 0 0 8px currentColor; }
+  .slot .rd { grid-column: 1; font-size: 10px; letter-spacing: .14em; color: color-mix(in srgb, var(--c) 70%, #000); white-space: nowrap; }
+  .slot canvas { grid-column: 2; grid-row: 1 / 3; width: 76px; height: 30px; }
+
+  #sound { background: none; border: 0; padding: 8px 0; cursor: pointer; display: flex; align-items: center; gap: 10px; font: 400 11px var(--font); letter-spacing: .3em; text-transform: uppercase; color: var(--blue-dim); transition: color .4s; }
+  #sound:hover, #sound[aria-pressed="true"] { color: var(--amber); }
+  #sound i { display: flex; gap: 2px; align-items: flex-end; height: 10px; }
+  #sound i b { width: 2px; height: 3px; background: currentColor; }
+  #sound[aria-pressed="true"] i b { animation: eq 1.1s ease-in-out infinite alternate; }
+  #sound i b:nth-child(2) { animation-delay: -.4s !important; } #sound i b:nth-child(3) { animation-delay: -.8s !important; }
+  @keyframes eq { to { height: 10px; } }
+
+  #start { position: fixed; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 16px 28px; border: 1px solid var(--amber); background: rgba(0,0,0,.72); color: var(--amber); font: 500 15px var(--font); letter-spacing: .34em; text-transform: uppercase; cursor: pointer; box-shadow: 0 0 10px rgba(255,179,64,.45), inset 0 0 10px rgba(255,179,64,.2); text-shadow: 0 0 1.5px currentColor, 0 0 10px currentColor; transition: opacity .6s; }
+  #start small { display: block; margin-top: 8px; font-size: 10px; letter-spacing: .3em; color: var(--blue-mid); text-shadow: none; }
+  #start.gone { opacity: 0; pointer-events: none; }
+
+  #bubbles { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .bub { position: absolute; left: 0; top: 0; opacity: 0; white-space: nowrap; font-weight: 500; letter-spacing: .14em; will-change: transform, opacity; text-shadow: 0 0 1.5px currentColor, 0 0 10px currentColor, 0 0 22px color-mix(in srgb, currentColor 40%, transparent); }
+
+  #error { position: fixed; inset: 0; z-index: 6; display: none; align-items: center; justify-content: center; font-size: 22px; letter-spacing: .2em; }
+
+  #score { --c: var(--white); position: fixed; z-index: 2; left: 50%; top: 84px; transform: translate(-50%, -8px); opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; text-align: center; color: var(--c); }
+  #score.show { opacity: 1; transform: translate(-50%, 0); }
+  #score .who { font-size: 13px; letter-spacing: .4em; text-shadow: 0 0 1.5px currentColor, 0 0 8px currentColor; margin-bottom: 8px; }
+  #score .cards { display: flex; gap: 10px; justify-content: center; }
+  #score .cards b { min-width: 52px; padding: 6px 4px; border: 1px solid var(--blue-mid); color: var(--blue); font-weight: 500; font-size: 18px; letter-spacing: .08em; box-shadow: 0 0 6px rgba(79,182,242,.35), inset 0 0 6px rgba(79,182,242,.15); opacity: 0; transform: rotateX(90deg); transition: opacity .15s, transform .25s; }
+  #score .cards b.on { opacity: 1; transform: none; }
+  #score .tot { margin-top: 8px; min-height: 40px; font-size: 34px; font-weight: 500; letter-spacing: .12em; color: var(--amber); text-shadow: 0 0 2px currentColor, 0 0 14px currentColor; }
+  body.capture #score { top: 150px; transform: translate(-50%, 0) scale(1.5); transform-origin: top center; }
+  #move { --c: var(--white); position: fixed; z-index: 2; left: 50%; top: 92px; transform: translate(-50%, 0) scale(.9); opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; text-align: center; color: var(--c); white-space: nowrap; }
+  #move.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  #move .mv { font-size: 28px; font-weight: 500; letter-spacing: .28em; text-shadow: 0 0 2px currentColor, 0 0 14px currentColor; }
+  #move .sub { margin-top: 6px; font-size: 11px; letter-spacing: .4em; color: var(--blue-mid); }
+  body.capture #move { top: 150px; } body.capture #move .mv { font-size: 40px; } body.capture #move .sub { font-size: 15px; }
+  .ctitle { display: none; }
+  body.capture .bar, body.capture #start { display: none !important; }
+  body.capture .ctitle { display: block; position: fixed; top: 40px; left: 44px; z-index: 3; pointer-events: none; color: #e4eeff; font: 400 34px system-ui, sans-serif; text-shadow: 0 1px 12px rgba(0,0,0,.6); }
+  body.capture .ctitle small { display: block; margin-top: 8px; font-size: 15px; letter-spacing: .22em; text-transform: uppercase; color: var(--blue-mid); }
+
+  @media (max-width: 1180px) { .hint { display: none; } }
+  @media (max-width: 760px) {
+    .brand { display: none; }
+    .slot canvas { display: none; }
+    .slot { grid-template-columns: auto; padding: 4px 6px; }
+    .slot .nm { font-size: 11px; letter-spacing: .12em; }
+    #slots { gap: 5px; }
+    #sound span { display: none; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bubbles"></div>
+<div class="bar top"><span class="brand">Vibecodevember · Day 9</span><span class="name glow">Membrane</span><span class="hint"><b>Click mat</b> poke · <b>Click jumper</b> mega bounce · <b>1–4</b> call next · <b>Space</b> stomp · <b>Drag</b> orbit</span></div>
+<div class="bar bottom">
+  <div id="slots"></div>
+  <button id="sound" aria-pressed="false"><i><b></b><b></b><b></b></i><span>Voices</span></button>
+</div>
+<button id="start">Breathe in and start<small>physical voices · physical trampoline</small></button>
+<div id="move"><div class="mv"></div><div class="sub"></div></div>
+<div id="score"><div class="who"></div><div class="cards"><b></b><b></b><b></b></div><div class="tot"></div></div>
+<div class="ctitle">Vibecodevember - Membrane<small>Nov 9th 2026</small></div>
+<div id="error">THIS NEEDS WEBGL 2.</div>
+
+<!-- ============================================================================================
+     The voice: a JS port of the idea behind CHIMERA (github.com/jamesondh/chimera-vocal-synth):
+     every sound comes from a simulated airway, not samples. Here each jumper owns a small
+     Kelly-Lochbaum waveguide tract (glottis -> pharynx -> tongue -> lips) driven by an LF
+     glottal pulse, with aspiration, turbulence at constrictions and release bursts for stops.
+     Phrases are articulatory targets (tongue, lips, constrictions, pitch, lung pressure)
+     that glide in time, so "wheee", "oof" and "blblbl" are gestures, not recordings.
+     ============================================================================================ -->
+<script id="worklet" type="text/plain">
+const TAU = Math.PI * 2;
+let seed = 1234567;
+const noise = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2147483648 - 1; };
+
+class BP {
+  constructor(f, q) { const w = TAU * f / sampleRate, a = Math.sin(w) / (2 * q), a0 = 1 + a; this.b0 = a / a0; this.b2 = -a / a0; this.a1 = -2 * Math.cos(w) / a0; this.a2 = (1 - a) / a0; this.x1 = this.x2 = this.y1 = this.y2 = 0; }
+  run(x) { const y = this.b0 * x + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2; this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y; return y; }
+}
+
+// Liljencrants-Fant glottal flow derivative, parameterised by tenseness (Rd)
+function lf(tense) {
+  const Rd = Math.min(2.7, Math.max(0.5, 3 * (1 - tense)));
+  const Ra = -0.01 + 0.048 * Rd, Rk = 0.224 + 0.118 * Rd;
+  const Rg = (Rk / 4) * (0.5 + 1.2 * Rk) / (0.11 * Rd - Ra * (0.5 + 1.2 * Rk));
+  const Ta = Ra, Tp = 1 / (2 * Rg), Te = Tp + Tp * Rk;
+  const eps = 1 / Ta, shift = Math.exp(-eps * (1 - Te)), Delta = 1 - shift;
+  let rhs = (1 / eps) * (shift - 1) + (1 - Te) * shift; rhs /= Delta;
+  const lower = -(Te - Tp) / 2 + rhs, upper = -lower;
+  const omega = Math.PI / Tp, s = Math.sin(omega * Te);
+  const y = -Math.PI * s * upper / (Tp * 2), z = Math.log(y), alpha = z / (Tp / 2 - Te), E0 = -1 / (s * Math.exp(alpha * Te));
+  return { alpha, E0, eps, shift, Delta, Te, omega };
+}
+const lfAt = (L, t) => t > L.Te ? (-Math.exp(-L.eps * (t - L.Te)) + L.shift) / L.Delta : L.E0 * Math.exp(L.alpha * t) * Math.sin(L.omega * t);
+
+const KEYS = ['f0', 'vol', 'breath', 'tense', 'tI', 'tD', 'lip', 'cI', 'cD', 'vib', 'vibR', 'bend'];
+const SAMPLE_KEYS = new Set(['f0', 'vol', 'breath', 'bend']);
+
+class Voice {
+  constructor(o) {
+    const n = this.n = o.n; this.s = n / 44;
+    this.bladeStart = Math.round(10 * this.s); this.tipStart = Math.round(32 * this.s); this.lipStart = Math.round(39 * this.s);
+    this.R = new Float32Array(n); this.L = new Float32Array(n); this.jR = new Float32Array(n + 1); this.jL = new Float32Array(n + 1);
+    this.k = new Float32Array(n + 1); this.d = new Float32Array(n); this.rest = new Float32Array(n);
+    for (let i = 0; i < n; i++) this.rest[i] = i < 7 * this.s - 0.5 ? 0.6 : i < 12 * this.s ? 1.1 : 1.5;
+    this.quant = o.quant || 0;
+    this.tgt = { f0: o.f0, vol: 0, breath: 0, tense: o.tense, tI: 20, tD: 3, lip: 1.4, cI: 30, cD: 5, vib: o.vib || 0.15, vibR: 5.2, bend: 1 };
+    this.cur = Object.assign({}, this.tgt);
+    this.coef = {}; for (const k of KEYS) this.coef[k] = 0.01;
+    this.base = { tense: o.tense, vib: o.vib || 0.15, vibR: 5.2 };
+    this.q = [];
+    this.phase = 0; this.L_ = lf(o.tense); this.vibPh = Math.random(); this.jit = 0;
+    this.asp = new BP(500, 0.5); this.fric = new BP(o.fricF || 2200, 0.6); this.burst = new BP(1800, 0.7);
+    this.wasClosed = false; this.trA = 0; this.trT = 1; this.trI = 0;
+    this.fricI = 0; this.fricS = 0; this.lipClosed = 0; this.hum = 0; this.dc1 = 0; this.dc2 = 0;
+    this.shape();
+  }
+  setGlide(k, ms, block) { const n = Math.max(1, ms / 1000 * sampleRate / (block ? 128 : 1)); this.coef[k] = 1 - Math.exp(-1 / n); }
+  apply(step) {
+    for (const k in step.p) {
+      if (!(k in this.tgt)) continue;
+      this.tgt[k] = step.p[k];
+      const ms = k === 'f0' ? (step.gf ?? Math.max(step.g, 50)) : k === 'vol' ? (step.gv ?? step.g) : step.g;
+      this.setGlide(k, ms, !SAMPLE_KEYS.has(k));
+    }
+  }
+  shape() {
+    const { n, s, d, rest } = this, c = this.cur;
+    const tI = c.tI * s, tD = c.tD, bs = this.bladeStart, ts = this.tipStart, ls = this.lipStart;
+    for (let i = 0; i < n; i++) d[i] = rest[i];
+    for (let i = bs; i < ls; i++) {
+      const t = 1.1 * Math.PI * (tI - i) / (ts - bs);
+      const ftd = 2 + (tD - 2) / 1.5;
+      let curve = (1.5 - ftd + 1.7) * Math.cos(t);
+      if (i === bs - 2 || i === ls - 1) curve *= 0.8;
+      if (i === bs || i === ls - 2) curve *= 0.94;
+      d[i] = 1.5 - curve;
+    }
+    for (let i = ls; i < n; i++) d[i] = Math.min(d[i], c.lip);
+    if (c.cD < 3) {
+      const index = c.cI * s, ix44 = c.cI;
+      let width = ix44 < 25 ? 10 : ix44 >= 32 ? 5 : 10 - 5 * (ix44 - 25) / 7; width *= s;
+      const ii = Math.round(index);
+      for (let j = -Math.ceil(width) - 1; j < width + 1; j++) {
+        const i = ii + j; if (i < 2 || i >= n) continue;
+        const rel = Math.abs(i - index) - 0.5;
+        const shrink = rel <= 0 ? 0 : rel > width ? 1 : 0.5 * (1 - Math.cos(Math.PI * rel / width));
+        if (c.cD < d[i]) d[i] = c.cD + (d[i] - c.cD) * shrink;
+      }
+    }
+    // reflections, closure tracking
+    let dmin = 9, imin = 0;
+    for (let i = Math.round(12 * s); i < n; i++) { if (d[i] < dmin) { dmin = d[i]; imin = i; } }
+    for (let i = 1; i < n; i++) {
+      const a0 = d[i - 1] * d[i - 1], a1 = d[i] * d[i];
+      this.k[i] = a0 + a1 < 1e-6 ? 0.999 : (a0 - a1) / (a0 + a1);
+    }
+    const lung = Math.max(c.vol, c.breath * 1.4, this.tgt.vol * 0.8);
+    const closed = dmin < 0.03;
+    if (this.wasClosed && dmin > 0.1) { this.trA = 0.12 + 0.35 * lung; this.trT = 0; this.trI = Math.min(n - 1, imin + 1); }
+    this.wasClosed = closed;
+    this.fricI = Math.min(n - 1, imin + 1);
+    this.fricS = !closed && dmin < 0.45 ? (0.45 - dmin) / 0.45 * lung * 0.9 : 0;
+    this.lipClosed = Math.max(0, 1 - c.lip / 0.12);
+  }
+  block(out, off, len) {
+    const c = this.cur, t = this.tgt, cf = this.coef;
+    for (const k of KEYS) if (!SAMPLE_KEYS.has(k)) c[k] += (t[k] - c[k]) * cf[k];
+    this.shape();
+    const { n, R, L, jR, jL, k } = this;
+    for (let j = 0; j < len; j++) {
+      c.f0 += (t.f0 - c.f0) * cf.f0; c.vol += (t.vol - c.vol) * cf.vol; c.breath += (t.breath - c.breath) * cf.breath; c.bend += (t.bend - c.bend) * cf.bend;
+      this.vibPh += c.vibR / sampleRate; if (this.vibPh > 1) this.vibPh -= 1;
+      let f = c.f0 * c.bend * Math.pow(2, (c.vib * Math.sin(TAU * this.vibPh)) / 12) * (1 + this.jit);
+      if (this.quant) f = 55 * Math.pow(2, Math.round(12 * Math.log2(f / 55)) / 12);
+      this.phase += f / sampleRate;
+      if (this.phase >= 1) { this.phase -= 1; this.L_ = lf(c.tense); this.jit = this.jit * 0.6 + noise() * 0.006; }
+      const op = Math.max(0, Math.sin(TAU * this.phase));
+      const g = lfAt(this.L_, this.phase) * c.vol;
+      const asp = this.asp.run(noise()) * (c.breath * 1.6 + c.vol * (1 - Math.sqrt(c.tense)) * 0.5 * (0.3 + 0.7 * op));
+      const gin = g * 0.9 + asp;
+      const fr = this.fricS > 0.001 ? this.fric.run(noise()) * this.fricS : 0;
+      let tr = 0;
+      if (this.trT < 0.06) { tr = this.trA * Math.pow(2, -200 * this.trT) * (this.trT < 0.0004 ? 1 : 0) + this.trA * Math.exp(-this.trT * 90) * this.burst.run(noise()) * 0.8; this.trT += 1 / sampleRate; }
+      let lip = 0;
+      for (let h = 0; h < 2; h++) {
+        jR[0] = L[0] * 0.75 + gin;
+        jL[n] = R[n - 1] * -0.85;
+        for (let i = 1; i < n; i++) { const w = k[i] * (R[i - 1] + L[i]); jR[i] = R[i - 1] - w; jL[i] = L[i] + w; }
+        if (fr) { const i = this.fricI; jR[i] += fr * 0.5; jL[i] += fr * 0.5; }
+        if (tr) { const i = this.trI; jR[i] += tr * 0.5; jL[i] += tr * 0.5; }
+        for (let i = 0; i < n; i++) { R[i] = jR[i] * 0.999; L[i] = jL[i + 1] * 0.999; }
+        lip += R[n - 1];
+      }
+      this.hum += (g - this.hum) * 0.05;
+      let y = lip * 0.5 + this.hum * 0.5 * this.lipClosed;
+      // dc block + gentle saturation
+      const yy = y - this.dc1 + 0.995 * this.dc2; this.dc1 = y; this.dc2 = yy;
+      out[off + j] = Math.tanh(yy * 0.55) * 0.8;
+    }
+  }
+}
+
+// trampoline / impact sounds: a pool of two-pole resonators plus a falling sine "thwump"
+class Foley {
+  constructor() {
+    this.N = 40; this.y1 = new Float32Array(this.N); this.y2 = new Float32Array(this.N); this.a1 = new Float32Array(this.N); this.a2 = new Float32Array(this.N); this.x = new Float32Array(this.N); this.rr = 0;
+    this.sw = []; this.slap = 0; this.slapF = new BP(380, 0.7); this.hiss = new BP(5200, 1.2);
+  }
+  ring(f, dec, amp) {
+    const i = this.rr++ % this.N, w = TAU * f / sampleRate, r = Math.exp(-1 / (dec * sampleRate));
+    this.a1[i] = 2 * r * Math.cos(w); this.a2[i] = -r * r; this.x[i] += amp * Math.sin(w);
+  }
+  thump(a, tone) {
+    this.sw.push({ ph: 0, t: 0, f0: 105 * tone, f1: 42 * tone, amp: a * 0.9 });
+    if (this.sw.length > 6) this.sw.shift();
+    this.slap = Math.min(1.5, this.slap + a * 0.6);
+  }
+  bonk(a) { this.ring(640, 0.07, a * 0.7); this.ring(1190, 0.05, a * 0.45); this.ring(2370, 0.03, a * 0.2); }
+  clank(a) { for (const f of [410, 777, 1213, 1838, 2610]) this.ring(f * (0.98 + Math.random() * 0.04), 0.5, a * 0.18); }
+  block(out, len) {
+    const { N, y1, y2, a1, a2, x } = this;
+    for (let j = 0; j < len; j++) {
+      let s = 0;
+      for (let i = 0; i < N; i++) { const y = a1[i] * y1[i] + a2[i] * y2[i] + x[i]; x[i] = 0; y2[i] = y1[i]; y1[i] = y; s += y; }
+      for (const w of this.sw) { const f = w.f1 + (w.f0 - w.f1) * Math.exp(-w.t * 22); w.ph += f / sampleRate; s += Math.sin(TAU * w.ph) * w.amp * Math.exp(-w.t * 9) * Math.min(1, w.t * 900); w.t += 1 / sampleRate; }
+      if (this.slap > 1e-4) { s += this.slapF.run(noise()) * this.slap * 0.9 + this.hiss.run(noise()) * this.slap * 0.08; this.slap *= 0.9975; }
+      out[j] = Math.tanh(s * 0.7);
+    }
+    this.sw = this.sw.filter(w => w.t < 0.8);
+  }
+}
+
+// the stands: a few hundred hands (independent filtered-noise claps) plus a handful of
+// buzzy formant voices going "wooo!", "yaaay!" or "awww", and someone's two-finger whistle
+class Crowd {
+  constructor() {
+    this.t = 99; this.dur = 0; this.amp = 0; this.mood = 1; this.claps = []; this.vox = []; this.wh = null;
+    this.bands = [new BP(1000, .9), new BP(1700, 1), new BP(2700, 1.2)]; this.ex = [0, 0, 0]; this.hub = new BP(550, .6);
+  }
+  start(m) {
+    this.t = 0; this.dur = m.dur; this.amp = m.amp; this.mood = m.mood; this.vox = [];
+    const n = m.mood > 0 ? 10 : m.mood < 0 ? 8 : 3;
+    for (let i = 0; i < n; i++) {
+      const hi = Math.random() < .5, f0 = hi ? 240 + Math.random() * 160 : 105 + Math.random() * 75, k = hi ? 1.15 : 1;
+      const kind = m.mood < 0 ? 'aww' : Math.random() < .55 ? 'woo' : 'yay';
+      const F = kind === 'woo' ? [340, 820] : kind === 'yay' ? [640, 1750] : [720, 1150];
+      this.vox.push({ f0, kind, ph: Math.random(), st: Math.random() * (m.mood < 0 ? .15 : .6), len: (m.mood < 0 ? .7 : .45) + Math.random() * .8,
+        b1: new BP(F[0] * k, 4), b2: new BP(F[1] * k, 6), vr: 4.5 + Math.random() * 2.5, a: .5 + Math.random() * .5 });
+    }
+    this.wh = m.mood > 0 && m.amp > .7 ? { st: .25 + Math.random() * .4, ph: 0 } : null;
+  }
+  sample() {
+    if (this.t > this.dur + 2) return 0;
+    const t = this.t, SR = sampleRate; this.t += 1 / SR;
+    let s = 0;
+    const env = t < .25 ? t / .25 : t < this.dur ? 1 : Math.max(0, 1 - (t - this.dur) / 1.4);
+    const rate = (this.mood < 0 ? 10 : this.mood === 0 ? 22 : 60) * (.4 + this.amp) * env;
+    if (Math.random() < rate / SR) this.claps.push({ t: 0, a: .4 + Math.random() * .8, d: .003 + Math.random() * .005, b: (Math.random() * 3) | 0 });
+    const ex = this.ex; ex[0] = ex[1] = ex[2] = 0;
+    for (const c of this.claps) { ex[c.b] += noise() * c.a * Math.exp(-c.t / c.d); c.t += 1 / SR; }
+    while (this.claps.length && this.claps[0].t > .04) this.claps.shift();
+    s += (this.bands[0].run(ex[0]) + this.bands[1].run(ex[1]) + this.bands[2].run(ex[2])) * 1.1;
+    for (const v of this.vox) {
+      const u = t - v.st; if (u < 0 || u > v.len) continue;
+      const x = u / v.len;
+      const pc = v.kind === 'aww' ? 1.3 - .5 * x : v.kind === 'woo' ? 1 + .6 * Math.min(1, x * 3) - .35 * Math.max(0, x - .7) : 1.15 + .25 * Math.sin(Math.PI * x);
+      v.ph += v.f0 * pc * (1 + .02 * Math.sin(TAU * v.vr * u)) / SR; if (v.ph > 1) v.ph -= 1;
+      const src = (2 * v.ph - 1) * Math.min(1, u * 15) * Math.min(1, (v.len - u) * 5) * v.a;
+      s += (v.b1.run(src) + v.b2.run(src) * .6) * .3;
+    }
+    s += this.hub.run(noise()) * .05 * env;
+    if (this.wh) {
+      const u = t - this.wh.st;
+      if (u > 0 && u < .75) { const f = 2200 + 900 * Math.sin(Math.PI * Math.min(1, u / .5)) - 500 * Math.max(0, u - .5) / .25; this.wh.ph += f / SR; s += Math.sin(TAU * this.wh.ph) * .1 * Math.min(1, u * 30) * Math.min(1, (.75 - u) * 12); }
+    }
+    return s * this.amp;
+  }
+}
+
+class Jumpers extends AudioWorkletProcessor {
+  constructor(o) {
+    super();
+    this.voices = o.processorOptions.voices.map(v => new Voice(v));
+    this.foley = new Foley(); this.crowd = new Crowd();
+    this.sched = o.processorOptions.sched || []; this.si = 0; // [{f: frame, m}] for offline renders
+    this.port.onmessage = e => this.handle(e.data);
+  }
+  handle(m) {
+      if (m.type === 'phrase') {
+        const v = this.voices[m.v]; const now = currentFrame;
+        v.q = m.steps.map(s => ({ at: now + s.t * sampleRate / 1000, ...s }));
+        if (m.vib != null) v.apply({ p: { vib: m.vib, vibR: m.vibR ?? 5.5, tense: m.tense ?? v.base.tense }, g: 120 });
+      } else if (m.type === 'bend') {
+        const v = this.voices[m.v]; v.tgt.bend = m.val; v.setGlide('bend', 40, false);
+      } else if (m.type === 'thump') this.foley.thump(m.amp, m.tone || 1);
+      else if (m.type === 'bonk') this.foley.bonk(m.amp);
+      else if (m.type === 'clank') this.foley.clank(m.amp);
+      else if (m.type === 'crowd') this.crowd.start(m);
+  }
+  process(_, outputs) {
+    const len = outputs[0][0].length;
+    while (this.si < this.sched.length && this.sched[this.si].f <= currentFrame) this.handle(this.sched[this.si++].m);
+    this.voices.forEach((v, i) => {
+      while (v.q.length && v.q[0].at <= currentFrame + len) v.apply(v.q.shift());
+      v.block(outputs[i][0], 0, len);
+    });
+    this.foley.block(outputs[this.voices.length][0], len);
+    const co = outputs[this.voices.length + 1][0]; for (let j = 0; j < len; j++) co[j] = Math.tanh(this.crowd.sample() * .9);
+    return true;
+  }
+}
+registerProcessor('jumpers', Jumpers);
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ?capture renders deterministic frames on demand (window.__frame); ?audiorec plays in real time and records the mix
+const CAPTURE = /[?&]capture\b/.test(location.search), AUDIOREC = /[?&]audiorec\b/.test(location.search);
+if (CAPTURE) document.body.classList.add('capture');
+
+// ---------------------------------------------------------------- utils
+let rs = 20261109;
+const rnd = () => { rs |= 0; rs = rs + 0x6D2B79F5 | 0; let t = Math.imul(rs ^ rs >>> 15, 1 | rs); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const R = (a, b) => a + (b - a) * rnd();
+const pick = a => a[(rnd() * a.length) | 0];
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ss = t => (t = clamp(t), t * t * (3 - 2 * t));
+const TAU = Math.PI * 2, G = 9.81;
+
+// ---------------------------------------------------------------- palette (CHIMERA's vector display)
+const HEX = { blue: '#4fb6f2', blueMid: '#3487c4', blueDim: '#1f5f8c', frame: '#133954', green: '#5be381', red: '#ff5d40', pink: '#ff73cf', white: '#eef6f8', amber: '#ffb340' };
+const LC = {}; for (const k in HEX) { const c = new THREE.Color(HEX[k]); LC[k] = [c.r, c.g, c.b]; }
+const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const sc = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+
+// ---------------------------------------------------------------- renderer
+const canvas = document.getElementById('c');
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: CAPTURE }); }
+catch (e) { document.getElementById('error').style.display = 'flex'; throw e; }
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0);
+const camera = new THREE.PerspectiveCamera(43, 1, 0.05, 100);
+camera.position.set(4.7, 2.7, 5.3);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.85, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
+controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
+controls.minDistance = 4; controls.maxDistance = 16; controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.5;
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.3, 0.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+function resize() {
+  const w = CAPTURE ? 1080 : innerWidth, h = CAPTURE ? 1080 : innerHeight;
+  renderer.setSize(w, h, !CAPTURE); composer.setSize(w, h);
+  camera.aspect = w / h; camera.fov = w / h < 0.8 ? 52 : 38; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+// dynamic line soup, additively blended like beams on a vector display
+const LMAT = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+class Lines {
+  constructor(max, parent = scene) {
+    this.max = max; this.n = 0;
+    this.pos = new Float32Array(max * 6); this.col = new Float32Array(max * 6);
+    const g = this.geo = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+    this.obj = new THREE.LineSegments(g, LMAT); this.obj.frustumCulled = false; parent.add(this.obj);
+  }
+  begin() { this.n = 0; }
+  seg(ax, ay, az, bx, by, bz, ca, cb = ca) {
+    if (this.n >= this.max) return;
+    const o = this.n++ * 6, p = this.pos, c = this.col;
+    p[o] = ax; p[o + 1] = ay; p[o + 2] = az; p[o + 3] = bx; p[o + 4] = by; p[o + 5] = bz;
+    c[o] = ca[0]; c[o + 1] = ca[1]; c[o + 2] = ca[2]; c[o + 3] = cb[0]; c[o + 4] = cb[1]; c[o + 5] = cb[2];
+  }
+  end() { this.geo.setDrawRange(0, this.n * 2); this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true; }
+}
+
+// ---------------------------------------------------------------- the membrane
+// A tensioned mat as a height field: sigma h_tt = T(|grad h|) lap h + eta lap h_t - c h_t + loads.
+// Tension stiffens with slope (the springs stretch), the edge is clamped at the spring hooks.
+const RM = 1.75, RF = 2.1, FLOOR = -0.95, N = 49, DX = 2 * RM / (N - 1);
+const SIG = 2.4, T0 = 1250, BETA = 3.0, DAMP = 0.9, VISC = 0.22;
+const H = new Float32Array(N * N), V = new Float32Array(N * N), F = new Float32Array(N * N), A = new Float32Array(N * N);
+const IN = new Uint8Array(N * N); const INL = [];
+for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+  const x = -RM + i * DX, z = -RM + j * DX;
+  if (i > 0 && j > 0 && i < N - 1 && j < N - 1 && x * x + z * z < (RM - 0.5 * DX) ** 2) { IN[j * N + i] = 1; INL.push(j * N + i); }
+}
+const NODE_M = SIG * DX * DX;
+let bottomed = 0;
+function matStep(dt) {
+  const inv = 1 / (DX * DX);
+  for (const k of INL) {
+    const l = H[k - 1], r = H[k + 1], d = H[k - N], u = H[k + N], c = H[k];
+    const gx = (r - l) * 0.5 / DX, gz = (u - d) * 0.5 / DX;
+    const T = T0 * Math.min(1 + BETA * (gx * gx + gz * gz), 2.1); // springs stiffen, capped under the CFL limit
+    const lap = (l + r + d + u - 4 * c) * inv;
+    const lapv = (V[k - 1] + V[k + 1] + V[k - N] + V[k + N] - 4 * V[k]) * inv;
+    A[k] = (T * lap) / SIG + VISC * lapv + F[k] / NODE_M - DAMP * V[k];
+  }
+  for (const k of INL) {
+    V[k] += A[k] * dt; H[k] += V[k] * dt;
+    if (H[k] < FLOOR + 0.08) { if (V[k] < -3) bottomed = Math.max(bottomed, -V[k]); H[k] = FLOOR + 0.08; if (V[k] < 0) V[k] = 0; }
+  }
+}
+function sample(arr, x, z) {
+  const fx = (x + RM) / DX, fz = (z + RM) / DX;
+  const i = clamp(Math.floor(fx), 0, N - 2), j = clamp(Math.floor(fz), 0, N - 2), u = clamp(fx - i), v = clamp(fz - j);
+  const k = j * N + i;
+  return (arr[k] * (1 - u) + arr[k + 1] * u) * (1 - v) + (arr[k + N] * (1 - u) + arr[k + N + 1] * u) * v;
+}
+function poke(x, z, strength, rad = 0.3) {
+  for (const k of INL) {
+    const i = k % N, j = (k / N) | 0, dx = -RM + i * DX - x, dz = -RM + j * DX - z, d2 = dx * dx + dz * dz;
+    if (d2 < 4 * rad * rad) V[k] -= strength * Math.exp(-d2 / (rad * rad * 0.5));
+  }
+}
+
+// ---------------------------------------------------------------- static scenery: frame legs, floor
+const stat = new Lines(2400);
+{
+  const fr = LC.blueMid, dim = sc(LC.frame, 1.2), flo = sc(LC.frame, 0.9);
+  for (let k = 0; k < 6; k++) {
+    const a = k / 6 * TAU, b1 = a - 0.16, b2 = a + 0.16, rr = RF + 0.02;
+    const p1 = [rr * Math.cos(b1), -0.05, rr * Math.sin(b1)], p2 = [rr * Math.cos(b2), -0.05, rr * Math.sin(b2)];
+    const q1 = [(rr + 0.05) * Math.cos(b1), FLOOR, (rr + 0.05) * Math.sin(b1)], q2 = [(rr + 0.05) * Math.cos(b2), FLOOR, (rr + 0.05) * Math.sin(b2)];
+    stat.seg(...p1, ...q1, fr, dim); stat.seg(...p2, ...q2, fr, dim); stat.seg(...q1, ...q2, dim);
+  }
+  for (const r of [2.6, 3.4, 4.4, 5.6, 7]) for (let k = 0; k < 120; k += 2) {
+    const a = k / 120 * TAU, b = (k + 1) / 120 * TAU;
+    stat.seg(r * Math.cos(a), FLOOR, r * Math.sin(a), r * Math.cos(b), FLOOR, r * Math.sin(b), sc(flo, 1.6 / r * 1.5));
+  }
+  for (let k = 0; k < 24; k++) { const a = k / 24 * TAU; stat.seg(2.6 * Math.cos(a), FLOOR, 2.6 * Math.sin(a), 7 * Math.cos(a), FLOOR, 7 * Math.sin(a), sc(flo, 0.4), [0, 0, 0]); }
+  stat.end();
+}
+const matL = new Lines(9000);
+const RINGS = 13, RS = 96, SPOKES = 48, SPS = 26;
+const pull = new Float32Array(RS);
+const shadows = [];
+const ripples = [];
+function drawMat() {
+  matL.begin();
+  for (let a = 0; a < RS; a++) {
+    const th = a / RS * TAU, r = RM - 0.22;
+    const dep = -sample(H, r * Math.cos(th), r * Math.sin(th));
+    pull[a] += (clamp(dep / 0.22, 0, 1.6) * 0.07 - pull[a]) * 0.5;
+  }
+  const P = (r, a) => { // a in ring-index units
+    const th = a / RS * TAU, ai = ((Math.round(a) % RS) + RS) % RS;
+    const x0 = r * Math.cos(th), z0 = r * Math.sin(th), rr = r * (1 - pull[ai] / RM);
+    const h = sample(H, x0, z0), v = sample(V, x0, z0);
+    const depth = clamp(-h * 1.3), sp = clamp((Math.abs(v) - 0.6) * 0.12);
+    let c = mixc(sc(LC.blueDim, 0.5), sc(LC.blue, 0.85), depth * 0.85);
+    c = mixc(c, sc(LC.amber, 0.8), sp * 0.8);
+    return [rr * Math.cos(th), h, rr * Math.sin(th), c];
+  };
+  for (let k = 1; k <= RINGS; k++) {
+    const r = RM * k / RINGS; let prev = P(r, 0);
+    for (let a = 1; a <= RS; a++) { const p = P(r, a); matL.seg(prev[0], prev[1], prev[2], p[0], p[1], p[2], k === RINGS ? LC.blue : prev[3], k === RINGS ? LC.blue : p[3]); prev = p; }
+  }
+  for (let s = 0; s < SPOKES; s++) {
+    const a = s * RS / SPOKES; let prev = P(RM / RINGS, a);
+    for (let q = Math.ceil(SPS / RINGS); q <= SPS; q++) { const p = P(RM * q / SPS, a); matL.seg(prev[0], prev[1], prev[2], p[0], p[1], p[2], prev[3], p[3]); prev = p; }
+  }
+  // frame tube + springs
+  const fc = LC.blue, fd = LC.blueMid;
+  for (let a = 0; a < RS; a++) {
+    const t0 = a / RS * TAU, t1 = (a + 1) / RS * TAU;
+    matL.seg(RF * Math.cos(t0), 0, RF * Math.sin(t0), RF * Math.cos(t1), 0, RF * Math.sin(t1), fc);
+    matL.seg((RF + 0.06) * Math.cos(t0), -0.05, (RF + 0.06) * Math.sin(t0), (RF + 0.06) * Math.cos(t1), -0.05, (RF + 0.06) * Math.sin(t1), fd);
+  }
+  for (let s = 0; s < SPOKES; s++) {
+    const a = s * RS / SPOKES, th = a / RS * TAU, ct = Math.cos(th), st = Math.sin(th);
+    const r0 = RM * (1 - pull[a] / RM), r1 = RF, len = r1 - r0, Z = 9;
+    const amp = 0.03 * clamp(0.36 / len, 0.3, 1.2), hot = clamp(pull[a] * 10);
+    const col = mixc(fd, LC.amber, hot * 0.7);
+    let px = r0 * ct, py = 0, pz = r0 * st;
+    for (let q = 1; q <= Z; q++) {
+      const r = r0 + len * q / Z, off = q === Z ? 0 : (q % 2 ? amp : -amp);
+      const x = r * ct - st * off * 0.3, y = off, z = r * st + ct * off * 0.3;
+      matL.seg(px, py, pz, x, y, z, col); px = x; py = y; pz = z;
+    }
+  }
+  // drop shadows: dashed ellipses pressed into the mat
+  for (const s of shadows) {
+    if (s.off) continue;
+    const n = 28;
+    for (let q = 0; q < n; q += 2) {
+      const a = q / n * TAU, b = (q + 1) / n * TAU;
+      const x1 = s.x + s.r * Math.cos(a), z1 = s.z + s.r * Math.sin(a), x2 = s.x + s.r * Math.cos(b), z2 = s.z + s.r * Math.sin(b);
+      matL.seg(x1, sample(H, x1, z1) + 0.01, z1, x2, sample(H, x2, z2) + 0.01, z2, s.c);
+    }
+  }
+  // landing mats beside the trampoline: a low box with fold lines
+  for (const p of stage.pads) {
+    const tx = -p.dz, tz = p.dx, a = .62, b = .42, c = sc(LC.blueMid, .9), cd = sc(LC.blueDim, .8);
+    const pt = (u, v, y) => [p.x + tx * u + p.dx * v, y, p.z + tz * u + p.dz * v];
+    const C = [[-a, -b], [a, -b], [a, b], [-a, b]];
+    for (let q = 0; q < 4; q++) {
+      const [u1, v1] = C[q], [u2, v2] = C[(q + 1) % 4];
+      matL.seg(...pt(u1, v1, PAD_TOP), ...pt(u2, v2, PAD_TOP), c);
+      matL.seg(...pt(u1, v1, FLOOR), ...pt(u2, v2, FLOOR), cd);
+      matL.seg(...pt(u1, v1, FLOOR), ...pt(u1, v1, PAD_TOP), cd);
+    }
+    for (const u of [-a / 3, a / 3]) matL.seg(...pt(u, -b, PAD_TOP), ...pt(u, b, PAD_TOP), sc(c, .6));
+  }
+  for (const rp of ripples) {
+    const n = 40, r = rp.r, k = clamp(1 - rp.t / 0.7);
+    for (let q = 0; q < n; q++) {
+      const a = q / n * TAU, b = (q + 1) / n * TAU;
+      const x1 = rp.x + r * Math.cos(a), z1 = rp.z + r * Math.sin(a), x2 = rp.x + r * Math.cos(b), z2 = rp.z + r * Math.sin(b);
+      if (x1 * x1 + z1 * z1 > RM * RM || x2 * x2 + z2 * z2 > RM * RM) continue;
+      matL.seg(x1, sample(H, x1, z1) + 0.02, z1, x2, sample(H, x2, z2) + 0.02, z2, sc(LC.amber, k));
+    }
+  }
+  matL.end();
+}
+
+// ---------------------------------------------------------------- voices: phonetic gestures -> tract targets
+// vowel: tongue index, tongue diameter (Pink-Trombone units), lip diameter; mouth drawing: jaw, round, spread
+const VW = {
+  a: [13.5, 2.25, 1.6, 1.0, 0, .2], ae: [15.5, 2.75, 1.5, .85, 0, .45], e: [24, 2.6, 1.35, .55, 0, .65], i: [27, 2.05, 1.2, .32, 0, 1],
+  o: [17.5, 2.35, .75, .72, .75, 0], u: [21.5, 2.05, .45, .36, 1, 0], uh: [18, 2.8, 1.3, .6, 0, .15], er: [20, 3.0, 1.1, .42, .2, .1],
+};
+const CN = {
+  w: { lip: .16, tI: 21.5, tD: 2.05, voice: 1, round: 1, g: 28 }, y: { tI: 27.5, tD: 1.85, voice: 1, g: 26, spread: 1 },
+  h: { voice: 0, breath: .55, g: 15 },
+  b: { lip: 0, voice: .25, g: 10, closed: 1 }, p: { lip: 0, voice: 0, g: 10, closed: 1 }, m: { lip: 0, voice: .7, g: 16, closed: 1 },
+  f: { lip: .09, voice: 0, breath: .3, g: 16 }, s: { cI: 36.5, cD: .14, voice: 0, breath: .2, g: 14 }, sh: { cI: 33, cD: .3, lip: .9, voice: 0, breath: .2, g: 14, round: .6 },
+  t: { cI: 37, cD: 0, voice: 0, g: 8 }, d: { cI: 37, cD: 0, voice: .3, g: 8 }, n: { cI: 37, cD: 0, voice: .7, g: 12 },
+  k: { cI: 23, cD: 0, voice: 0, g: 8 }, g: { cI: 23, cD: 0, voice: .3, g: 8 }, ng: { cI: 23, cD: 0, voice: .7, g: 12 },
+  l: { cI: 36, cD: .45, voice: 1, g: 22 }, r: { tI: 21, tD: 2.5, lip: .9, cI: 33, cD: .75, voice: 1, g: 26, round: .4 },
+};
+function build(def, segs) {
+  const steps = []; let t = 0, lastM = { jaw: .4, round: 0, spread: 0 };
+  for (const [ph, dur, pm = 1, vm = 1, gf] of segs) {
+    const p = {}; let m, g;
+    if (VW[ph]) {
+      const v = VW[ph]; p.tI = v[0]; p.tD = v[1]; p.lip = v[2]; p.cD = 5; p.vol = def.loud * vm; p.breath = .02;
+      m = { jaw: v[3], round: v[4], spread: v[5], closed: 0 }; g = 60; lastM = m;
+    } else {
+      const c = CN[ph]; for (const k of ['tI', 'tD', 'lip', 'cI', 'cD']) if (k in c) p[k] = c[k];
+      if (!('cD' in c)) p.cD = 5;
+      p.vol = def.loud * vm * (c.voice ?? 1); p.breath = c.breath ?? .02; g = c.g;
+      m = { jaw: c.closed ? 0 : lastM.jaw * .6, round: c.round ?? lastM.round, spread: c.spread ?? lastM.spread, closed: c.closed ? 1 : 0 };
+    }
+    p.f0 = def.f0 * Math.min(3.3, 1 + (pm - 1) * 1.25); // exaggerate every contour: cartoon prosody
+    steps.push({ t, p, g, gf, m: { ...m, vol: p.vol + p.breath * .5 } });
+    t += dur;
+  }
+  steps.push({ t, p: { vol: 0, breath: 0 }, g: 90, m: { jaw: 0, round: 0, spread: 0, closed: 0, vol: 0 } });
+  return { steps, dur: t };
+}
+const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i)).flat();
+const EX = {
+  whee: T => [['w', 70, .95], ['i', 90, 1.2], ['i', Math.max(260, T * 820), 1.7, 1, 300], ['i', 140, 1.4, .4]],
+  woohoo: T => [['w', 60], ['u', 170, 1.05], ['h', 55, 1.3], ['u', Math.max(260, T * 600), 1.55, 1, 120], ['u', 120, 1.25, .4]],
+  yahoo: T => [['y', 55, 1.1], ['a', 190, 1.3], ['h', 55, 1.5], ['u', Math.max(260, T * 600), 2.1, 1, 120], ['u', 100, 1.6, .4]],
+  yippee: T => [['y', 45, 1.2], ['i', 110, 1.35], ['p', 55, 1.4], ['i', Math.max(240, T * 600), 1.7, 1, 120], ['i', 100, 1.4, .4]],
+  aaah: T => [['a', 70, 1.5, .6], ['a', Math.max(420, T * 950), 2.2, 1.15, 200], ['a', 140, 1.7, .5]],
+  giggle: () => rep(5, i => [['h', 45, 1.65 - i * .06], ['i', 72, 1.65 - i * .06, .9]]),
+  blbl: T => [...rep(Math.round(clamp(T * 12, 6, 16)), i => [['b', 24, 1.3 + .1 * Math.sin(i)], ['uh', 36, 1.3 + .1 * Math.sin(i)]]), ['uh', 90, 1.1, .5]],
+  wahwah: () => [['w', 50, 1], ['a', 240, 1], ['w', 50, .94], ['a', 240, .94], ['w', 50, .89], ['a', 520, .84]],
+  hup: () => [['h', 40, 1], ['uh', 85, 1.05], ['p', 50, 1]],
+  oof: () => [['o', 55, .95, 1.15], ['u', 90, .78], ['f', 120, .72]],
+  ugh: () => [['uh', 70, .85, 1.2], ['uh', 230, .62, .9], ['g', 40, .6], ['h', 90, .6]],
+  ow: () => [['a', 80, 1.9, 1.2], ['o', 110, 1.6], ['u', 180, 1.3, .6]],
+  boing: () => [['b', 40, .9], ['o', 80, .85], ['i', 180, 1.45, 1, 160], ['ng', 180, 1.3]],
+  hmm: () => [['m', 220, 1], ['m', 260, 1.22]],
+  pfft: () => [['p', 40], ['f', 110, 1, .4], ...rep(9, () => [['b', 18, .9], ['uh', 22, .9, .9]]), ['f', 60]],
+  doodoo: T => { const nt = [1, 1.26, 1.5, 2, 1.5]; const d = Math.max(90, T * 160); return nt.flatMap(n => [['d', 25, n], ['u', d, n, 1, 20]]); },
+  lala: T => { const nt = [1.5, 1.33, 1.2, 1.5, 2]; const d = Math.max(90, T * 160); return nt.flatMap(n => [['l', 30, n], ['a', d, n, 1, 20]]); },
+  yeehaw: () => [['y', 40, 1.3], ['i', 220, 1.6], ['h', 50, 1.4], ['a', 150, 1.3], ['o', 220, 1.05, 1, 200]],
+  whoa: () => [['w', 60, 1.2], ['o', 220, 1.3], ['a', 280, 1.05, 1, 200]],
+  huh: () => [['h', 50, 1], ['uh', 160, 1.28, 1, 120]],
+  beepboop: T => { const n = Math.round(clamp(T * 4, 2, 6)); return rep(n, i => { const hi = rnd() < .5; return [['b', 28, hi ? 1.5 : 1], [hi ? 'i' : 'u', 120, hi ? 1.5 : 1], ['p', 40, 1]]; }); },
+  hoho: () => [['h', 60, 1], ['o', 110, 1], ['h', 60, .9], ['o', 110, .9], ['h', 60, .8], ['o', 200, .8]],
+  bleat: T => [['m', 50, 1.1], ['e', Math.max(450, T * 600), 1.3, 1.1], ['h', 30, 1.2, .5], ['e', 90, 1.2], ['h', 30, 1.1, .5], ['e', 180, 1.05, .6]],
+  yodel: () => [['y', 40, 1], ['o', 130, 1, 1, 25], ['d', 22, 1.5], ['i', 130, 1.6, 1, 25], ['l', 25, 1.2], ['e', 120, 1.2, 1, 25], ['h', 35, 1.65], ['i', 150, 1.75, 1, 25], ['h', 30, 1.1], ['u', 260, 1.05, 1, 25]],
+  siren: T => [...rep(Math.round(clamp(T * 2.2, 2, 4)), () => [['w', 30, 1.2], ['i', 190, 2.1, 1, 160], ['u', 190, 1.2, 1, 160]]), ['u', 80, 1, .4]],
+  mwahaha: () => [['m', 50, 1.1], ['w', 30, 1.15], ['a', 240, 1.4, 1.1], ['h', 45, 1.3], ['a', 110, 1.2], ['h', 45, 1.1], ['a', 110, 1.0], ['h', 45, .92], ['a', 120, .85], ['h', 45, .8], ['a', 320, .72, 1, 220]],
+  squeal: T => [['i', 60, 2.2, .7], ['i', Math.max(300, T * 700), 3.0, 1, 260], ['i', 120, 2.6, .4]],
+  hic: () => [['h', 25, 2], ['i', 70, 2.5, 1.2, 15], ['k', 40, 2.2]],
+  bwah: () => [['b', 40, .8], ['w', 40, .85], ['a', 460, .68, 1.2, 280], ['a', 140, .6, .4]],
+  wobble: () => rep(3, i => [['w', 35, 1 + .35 * (i % 2)], ['o', 80, 1 + .35 * (i % 2)], ['b', 22, 1], ['l', 30, 1.1], ['uh', 70, 1.05]]),
+  whoopsie: () => [['w', 40, 1.2], ['u', 140, 1.7], ['p', 45, 1.6], ['s', 90, 1.5], ['i', 260, 2.1, 1, 140]],
+  byebye: T => [['b', 35, 1], ['a', 90, 1.1], ['i', 100, 1.3], ['b', 35, 1.4], ['a', 100, 1.5], ['i', Math.max(600, T * 500), 2.3, 1, 400], ['i', 120, 2, .4]],
+  yeah: () => [['y', 40, 1.1], ['e', 90, 1.3], ['a', 220, 1.5, 1, 120], ['h', 40, 1.25, .5]],
+  wow: () => [['w', 50, 1], ['a', 130, 1.35], ['o', 110, 1.6], ['w', 70, 1.45]],
+  tada: () => [['t', 25, 1.3], ['a', 140, 1.3], ['d', 25, 1.65], ['a', 460, 1.65, 1.1, 60], ['a', 120, 1.5, .4]],
+  ohno: () => [['o', 120, 1.6], ['n', 40, 1.7], ['o', 170, 1.85], ['o', 80, 1.9], ['n', 40, 2.05], ['o', 240, 2.2, 1, 100]],
+  eep: () => [['i', 150, 2.6, 1.1, 20], ['p', 40, 2.6]],
+  yodelay: () => [['y', 35, 1], ['o', 110, 1, 1, 20], ['d', 20, 1.55], ['e', 100, 1.6, 1, 20], ['l', 22, 1.2], ['a', 90, 1.2, 1, 20], ['y', 22, 1.65], ['i', 110, 1.75, 1, 20], ['h', 30, 1.1], ['u', 100, 1.1, 1, 20], ['h', 30, 1.7], ['u', 300, 1.6, 1, 20]],
+  diva: T => [['l', 30, 1], ['a', 150, 1, 1, 30], ['l', 30, 1.25], ['a', 150, 1.25, 1, 30], ['l', 30, 1.5], ['a', Math.max(450, T * 800), 2.0, 1.15, 160], ['a', 140, 1.7, .4]],
+  tarzan: () => [['a', 260, 1.15, 1.1], ['a', 90, 1.75, 1, 12], ['a', 90, 1.2, 1, 12], ['a', 90, 1.75, 1, 12], ['a', 90, 1.2, 1, 12], ['a', 380, 1.7, 1.1, 12], ['a', 120, 1.4, .4]],
+  geronimo: T => [['g', 25, 1.1], ['e', 80, 1.15], ['r', 50, 1.2], ['o', 80, 1.3], ['n', 40, 1.4], ['i', 80, 1.5], ['m', 50, 1.55], ['o', Math.max(380, T * 650), 2.0, 1.1, 260], ['o', 120, 1.6, .4]],
+  ohmygosh: () => rep(2, i => [['o', 70, 1.5 + i * .25], ['m', 35, 1.6 + i * .25], ['a', 50, 1.7 + i * .25], ['i', 60, 1.8 + i * .25], ['g', 25, 1.9 + i * .25], ['o', 70, 2 + i * .25], ['sh', 70, 2 + i * .25]]),
+  woopwoop: () => rep(2, () => [['w', 35, 1], ['u', 90, 1.5, 1, 40], ['p', 70, 1.6]]),
+  nailedit: () => [['n', 35, 1.2], ['e', 110, 1.35], ['i', 70, 1.5], ['l', 40, 1.5], ['d', 25, 1.5], ['i', 160, 1.85, 1.1, 60], ['t', 50, 1.8]],
+  mamamia: () => [['m', 40, 1.3], ['a', 110, 1.45], ['m', 40, 1.45], ['a', 110, 1.3], ['m', 40, 1.65], ['i', 130, 1.8], ['a', 300, 1.2, 1, 220]],
+  ouchie: () => rep(3, i => [['a', 80, 1.6 + i * .3, 1.1], ['u', 90, 1.4 + i * .3]]),
+  whoawhoa: () => rep(3, i => [['w', 30, 1.3 + .2 * i], ['o', 90, 1.5 + .25 * i], ['a', 60, 1.3 + .2 * i]]),
+  wheehee: T => [['w', 60], ['i', Math.max(200, T * 420), 1.4, 1, 200], ['h', 50, 1.7], ['i', 120, 1.7], ['h', 45, 1.55], ['i', 160, 1.55, .6]],
+};
+const WORD = {
+  whee: T => 'WH' + 'E'.repeat(clamp(Math.round(T * 6), 2, 9)) + '!', woohoo: 'WOO-HOO!', yahoo: 'YA-HOOO!', yippee: 'YIPPEE!',
+  aaah: T => 'A'.repeat(clamp(Math.round(T * 5), 3, 9)) + 'H!!', giggle: 'HEHEHEHE', blbl: 'BLBLBLBL', wahwah: 'WAH WAH WAAAH', hup: 'HUP',
+  oof: 'OOF!', ugh: 'UGH.', ow: 'OW!', boing: 'BOING', hmm: 'HMM~', pfft: 'PFFFBBBT', doodoo: 'DOO DOO DOO', lala: 'LA LA LA',
+  yeehaw: 'YEE-HAW!', whoa: 'WHOA!', huh: 'HUH?', beepboop: 'BEEP BOOP', hoho: 'HO HO HO', wheehee: 'WHEE-HEE!',
+  bleat: 'MEEEHEHEH', yodel: 'YODEL-AY-HEE-HOO!', siren: 'WEE-OO WEE-OO', mwahaha: 'MWAHAHAHA', squeal: T => 'E'.repeat(clamp(Math.round(T * 5), 3, 8)) + 'EK!',
+  hic: 'HIC!', yeah: 'YEAH!', yodelay: 'YODEL-AY-EE-HOO-HOO!', diva: 'LA LA LAAAAA!', tarzan: 'AAAH-AH-AH-AAAAH!', geronimo: 'GERONIMOOO!', ohmygosh: 'OH MY GOSH OH MY GOSH',
+  woopwoop: 'WOOP WOOP!', nailedit: 'NAILED IT!', mamamia: 'MAMMA MIA!', ouchie: 'OW OW OW!', whoawhoa: 'WHOA-WHOA-WHOA!', wow: 'WOW!', tada: 'TA-DAAA!', ohno: 'OH NO OH NO', eep: 'EEP!', bwah: 'BWAAAH', wobble: 'WOBBLE WOBBLE', whoopsie: 'WHOOPSIE!', byebye: 'BYE BYEEEE!',
+};
+const VIB = { aaah: [1.9, 8.5, .55], wahwah: [.9, 5, .45], whoa: [1.1, 7, .6], ugh: [.3, 4, .85], oof: [.1, 5, .8], bleat: [2.3, 11, .65],
+  squeal: [.8, 9, .8], bwah: [1.3, 5.5, .35], mwahaha: [.5, 6, .6], byebye: [.9, 7, .7], siren: [.3, 6, .7], hoho: [.6, 6, .5], tada: [.6, 6, .6], diva: [1.5, 6, .6], tarzan: [.7, 7, .7], geronimo: [.8, 7, .65], mamamia: [.9, 6.5, .55], whoawhoa: [.6, 8, .6], yodelay: [.4, 6, .6], ohno: [1.1, 9, .7], eep: [.6, 10, .8], wow: [.5, 6, .6] };
+
+// ---------------------------------------------------------------- audio graph
+let ac = null, wn = null, soundOn = false, master = null;
+const analysers = [], panners = [];
+async function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  const g = await buildAudio(ac);
+  master = g.master; wn = g.node; analysers.push(...g.analysers); panners.push(...g.panners);
+  if (AUDIOREC) { const d = ac.createMediaStreamDestination(); g.comp.connect(d); window.__audioStream = d.stream; }
+}
+async function buildAudio(ac, sched) {
+  const master = ac.createGain(); master.gain.value = 0;
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = .003; comp.release.value = .15;
+  master.connect(comp).connect(ac.destination);
+  // a small gym: short bright reverb
+  const len = ac.sampleRate * 1.3, ir = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2) * (i < 40 ? 0 : 1); }
+  const rev = ac.createConvolver(); rev.buffer = ir; const revG = ac.createGain(); revG.gain.value = .16; rev.connect(revG).connect(master);
+  const bus = ac.createGain(); bus.connect(master); bus.connect(rev);
+  const url = URL.createObjectURL(new Blob([document.getElementById('worklet').textContent], { type: 'application/javascript' }));
+  await ac.audioWorklet.addModule(url);
+  const wn = new AudioWorkletNode(ac, 'jumpers', {
+    numberOfInputs: 0, numberOfOutputs: JUMPERS.length + 2, outputChannelCount: Array(JUMPERS.length + 2).fill(1),
+    processorOptions: { voices: JUMPERS.map(j => ({ n: j.def.n, f0: j.def.f0, tense: j.def.tense, vib: j.def.vib, quant: j.def.quant, fricF: j.def.fricF })), sched },
+  });
+  const analysers = [], panners = [];
+  JUMPERS.forEach((j, i) => {
+    const g = ac.createGain(); g.gain.value = j.def.gain * 1.25;
+    const an = ac.createAnalyser(); an.fftSize = 1024; analysers[i] = an;
+    const pn = ac.createStereoPanner(); panners[i] = pn;
+    wn.connect(g, i).connect(an); an.connect(pn).connect(bus);
+  });
+  const fg = ac.createGain(); fg.gain.value = .26; wn.connect(fg, JUMPERS.length).connect(bus);
+  const cg = ac.createGain(); cg.gain.value = .6; wn.connect(cg, JUMPERS.length + 1).connect(bus);
+  return { master, comp, node: wn, analysers, panners };
+}
+// ?capture: every sound event is logged against sim time, so the soundtrack can be rendered offline in sync with the frames
+const capLog = [], panLog = [];
+const post = m => { if (CAPTURE) capLog.push({ t: simT, m: structuredClone(m) }); if (wn && soundOn) wn.port.postMessage(m); };
+const soundBtn = document.getElementById('sound'), startBtn = document.getElementById('start');
+let audioInit = null;
+async function setSound(on) {
+  soundOn = on; soundBtn.setAttribute('aria-pressed', on);
+  startBtn.classList.add('gone');
+  if (on && !ac) { audioInit = audioInit || initAudio(); try { await audioInit; } catch (e) { console.warn('audio', e); soundOn = false; soundBtn.setAttribute('aria-pressed', false); return; } }
+  if (!ac) return;
+  if (on) ac.resume();
+  master.gain.setTargetAtTime(on ? .9 : 0, ac.currentTime, .15);
+}
+soundBtn.addEventListener('click', () => setSound(!soundOn));
+startBtn.addEventListener('click', () => setSound(true));
+
+// ---------------------------------------------------------------- the jumpers
+const DEFS = [
+  { name: 'BLOB', col: 'green', mass: 95, rx: .36, ry: .33, p: 2, leg: .3, arm: .3, f0: 98, n: 46, tense: .5, vib: .2, loud: 1, gain: 1.0, fricF: 1800,
+    H: [.5, 1.2], tricks: ['seat', 'tuckjump', 'backtuck', 'flop', 'straddle', 'disco', 'seat'], likes: ['hoho', 'yodelay', 'yodel', 'tarzan', 'mwahaha', 'diva'], hop: ['hoho', 'hup', 'yeah', 'wobble'],
+    strands: [{ x: -.04, len: .07, segs: 3, k: 30, curl: 1 }, { x: .05, len: .06, segs: 3, k: 30, curl: -1 }], feature: 'stache', x: -.85, z: .35 },
+  { name: 'NOODLE', col: 'red', mass: 58, rx: .15, ry: .4, p: 2.6, leg: .52, arm: .48, f0: 165, n: 40, tense: .62, vib: .25, loud: .95, gain: 1.0,
+    H: [1.1, 2.3], tricks: ['layout', 'frontpike', 'straddle', 'flail', 'rudolph', 'scared', 'split'], likes: ['yahoo', 'tarzan', 'ohmygosh', 'ohno', 'blbl', 'geronimo', 'whoopsie'], hop: ['huh', 'hic', 'eep', 'whoa'],
+    strands: [{ x: -.06, len: .2, segs: 4, k: 14 }, { x: 0, len: .24, segs: 4, k: 14 }, { x: .06, len: .2, segs: 4, k: 14 }], feature: 'nose', x: .8, z: -.45 },
+  { name: 'BEAN', col: 'pink', mass: 24, rx: .19, ry: .23, p: 2, pear: .14, leg: .17, arm: .17, f0: 330, n: 30, tense: .7, vib: .3, loud: .9, gain: .85, fricF: 2800,
+    H: [.8, 1.9], tricks: ['backtuck', 'fulltwist', 'barani', 'pikejump', 'cartwheel', 'tuckjump'], likes: ['whee', 'giggle', 'yippee', 'squeal', 'diva', 'woopwoop'], hop: ['giggle', 'eep', 'yeah', 'lala'],
+    strands: [{ x: 0, len: .22, segs: 5, k: 12, ball: .035 }], feature: 'cheeks', x: .25, z: .95 },
+  { name: 'UNIT-4', col: 'white', mass: 75, rx: .27, ry: .29, p: 7, leg: .3, arm: .3, f0: 128, n: 42, tense: .86, vib: 0, quant: 1, loud: .85, gain: .9,
+    H: [.7, 1.6], tricks: ['fulltwist', 'layout', 'superman', 'disco', 'pikejump', 'pirouette'], likes: ['beepboop', 'siren', 'yodelay', 'woopwoop', 'diva'], hop: ['beepboop', 'hic'],
+    strands: [{ x: .1, len: .14, segs: 3, k: 40, ball: .025, blink: 1 }], feature: 'visor', x: -.3, z: -.95 },
+];
+const TRICK = {
+  hop: { dd: 0, pose: 'hop', land: 'feet' },
+  star: { dd: 0.6, pose: 'star', land: 'feet', expr: ['yippee', 'yahoo', 'whee'], label: 'STAR JUMP' },
+  tuck: { dd: 1.2, pose: 'tuck', land: 'feet', rot: 1, expr: ['woohoo', 'whee', 'wheehee'], label: 'TUCK SPIN' },
+  split: { dd: 0.8, pose: 'split', land: 'feet', expr: ['yahoo', 'yeehaw'], label: 'SPLITS' },
+  flail: { dd: 0.3, pose: 'flail', land: 'feet', expr: ['blbl', 'ohmygosh', 'whoa', 'bleat'], label: 'PANIC FLAIL' },
+  cartwheel: { dd: 1.1, pose: 'star', land: 'feet', rot: 1, expr: ['whee', 'woohoo'], label: 'CARTWHEEL' },
+  pirouette: { dd: 1.0, pose: 'pin', land: 'feet', twist: true, expr: ['doodoo', 'lala', 'beepboop'], label: 'PIROUETTE' },
+  scared: { dd: 0.2, pose: 'scared', land: 'feet', expr: ['aaah'], label: 'PANIC' },
+  seat: { dd: 0.7, pose: 'seat', land: 'seat', expr: ['hup', 'yeehaw', 'hoho'], label: 'SEAT DROP' },
+  flop: { dd: 0.5, pose: 'superman', land: 'flop', expr: ['yahoo', 'whee', 'whoa'], label: 'BELLY FLOP' },
+  superman: { dd: 0.9, pose: 'superman', land: 'feet', fly: 1, expr: ['woohoo', 'whee'], label: 'SUPERMAN' },
+  disco: { dd: 0.6, pose: 'disco', land: 'feet', expr: ['wheehee', 'woohoo'], label: 'DISCO FEVER' },
+  recover: { dd: 0, pose: 'flail', land: 'feet', expr: ['whoa', 'huh', 'whoopsie'], label: 'RECOVER' },
+  dismount: { pose: 'tuck', land: 'feet', rot: 1, label: 'DISMOUNT' },
+  salute: { dd: 0, pose: 'tada', land: 'feet', expr: ['hoho', 'yeah', 'wow', 'giggle'], label: 'SALUTE TO THE JUDGES' },
+  tuckjump: { dd: .3, pose: 'tuck', land: 'feet', expr: ['hup', 'woopwoop', 'yeah'], label: 'TUCK JUMP' },
+  pikejump: { dd: .5, pose: 'pike', land: 'feet', expr: ['yahoo', 'diva', 'yeehaw'], label: 'PIKE JUMP' },
+  straddle: { dd: .5, pose: 'straddle', land: 'feet', expr: ['yahoo', 'yeehaw', 'tarzan', 'diva'], label: 'STRADDLE JUMP' },
+  backtuck: { dd: 1.2, pose: 'tuck', land: 'feet', rot: 1, expr: ['woohoo', 'geronimo', 'yodelay'], label: 'BACK TUCK' },
+  frontpike: { dd: 1.4, pose: 'pike', land: 'feet', rot: 1, expr: ['whee', 'diva', 'wheehee'], label: 'FRONT PIKE' },
+  layout: { dd: 1.6, pose: 'layout', land: 'feet', rot: 1, expr: ['diva', 'aaah', 'tarzan'], label: 'BACK LAYOUT' },
+  fulltwist: { dd: 1.5, pose: 'pin', land: 'feet', twist: 1, expr: ['wheehee', 'yodelay', 'woopwoop'], label: 'FULL TWIST' },
+  barani: { dd: 1.5, pose: 'pike', land: 'feet', rot: 1, twist: .5, expr: ['woohoo', 'geronimo', 'yippee'], label: 'BARANI' },
+  rudolph: { dd: 2.0, pose: 'layout', land: 'feet', rot: 1, twist: 1.5, expr: ['geronimo', 'aaah', 'ohmygosh'], label: 'RUDOLPH' },
+  enter: { pose: 'scared', land: 'feet', label: 'INCOMING' },
+};
+// joint targets: [armL, elbowL, armR, elbowR, legL, kneeL, legR, kneeR]
+const POSE = {
+  stand: [.25, .3, .25, .3, .1, 0, .1, 0], hop: [1.0, .5, 1.0, .5, .14, .15, .14, .15], up: [2.7, .15, 2.7, .15, .08, 0, .08, 0],
+  star: [2.3, .05, 2.3, .05, .75, 0, .75, 0], tuck: [.6, 2.4, .6, 2.4, 2.0, 2.6, 2.0, 2.6], split: [2.9, .1, 2.9, .1, 1.5, 0, 1.5, 0],
+  pin: [2.95, 0, 2.95, 0, .03, 0, .03, 0], seat: [1.2, .7, 1.2, .7, 1.35, .2, 1.35, .2], superman: [3.0, 0, 3.0, 0, .07, 0, .07, 0],
+  disco: [3.0, 0, .7, 2.2, .3, 0, -.12, .5], pike: [1.25, .05, 1.25, .05, 1.15, 0, 1.15, 0], straddle: [1.45, .05, 1.45, .05, 1.5, 0, 1.5, 0],
+  layout: [1.75, 0, 1.75, 0, .03, 0, .03, 0], tada: [2.45, .1, 2.45, .1, .22, 0, .22, 0], prep: [1.25, .35, 1.25, .35, .12, 0, .12, 0],
+};
+class Jumper {
+  constructor(def, i) {
+    this.def = def; this.i = i; this.c = LC[def.col]; this.hex = HEX[def.col];
+    this.x = def.x; this.z = def.z; this.y = 2.6 + i * 0.7; this.vx = this.vz = this.vy = 0;
+    this.probeFeet = def.ry + def.leg;
+    this.contact = false; this.cSub = false; this.mode = 'feet'; this.pushT = 0; this.F = 0;
+    this.ext = 0.12; this.Htarget = R(def.H[0], def.H[1]); this.mega = 0; this.megaJump = 0;
+    this.rot = 0; this.rotFrom = 0; this.rotTo = 0; this.twist = 0; this.trick = TRICK.hop; this.trickName = 'DROP IN'; this.airT0 = 0; this.airT = 1;
+    this.j = POSE.stand.slice(); this.jv = new Array(8).fill(0);
+    this.sq = 0; this.sqv = 0; this.ay = 0; this.lastVy = 0;
+    this.say = null; this.sayStart = 0; this.mouth = { jaw: 0, round: 0, spread: 0, closed: 0, vol: 0 };
+    this.blinkT = R(1, 4); this.impactT = 9; this.dizzy = 0; this.lastBonk = -9; this.scaredT = 0; this.joy = 0;
+    this.prevVyAir = 0; this.apexH = 0; this.kernel = [];
+    this.strands = def.strands.map(s => {
+      const pts = []; for (let q = 0; q <= s.segs; q++) pts.push({ x: s.x, y: def.ry + s.len * q / s.segs, px: s.x, py: def.ry + s.len * q / s.segs });
+      return { ...s, pts };
+    });
+    this.group = new THREE.Group(); scene.add(this.group);
+    this.lines = new Lines(2600, this.group);
+    this.shadow = { x: 0, z: 0, r: .2, c: [0, 0, 0] }; shadows.push(this.shadow);
+    this.f0Now = def.f0; this.bend = 1; this.bendMode = 0; this.takeoffY = 0;
+    this.on = false; this.leaving = 0; this.bounces = 0; this.landed = null; this.best = 0; this.last = null; this.group.visible = false; this.shadow.off = true;
+  }
+  get probe() { return this.mode === 'seat' ? this.def.ry * 0.95 : this.mode === 'flop' ? this.def.rx * 0.95 + 0.02 : this.probeFeet; }
+  gatherKernel() {
+    const a = this.mode === 'feet' ? 0.16 : 0.24, K = [];
+    const ci = Math.round((this.x + RM) / DX), cj = Math.round((this.z + RM) / DX), rr = Math.ceil(2 * a / DX);
+    let sw = 0;
+    for (let j = cj - rr; j <= cj + rr; j++) for (let i = ci - rr; i <= ci + rr; i++) {
+      if (i < 0 || j < 0 || i >= N || j >= N) continue; const k = j * N + i; if (!IN[k]) continue;
+      const dx = -RM + i * DX - this.x, dz = -RM + j * DX - this.z, w = Math.exp(-(dx * dx + dz * dz) / (a * a));
+      if (w < 0.02) continue; K.push(k, w); sw += w;
+    }
+    this.kernel = K; this.kw = sw;
+  }
+  physics(dt, events) {
+    const d = this.def, m = d.mass, K = this.kernel;
+    let hs = 0, vs = 0;
+    if (this.kw > 0) { for (let q = 0; q < K.length; q += 2) { hs += H[K[q]] * K[q + 1]; vs += V[K[q]] * K[q + 1]; } hs /= this.kw; vs /= this.kw; }
+    const feet = this.mode === 'feet';
+    const kL = m * (feet ? 520 : 260);
+    const rising = this.vy - vs > 0;
+    let L = this.probe;
+    if (this.cSub && rising && feet) { this.pushT += dt; L += (this.mega ? 0.62 : this.ext) * ss(this.pushT / 0.11); }
+    const comp = hs + L - this.y;
+    let F = 0;
+    if (comp > 0 && this.kw > 0) {
+      const dmp = Math.min(0.15 * Math.sqrt(kL * m), 70);
+      F = Math.min(m * 80, Math.max(0, kL * comp + dmp * (vs - this.vy)));
+      this.vy += F / m * dt;
+      for (let q = 0; q < K.length; q += 2) F_[K[q]] -= F * K[q + 1] / this.kw;
+      if (!feet) this.vy -= this.vy * 5 * dt; // the body crumples and soaks up energy
+      // the mat's tilt pushes you sideways (towards everyone else's dent)
+      const e = 0.18, gx = clamp((sample(H, this.x + e, this.z) - sample(H, this.x - e, this.z)) / (2 * e), -1.2, 1.2), gz = clamp((sample(H, this.x, this.z + e) - sample(H, this.x, this.z - e)) / (2 * e), -1.2, 1.2);
+      this.vx += -gx * F / m * dt * 0.4; this.vz += -gz * F / m * dt * 0.4;
+      this.vx -= this.vx * 3.5 * dt; this.vz -= this.vz * 3.5 * dt;
+      if (!this.cSub) { events.push(['land', this, -this.vy + vs]); this.cSub = true; }
+    } else if (this.cSub && comp < -0.004) {
+      this.cSub = false; this.pushT = 0;
+      if (this.vy > 0.6) events.push(['takeoff', this]);
+    }
+    this.F = Math.max(this.F * 0.9, F);
+    this.vy -= G * dt;
+    if (this.leaving === 2) { this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt; return; } // flying to the landing mat
+    if (!this.cSub) {
+      const r = Math.hypot(this.x, this.z), lim = RM - 0.32;
+      if (r > lim) { this.vx -= this.x / r * 3 * dt; this.vz -= this.z / r * 3 * dt; } // air-swim back in
+    }
+    this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
+    const r = Math.hypot(this.x, this.z), hard = RM - 0.2;
+    if (r > hard) { this.x *= hard / r; this.z *= hard / r; const vn = (this.vx * this.x + this.vz * this.z) / hard; if (vn > 0) { this.vx -= vn * this.x / hard * 1.5; this.vz -= vn * this.z / hard * 1.5; } }
+  }
+}
+const F_ = F;
+const JUMPERS = DEFS.map((d, i) => new Jumper(d, i));
+const live = () => JUMPERS.filter(j => j.on);
+
+// ---------------------------------------------------------------- slots HUD
+const slotsEl = document.getElementById('slots');
+JUMPERS.forEach(j => {
+  const el = document.createElement('div'); el.className = 'slot'; el.style.setProperty('--c', j.hex);
+  el.innerHTML = `<span class="nm">${j.def.name}</span><canvas width="152" height="60"></canvas><span class="rd">—</span>`;
+  el.addEventListener('click', () => choose(j.i));
+  slotsEl.appendChild(el);
+  j.slot = { el, cv: el.querySelector('canvas'), rd: el.querySelector('.rd') };
+  j.slot.ctx = j.slot.cv.getContext('2d');
+});
+const scopeBuf = new Float32Array(1024);
+function drawSlots(t) {
+  JUMPERS.forEach((j, i) => {
+    const { ctx, cv, rd } = j.slot, w = cv.width, h = cv.height;
+    j.slot.el.classList.toggle('live', j === stage.act);
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineWidth = 1.6; ctx.strokeStyle = HEX.amber; ctx.shadowColor = HEX.amber; ctx.shadowBlur = 6;
+    ctx.beginPath();
+    const an = analysers[i];
+    if (an && soundOn) {
+      an.getFloatTimeDomainData(scopeBuf);
+      let s0 = 0; for (let q = 1; q < 400; q++) if (scopeBuf[q - 1] < 0 && scopeBuf[q] >= 0) { s0 = q; break; }
+      for (let q = 0; q < 300; q++) { const x = q / 299 * w, y = h / 2 - scopeBuf[s0 + q] * h * 0.9; q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    } else {
+      const a = j.mouth.vol * 0.35;
+      for (let q = 0; q < 60; q++) { const x = q / 59 * w, y = h / 2 - Math.sin(q * 0.9 + t * 30) * a * h; q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    }
+    ctx.stroke();
+    if (((t * 10) | 0) !== j._rdT) {
+      j._rdT = (t * 10) | 0;
+      const alt = Math.max(0, j.y - j.probeFeet);
+      const lead = j.best && j.best === Math.max(...JUMPERS.map(o => o.best)) ? '★ ' : '';
+      rd.textContent = !j.on || j.landed ? (j.last != null ? `${lead}LAST ${j.last.toFixed(1)} · BEST ${j.best.toFixed(1)}` : 'WAITING') : `${alt.toFixed(1)} M · ${j.mouth.vol > 0.05 ? Math.round(j.f0Now) + ' HZ' : '— HZ'} · ${j.trickName}`;
+    }
+  });
+}
+
+// ---------------------------------------------------------------- speech bubbles
+const bubEl = document.getElementById('bubbles'); const bubbles = [];
+function bubble(j, text, big = 1) {
+  const el = document.createElement('div'); el.className = 'bub'; el.textContent = text; el.style.color = j.hex;
+  el.style.fontSize = `${Math.round((CAPTURE ? 30 : 20) * big)}px`;
+  for (const b of bubbles) if (b.j === j) b.dur = Math.min(b.dur, b.t + 0.12);
+  bubEl.appendChild(el); bubbles.push({ el, j, t: 0, dur: 1.5, dx: R(-30, 30) });
+}
+const vtmp = new THREE.Vector3();
+function updateBubbles(dt) {
+  const W = CAPTURE ? 1080 : innerWidth, Hh = CAPTURE ? 1080 : innerHeight;
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i]; b.t += dt;
+    if (b.t > b.dur) { b.el.remove(); bubbles.splice(i, 1); continue; }
+    vtmp.set(b.j.x, b.j.y + b.j.def.ry + 0.25, b.j.z).project(camera);
+    const x = (vtmp.x * 0.5 + 0.5) * W + b.dx * b.t, y = (-vtmp.y * 0.5 + 0.5) * Hh - 40 * b.t;
+    const pop = b.t < 0.12 ? 0.6 + 0.4 * ss(b.t / 0.12) * 1.15 : 1 + 0.15 * Math.max(0, 1 - (b.t - 0.12) * 8);
+    b.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) scale(${pop.toFixed(3)}) rotate(${(b.dx * 0.1).toFixed(1)}deg)`;
+    b.el.style.opacity = (1 - ss((b.t - b.dur * 0.6) / (b.dur * 0.4))).toFixed(3);
+  }
+}
+
+// ---------------------------------------------------------------- behaviour
+let simT = 0;
+// a gymnastics competition: one at a time, drop in, 3-5 s of stunts, dismount onto the landing mat, judges score it
+const PAD_TOP = FLOOR + 0.2, PAD_R = 2.85;
+const FEAR = ['aaah', 'ohno', 'whoa', 'eep', 'geronimo', 'ohmygosh'], JOY = ['yahoo', 'woohoo', 'yippee', 'yeah', 'squeal', 'tada'];
+const stage = { act: null, prev: null, next: 0, nextAt: 0.25, t0: -1, len: 4, diff: 0, side: 1, pads: [], card: null };
+function enter(j) {
+  if (stage.prev === j) offstage(j);
+  stage.act = j; stage.t0 = -1; stage.len = R(3, 5); stage.diff = 0;
+  // the landing mat goes beside the trampoline, on whichever side the camera can see
+  const cl = Math.hypot(camera.position.x, camera.position.z), cx = camera.position.x / cl, cz = camera.position.z / cl;
+  stage.side = -stage.side;
+  let px = stage.side * cz + cx * .45, pz = -stage.side * cx + cz * .45; const pl = Math.hypot(px, pz); px /= pl; pz /= pl;
+  j.pad = { x: px * PAD_R, z: pz * PAD_R, dx: px, dz: pz }; stage.pads.push(j.pad);
+  j.on = true; j.leaving = 0; j.bounces = 0; j.landed = null; j.group.visible = true; j.shadow.off = false; j.dizzy = 0;
+  j.x = R(-.3, .3); j.z = R(-.3, .3); j.y = 3.4; j.vx = j.vz = 0; j.vy = -.5;
+  j.mode = 'feet'; j.nextMode = null; j.cSub = false; j.ext = .2; j.Htarget = Math.min(2.1, R(j.def.H[0], j.def.H[1]) * 1.15); j.mega = j.megaJump = 0;
+  j.trick = TRICK.enter; j.trickN = 'enter'; j.trickName = 'INCOMING'; j.airT0 = simT; j.airT = .9; j.takeoffY = j.y; j.rot = j.rotFrom = j.rotTo = 0;
+  for (const st of j.strands) for (const p of st.pts) { p.px = p.x; p.py = p.y; }
+  speak(j, pick(['yahoo', 'woohoo', 'yeehaw', 'whee']), 1, true);
+}
+function offstage(j) {
+  j.on = false; j.leaving = 0; j.landed = null; j.group.visible = false; j.shadow.off = true; j.say = null; j.bend = 1; j._sentBend = 1;
+  post({ type: 'bend', v: j.i, val: 1 });
+  stage.pads = stage.pads.filter(p => p !== j.pad);
+  if (stage.prev === j) stage.prev = null;
+  if (stage.act === j) { stage.act = null; stage.nextAt = simT + .3; }
+}
+function choose(k) {
+  if (!soundOn && !CAPTURE && !audioInit) setSound(true);
+  const j = JUMPERS[k];
+  if (j === stage.act) { if (!j.leaving) megaBounce(j); return; }
+  stage.next = k;
+  const a = stage.act;
+  if (!a) stage.nextAt = simT;
+  else if (!a.leaving && stage.t0 > 0) { a.leaving = 1; a.mega = 1; }
+}
+// the dismount: one last huge push, aimed (ballistically) at the landing mat
+function dismount(j) {
+  j.leaving = 2; j.mega = j.megaJump = 0; j.cSub = false;
+  const yl = PAD_TOP + j.probeFeet, vy = R(6.0, 6.8), t = (vy + Math.sqrt(vy * vy + 2 * G * (j.y - yl))) / G;
+  j.vy = vy; j.vx = (j.pad.x - j.x) / t; j.vz = (j.pad.z - j.z) / t;
+  const roll = rnd(); j.fail = roll < .25; j.stumble = !j.fail && roll < .55; // sometimes it all goes wrong
+  const dir = rnd() < .5 ? -1 : 1, turns = t > 1.42 ? 2 : 1;
+  j.trick = TRICK.dismount; j.trickN = 'dismount'; j.trickName = turns > 1 ? 'DOUBLE BACK DISMOUNT' : 'BACK TUCK DISMOUNT';
+  showMove(j, j.trickName, `DIFFICULTY ${(turns * .8).toFixed(1)}`, t);
+  j.airT0 = simT; j.airT = t; j.takeoffY = j.y; j.rotFrom = j.rot; j.rotTo = j.rot + dir * TAU * (turns - (j.fail ? .3 : 0)); j.twist = 0;
+  stage.diff += turns * .8;
+  speak(j, j.fail ? pick(['aaah', 'ohno', 'ohmygosh']) : pick(['geronimo', 'yodelay', 'tarzan', 'diva', 'woohoo']), t, true);
+  j.joy = 1;
+}
+function stickLanding(j) {
+  j.landed = j.fail ? 'fail' : 'stick'; j.landedT = simT; j.leaving = 3;
+  j.vx = j.vy = j.vz = 0; j.cSub = true; j.F = j.def.mass * G; j.impactT = 0; j.sqv = 5;
+  if (j.fail) {
+    j.mode = 'flop'; j.rot = (j.rotTo > j.rotFrom ? 1 : -1) * Math.PI / 2; j.y = PAD_TOP + j.def.rx * .95 + .02; j.dizzy = 1.8; j.trickName = 'SPLAT';
+    speak(j, pick(['mamamia', 'ouchie', 'oof', 'bwah']), .8, true); showMove(j, 'SPLAT!', 'UNDER-ROTATED', 1.3);
+    post({ type: 'crowd', mood: -1, amp: .8, dur: .5 });
+  } else if (j.stumble) {
+    j.mode = 'feet'; j.rot = 0; j.y = PAD_TOP + j.probeFeet; j.wobble = 1.1; j.trickName = 'STUMBLE';
+    speak(j, 'whoawhoa', .6, true); j.pending = { name: pick(['nailedit', 'tada']), at: simT + 1.15 }; showMove(j, 'STUMBLE...', 'HOLD IT, HOLD IT', 1.3);
+  } else { j.mode = 'feet'; j.rot = 0; j.y = PAD_TOP + j.probeFeet; j.trickName = 'STUCK IT'; speak(j, pick(['tada', 'nailedit']), .8, true); showMove(j, 'STUCK IT!', 'PERFECT LANDING', 1.3); }
+  j.rotFrom = j.rotTo = j.rot;
+  post({ type: 'thump', amp: .35, tone: 1.6 });
+  // the judges
+  const base = 6.1 + Math.min(2.4, stage.diff * .3) + (j.fail ? -2.7 : j.stumble ? .4 : 1.1);
+  const cards = [0, 1, 2].map(() => Math.round(clamp(base + R(-.5, .5) + (rnd() < .08 ? R(-2.5, 2.5) : 0), .5, 10) * 10) / 10);
+  const total = Math.round(cards.reduce((a, b) => a + b, 0) / 3 * 10) / 10;
+  j.last = total; j.best = Math.max(j.best, total);
+  stage.card = { j, cards, total, t: simT, shown: 0 };
+}
+function stageTick() {
+  const a = stage.act;
+  if (a && !a.leaving && stage.t0 > 0 && simT - stage.t0 > stage.len) { a.leaving = 1; a.mega = 1; }
+  if (a && a.leaving === 2 && a.vy < 0 && Math.hypot(a.x, a.z) > RF && a.y <= PAD_TOP + a.probeFeet) stickLanding(a);
+  if (a && a.leaving === 2 && a.y < FLOOR - 1) offstage(a); // safety net
+  if (a && a.landed && simT - a.landedT > 1.7) { if (stage.prev) offstage(stage.prev); stage.prev = a; stage.act = null; stage.nextAt = simT; }
+  if (stage.prev && simT - stage.prev.landedT > 3.6) offstage(stage.prev);
+  if (!stage.act && simT >= stage.nextAt) { const j = JUMPERS[stage.next]; stage.next = (stage.next + 1) % JUMPERS.length; enter(j); }
+  if (stage.moveUntil && simT > stage.moveUntil) { moveEl.classList.remove('show'); stage.moveUntil = 0; }
+  scoreTick();
+}
+// caption at the top: the name of the move in progress
+const moveEl = document.getElementById('move');
+function showMove(j, name, sub, dur) {
+  moveEl.style.setProperty('--c', j.hex); moveEl.querySelector('.mv').textContent = name; moveEl.querySelector('.sub').textContent = sub;
+  moveEl.classList.remove('show'); void moveEl.offsetWidth; moveEl.classList.add('show'); stage.moveUntil = simT + dur + .4;
+}
+// scoreboard: three judges flip their cards, then the total, then the jumper reacts
+const scoreEl = document.getElementById('score');
+function scoreTick() {
+  const c = stage.card; if (!c) return;
+  const e = simT - c.t, step = e < .5 ? 0 : e < .8 ? 1 : e < 1.1 ? 2 : e < 1.4 ? 3 : e < 3.4 ? 4 : 5;
+  while (c.shown < step) {
+    c.shown++;
+    if (c.shown === 1) {
+      scoreEl.style.setProperty('--c', c.j.hex); scoreEl.querySelector('.who').textContent = c.j.def.name;
+      scoreEl.querySelectorAll('.cards b').forEach((b, i) => { b.textContent = c.cards[i].toFixed(1); b.classList.remove('on'); });
+      scoreEl.querySelector('.tot').textContent = ''; scoreEl.classList.add('show'); moveEl.classList.remove('show');
+    }
+    if (c.shown <= 3) scoreEl.querySelectorAll('.cards b')[c.shown - 1].classList.add('on');
+    if (c.shown === 4) {
+      scoreEl.querySelector('.tot').textContent = c.total.toFixed(1);
+      post({ type: 'crowd', mood: c.total >= 7.3 ? 1 : c.total >= 5.8 ? 0 : -1, amp: clamp((c.total - 4.5) / 4.5, .35, 1), dur: c.total >= 7.3 ? 2.2 : 1.2 });
+      const j = c.j; if (!j.on) continue;
+      if (c.total >= 9) speak(j, pick(['squeal', 'yodelay', 'tarzan', 'woohoo']), 1.2, true);
+      else if (c.total >= 7.6) speak(j, pick(JOY), 1, true);
+      else if (c.total >= 6) speak(j, pick(['hmm', 'huh', 'whoopsie', 'mamamia']), .8, true);
+      else speak(j, pick(['wahwah', 'bwah']), .8, true);
+    }
+    if (c.shown === 5) { scoreEl.classList.remove('show'); stage.card = null; break; }
+  }
+}
+function speak(j, name, T = 0.8, force = false) {
+  if (!force && j.say && simT - j.sayStart < 0.35) return; // one gag at a time
+  const segs = EX[name](T), ph = build(j.def, segs);
+  j.say = ph; j.sayStart = simT; j.sayName = name;
+  j.bendMode = ['whee', 'aaah', 'wheehee', 'yahoo', 'woohoo', 'squeal', 'bleat', 'geronimo', 'diva'].includes(name) ? 1 : 0;
+  const vb = VIB[name];
+  post({ type: 'phrase', v: j.i, steps: ph.steps.map(s => ({ t: s.t, p: s.p, g: s.g, gf: s.gf })), vib: vb ? vb[0] : j.def.vib, vibR: vb ? vb[1] : 5.2, tense: vb ? lerp(j.def.tense, vb[2], .5) : j.def.tense });
+  const w = WORD[name]; bubble(j, typeof w === 'function' ? w(T) : w, ['aaah', 'whee', 'squeal', 'tada', 'ohno', 'geronimo', 'diva', 'tarzan', 'yodelay', 'nailedit'].includes(name) ? 1.35 : 1.1);
+}
+function chooseTrick(j, T) {
+  if (j.mode !== 'feet') return 'recover';
+  if (j.megaJump) return pick(['scared', 'layout', 'flail', 'backtuck']);
+  if (T < 0.55) return 'hop';
+  let opts = j.def.tricks.filter(n => n !== 'scared' || T > 1.1);
+  if (T < 0.8) opts = opts.filter(n => !(TRICK[n].rot || TRICK[n].twist || n === 'flop'));
+  if (!opts.length) opts = ['star'];
+  return pick(opts);
+}
+function onTakeoff(j) {
+  if (simT - j.airT0 < 0.25 && !(j.leaving === 1)) return; // contact chatter, not a new jump
+  j.bounces++;
+  if (j.leaving === 1) { dismount(j); return; }
+  if (j.leaving) return;
+  const T = 2 * j.vy / G;
+  if (j.megaJump) j.megaJump = 0;
+  if (j.mega) { j.mega = 0; j.megaJump = 1; }
+  const name = j.bounces === 1 && j.mode === 'feet' ? 'salute' : chooseTrick(j, T), tr = TRICK[name];
+  if (name !== 'hop') showMove(j, tr.label, tr.dd ? `DIFFICULTY ${tr.dd.toFixed(1)}` : j.def.name, Math.max(.9, T));
+  j.trick = tr; j.trickN = name; j.trickName = tr.label || (j.megaJump ? 'MEGA' : 'BOUNCE');
+  stage.diff += (tr.dd || 0) * (T > 1.3 ? 1.3 : 1);
+  j.airT0 = simT; j.airT = Math.max(0.2, T); j.takeoffY = j.y;
+  j.rotFrom = j.rot; j.twist = 0;
+  const dir = rnd() < 0.5 ? -1 : 1;
+  j.rotTo = tr.rot ? j.rot + dir * TAU * (T > 1.6 && rnd() < 0.4 ? 2 : 1) : tr.land === 'flop' ? dir * Math.PI / 2 : 0;
+  if (name === 'recover') j.rotTo = 0;
+  j.nextMode = tr.land;
+  // where to land: somewhere near the middle of the mat (solo routine)
+  const la = rnd() * TAU, lr = Math.sqrt(rnd()) * 0.75, best = [lr * Math.cos(la), lr * Math.sin(la)];
+  const reach = Math.min(1, 0.9 / Math.max(0.3, T));
+  j.vx = clamp((best[0] - j.x) / T * reach, -1.3, 1.3); j.vz = clamp((best[1] - j.z) / T * reach, -1.3, 1.3);
+  if (rnd() < 0.55) j.Htarget = Math.min(2.1, R(j.def.H[0], j.def.H[1]) * (rnd() < 0.2 ? 1.4 : 1.15));
+  // voice: excitement, joy, and a little fear on the big ones
+  if (name === 'hop') { if (rnd() < 0.7) speak(j, pick(j.def.hop), T); }
+  else {
+    let e = pick(tr.expr || j.def.likes);
+    if (rnd() < 0.4) e = pick(j.def.likes);
+    if (T > 1.4 && rnd() < 0.3) e = pick(FEAR);
+    if (j.megaJump) e = T > 1.4 ? pick(['aaah', 'squeal', 'aaah', 'bleat']) : 'whee';
+    if (j.def.name === 'UNIT-4' && rnd() < 0.5) e = 'beepboop';
+    if (!EX[e]) e = 'whee';
+    speak(j, e, T);
+  }
+  j.joy = 1;
+}
+function onLand(j, impact) {
+  if (simT - (j.lastLandT ?? -9) < 0.25) return; j.lastLandT = simT;
+  const amp = clamp(impact * j.def.mass / 650, 0.05, 1.6) * .6;
+  post({ type: 'thump', amp, tone: j.mode === 'feet' ? 1 : 0.8 });
+  if (impact > 1) ripples.push({ x: j.x, z: j.z, r: 0.1, t: 0, s: impact });
+  const wasMode = j.mode;
+  if (j.nextMode) { j.mode = j.nextMode; j.nextMode = null; j.gatherKernel(); }
+  if (j.trickN === 'tuck' || j.trickN === 'cartwheel') { j.rot = 0; j.rotFrom = j.rotTo = 0; }
+  j.impactT = 0;
+  const speaking = j.say && simT - j.sayStart < j.say.dur / 1000 - 0.08;
+  if (j.trickN === 'enter') { stage.t0 = simT; speak(j, pick(['hup', 'yeah', 'hoho', 'wow']), .5, true); j.trickN = 'hop'; return; }
+  if (j.mode === 'seat' && wasMode === 'feet') speak(j, pick(['whoopsie', 'hoho', 'oof', 'giggle']));
+  else if (j.mode === 'flop' && wasMode === 'feet') { j.dizzy = 1.2; speak(j, pick(['ugh', 'oof', 'bwah', 'giggle'])); }
+  else if ((j.trick.rot || j.trick.twist) && rnd() < 0.35) { j.wobble = 1; stage.diff -= .4; speak(j, 'whoawhoa', .6, true); showMove(j, 'WOBBLY LANDING', 'DEDUCTION', 1); }
+  else if (impact > 7.2 && rnd() < 0.6) speak(j, pick(['oof', 'whoa', 'wow']));
+  else if (!speaking && impact > 3 && rnd() < 0.35) speak(j, pick(j.def.hop), 0.4);
+}
+function onApex(j) {
+  const H_ = j.y - j.probeFeet; j.apexH = H_;
+  if (!j.megaJump && j.mode === 'feet' && j.nextMode === 'feet') j.ext = clamp(j.ext + 0.14 * (j.Htarget - H_), -0.12, 0.5);
+  if (!j.leaving && !j.say && H_ > 1.9 && rnd() < 0.5) speak(j, pick(FEAR), .6); // looking down was a mistake
+}
+function megaBounce(j) {
+  if (!soundOn && !CAPTURE && !audioInit) setSound(true);
+  j.mega = 1; j.Htarget = 2.1;
+  speak(j, pick(['huh', 'eep', 'whoa']));
+}
+function collide() {
+  for (let a = 0; a < JUMPERS.length; a++) for (let b = a + 1; b < JUMPERS.length; b++) {
+    const p = JUMPERS[a], q = JUMPERS[b]; if (!p.on || !q.on) continue;
+    const ra = Math.max(p.def.rx, p.def.ry) * 0.92, rb = Math.max(q.def.rx, q.def.ry) * 0.92;
+    const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z, d = Math.hypot(dx, dy, dz), md = ra + rb;
+    if (d >= md || d < 1e-5) continue;
+    const nx = dx / d, ny = dy / d, nz = dz / d, mp = p.def.mass, mq = q.def.mass;
+    const corr = (md - d);
+    p.x -= nx * corr * mq / (mp + mq); p.y -= ny * corr * mq / (mp + mq); p.z -= nz * corr * mq / (mp + mq);
+    q.x += nx * corr * mp / (mp + mq); q.y += ny * corr * mp / (mp + mq); q.z += nz * corr * mp / (mp + mq);
+    const rel = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny + (q.vz - p.vz) * nz;
+    if (rel < 0) {
+      const jn = -(1.55) * rel / (1 / mp + 1 / mq);
+      p.vx -= jn * nx / mp; p.vy -= jn * ny / mp; p.vz -= jn * nz / mp;
+      q.vx += jn * nx / mq; q.vy += jn * ny / mq; q.vz += jn * nz / mq;
+      if (-rel > 2.6 && simT - p.lastBonk > 0.8 && simT - q.lastBonk > 0.5) {
+        p.lastBonk = q.lastBonk = simT; p.dizzy = q.dizzy = 1.8;
+        post({ type: 'bonk', amp: clamp(-rel / 5, 0.3, 1.2) });
+        speak(p, 'ow'); q.pending = { name: rnd() < 0.5 ? 'ow' : 'huh', at: simT + 0.09 };
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- animation (joints, squash, hair)
+const W8 = 22, Z8 = 0.4;
+function animate(j, dt) {
+  const d = j.def, t = simT;
+  const ay = (j.vy - j.lastVy) / Math.max(dt, 1e-4); j.lastVy = j.vy; j.ay += (ay - j.ay) * 0.5;
+  const geff = clamp(G + j.ay, -10, 60);
+  // rotation
+  if (!j.cSub) {
+    const u = clamp((t - j.airT0) / j.airT);
+    const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+    if (j.trick.land === 'flop') j.rot = lerp(j.rotFrom, j.rotTo, ss((u - 0.25) / 0.6));
+    else if (j.trick.fly) j.rot = (j.rotFrom) + Math.sin(Math.PI * clamp(u * 1.1)) * Math.PI / 2 * (j.vx > 0 ? -1 : 1);
+    else j.rot = lerp(j.rotFrom, j.rotTo, e);
+    const tw = j.trick.twist; j.twist = tw ? TAU * e * (tw === true ? (j.airT > 1.2 ? 2 : 1) : tw) : 0;
+  } else if (j.mode === 'feet') { j.rot *= 0.8; j.twist = 0; }
+  if (j.wobble > 0) { j.wobble -= dt; if (j.cSub && j.mode === 'feet') j.rot = Math.sin(t * 10) * .38 * Math.min(1, j.wobble * 2); }
+  // pose
+  let tgt, u = clamp((t - j.airT0) / j.airT);
+  if (j.landed && j.mode === 'feet') tgt = POSE.tada;
+  else if (j.cSub) {
+    tgt = j.mode === 'seat' ? [1.0, .8, 1.0, .8, 1.4, .15, 1.4, .15] : j.mode === 'flop' ? [1.7, .2, 1.7, .2, .7, .1, .7, .1]
+      : [.3 + j.sq * 2.2, .55, .3 + j.sq * 2.2, .55, 0, 0, 0, 0];
+  } else if (u < 0.13 && j.trick !== TRICK.recover) tgt = POSE.up;
+  else if (u > 0.82 && j.trick.land === 'feet' && !j.trick.rot) tgt = POSE.prep;
+  else {
+    const pn = j.trick.pose;
+    if (pn === 'flail') { const w = t * 13; tgt = [w, .3, w + Math.PI, .3, .5 + .45 * Math.sin(t * 17), .9 + .8 * Math.sin(t * 17), .5 + .45 * Math.sin(t * 17 + Math.PI), .9 + .8 * Math.sin(t * 17 + Math.PI)]; }
+    else if (pn === 'scared') tgt = [2.75 + .3 * Math.sin(t * 24), .3, 2.75 + .3 * Math.sin(t * 24 + 2), .3, .4 + .5 * Math.sin(t * 22), 1 + .9 * Math.sin(t * 22), .4 + .5 * Math.sin(t * 22 + Math.PI), 1 + .9 * Math.sin(t * 22 + Math.PI)];
+    else if (pn === 'hop') tgt = POSE.hop;
+    else tgt = POSE[pn] || POSE.stand;
+  }
+  if (j.wobble > 0 && j.cSub) { const w = t * 15; tgt = [w, .3, w + Math.PI, .3, .25, .5 + .4 * Math.sin(t * 21), .25, .5 + .4 * Math.sin(t * 21 + Math.PI)]; }
+  for (let q = 0; q < 8; q++) {
+    if (Math.abs(j.j[q] - tgt[q]) > Math.PI && j.trick.pose !== 'flail') j.j[q] = tgt[q] + ((j.j[q] - tgt[q]) % TAU + TAU + Math.PI) % TAU - Math.PI;
+    j.jv[q] += (W8 * W8 * (tgt[q] - j.j[q]) - 2 * Z8 * W8 * j.jv[q]) * dt; j.j[q] += j.jv[q] * dt;
+  }
+  // squash & stretch: a jelly spring driven by how heavy the body feels
+  const sqT = j.cSub ? clamp((j.F / (d.mass * G) - 1) * 0.075, -0.06, 0.33) : -clamp(Math.abs(j.vy) * 0.013, 0, 0.12);
+  j.sqv += (380 * (sqT - j.sq) - 2 * 0.28 * 19.5 * j.sqv) * dt; j.sq += j.sqv * dt;
+  // hair / antennae: verlet strands in body space under the felt gravity
+  const c = Math.cos(-j.rot), s = Math.sin(-j.rot);
+  const gx = s * geff, gy = -c * geff; // gravity (0,-geff) rotated into the body frame
+  const spin = (j.rot - (j._lastRot ?? j.rot)) / Math.max(dt, 1e-4); j._lastRot = j.rot;
+  for (const st of j.strands) {
+    const P = st.pts, seg = st.len / st.segs;
+    P[0].x = st.x * (1 + j.sq * .6); P[0].y = d.ry * (1 - j.sq) * (d.p > 4 ? 1 : 0.98);
+    for (let q = 1; q < P.length; q++) {
+      const p = P[q], vx = (p.x - p.px) * 0.94, vy = (p.y - p.py) * 0.94;
+      p.px = p.x; p.py = p.y;
+      const restX = P[0].x + (st.curl || 0) * 0.02 * q, restY = P[0].y + seg * q;
+      const ax = gx * 0.6 + (restX - p.x) * st.k * st.k - spin * p.y * 2, ay2 = gy * 0.6 + (restY - p.y) * st.k * st.k + spin * p.x * 2;
+      p.x += vx + ax * dt * dt; p.y += vy + ay2 * dt * dt;
+    }
+    for (let it = 0; it < 3; it++) for (let q = 1; q < P.length; q++) {
+      const a = P[q - 1], b = P[q], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1e-6, k = (l - seg) / l;
+      if (q === 1) { b.x -= dx * k; b.y -= dy * k; } else { a.x += dx * k * .5; a.y += dy * k * .5; b.x -= dx * k * .5; b.y -= dy * k * .5; }
+    }
+  }
+  // mouth follows the articulatory score
+  let mt = { jaw: 0, round: 0, spread: 0, closed: 0, vol: 0 };
+  if (j.say) {
+    const el = (t - j.sayStart) * 1000, st = j.say.steps;
+    for (let q = st.length - 1; q >= 0; q--) if (st[q].t <= el) { mt = st[q].m; if (q === st.length - 1) j.say = null; break; }
+    if (j.say) { const p = j.say.steps.filter(x => x.t <= el && x.p.f0).pop(); if (p) j.f0Target = p.p.f0; }
+  }
+  for (const k in j.mouth) j.mouth[k] += (mt[k] - j.mouth[k]) * clamp(dt * 28);
+  // pitch rides the altitude while airborne for the big "wheee"s
+  const want = j.bendMode && !j.cSub ? Math.pow(2, clamp(j.y - j.takeoffY, -1.5, 2.6) * 0.45) : 1;
+  j.bend += (want - j.bend) * clamp(dt * 12);
+  j.f0Now = (j.f0Target || d.f0) * j.bend;
+  if (Math.abs(j.bend - (j._sentBend || 1)) > 0.004) { post({ type: 'bend', v: j.i, val: j.bend }); j._sentBend = j.bend; }
+  // face timers
+  j.blinkT -= dt; if (j.blinkT < -0.12) j.blinkT = R(1.5, 4.5);
+  j.impactT += dt; j.dizzy = Math.max(0, j.dizzy - dt); j.joy = Math.max(0, j.joy - dt * 0.6);
+  j.scared = !j.cSub && (j.trick.pose === 'scared' || (j.y - j.probeFeet > 2.4));
+}
+
+// ---------------------------------------------------------------- drawing a vector puppet
+function drawJumper(j) {
+  const d = j.def, L = j.lines, col = j.c, bright = mixc(col, [1, 1, 1], .45), dim = sc(col, .55), white = sc(LC.white, .9);
+  L.begin();
+  const sx = 1 + j.sq * 0.6, sy = 1 - j.sq, tw = Math.cos(j.twist), cr = Math.cos(j.rot), sr = Math.sin(j.rot);
+  const Q = (x, y) => { x *= tw; return [x * cr - y * sr, x * sr + y * cr]; };
+  const P = (x, y) => Q(x * sx, y * sy);
+  const line = (a, b, c) => L.seg(a[0], a[1], 0, b[0], b[1], 0, c);
+  const poly = (pts, c, closed) => { for (let q = 0; q < pts.length - (closed ? 0 : 1); q++) line(pts[q], pts[(q + 1) % pts.length], c); };
+  const ell = (cx, cy, rx, ry, c, n = 18, T = P, a0 = 0, a1 = TAU) => { const pts = []; for (let q = 0; q <= n; q++) { const a = a0 + (a1 - a0) * q / n; pts.push(T(cx + rx * Math.cos(a), cy + ry * Math.sin(a))); } poly(pts, c, false); };
+  // body outline (superellipse, pear for the bean), drawn twice for a hot core
+  const body = []; const NB = 56;
+  for (let q = 0; q < NB; q++) {
+    const a = q / NB * TAU, ca = Math.cos(a), sa = Math.sin(a), e = 2 / d.p;
+    let x = d.rx * Math.sign(ca) * Math.pow(Math.abs(ca), e), y = d.ry * Math.sign(sa) * Math.pow(Math.abs(sa), e);
+    if (d.pear) x *= 1 - d.pear * sa;
+    body.push(P(x, y));
+  }
+  poly(body, bright, true);
+  // limbs
+  const front = tw > 0.12;
+  const sh = d.p > 4 ? [d.rx * .98, d.ry * .25] : [d.rx * .82, d.ry * .22], hp = [d.rx * .45, -d.ry * .86];
+  const la = d.arm / 2, ll = (d.leg + .14 * d.ry) / 2;
+  for (const side of [-1, 1]) {
+    const o = side < 0 ? 0 : 2;
+    // arm
+    const S = [side * sh[0] * sx, sh[1] * sy], a = j.j[o], e = j.j[o + 1];
+    const E = [S[0] + side * Math.sin(a) * la, S[1] - Math.cos(a) * la], a2 = a + e;
+    const Hd = [E[0] + side * Math.sin(a2) * la, E[1] - Math.cos(a2) * la];
+    poly([Q(...S), Q(...E), Q(...Hd)], col);
+    ell(Hd[0], Hd[1], .028, .028, col, 10, Q);
+    // leg
+    const Hp = [side * hp[0] * sx, hp[1] * sy];
+    let lg = j.j[4 + o], kn = j.j[5 + o];
+    if (j.cSub && j.mode === 'feet') {
+      const D = (j.y + hp[1] * sy) - (j.landed ? PAD_TOP : sample(H, j.x, j.z));
+      const ang = Math.acos(clamp(D / (2 * ll), 0, 1));
+      lg = 0.1 + ang; kn = 2 * ang + 0.1;
+    }
+    const K = [Hp[0] + side * Math.sin(lg) * ll, Hp[1] - Math.cos(lg) * ll], a3 = lg - kn;
+    const Ft = [K[0] + side * Math.sin(a3) * ll, K[1] - Math.cos(a3) * ll];
+    poly([Q(...Hp), Q(...K), Q(...Ft)], col);
+    // shoe: a little outward-pointing loop
+    const sz = .05 + d.leg * .08;
+    poly([Q(Ft[0] - side * .015, Ft[1]), Q(Ft[0] + side * sz, Ft[1] - .005), Q(Ft[0] + side * sz * .8, Ft[1] + .03), Q(Ft[0], Ft[1] + .02)], col, true);
+  }
+  // hair / antennae
+  for (const st of j.strands) {
+    const pts = st.pts.map(p => Q(p.x, p.y));
+    poly(pts, bright);
+    if (st.ball) { const e = st.pts[st.pts.length - 1]; ell(e.x, e.y, st.ball, st.ball, st.blink && (simT * 2 % 1) < .5 ? sc(LC.amber, 1.4) : bright, 12, Q); }
+  }
+  if (front) {
+    const ey = d.ry * (d.p > 4 ? .3 : .32), ex = Math.min(d.rx * .42, .1), er = clamp(d.rx * .28, .04, .07);
+    const big = j.scared ? 1.45 : 1 + j.joy * .1;
+    const look = [clamp(j.vx * .2, -.5, .5), clamp(j.vy * .07, -.6, .6)];
+    const squint = j.impactT < 0.18 && j.F > d.mass * G * 2.4;
+    for (const side of [-1, 1]) {
+      const cx = side * ex;
+      if (j.dizzy > 0) { // spiral eyes
+        const pts = []; for (let q = 0; q < 26; q++) { const a = q * .55 + simT * 9 * side, r = er * q / 26; pts.push(P(cx + r * Math.cos(a), ey + r * Math.sin(a))); } poly(pts, white);
+      } else if (squint) {
+        poly([P(cx - side * er, ey + er * .7), P(cx + side * er * .6, ey), P(cx - side * er, ey - er * .7)], white);
+      } else if (j.blinkT < 0) {
+        line(P(cx - er, ey), P(cx + er, ey), white);
+      } else if (j.sayName === 'giggle' && j.say) {
+        ell(cx, ey - er * .3, er, er * .8, white, 10, P, .15, Math.PI - .15);
+      } else {
+        if (d.feature === 'visor') { const w = er * 1.15 * big, h = er * .8 * big; poly([P(cx - w, ey - h), P(cx + w, ey - h), P(cx + w, ey + h), P(cx - w, ey + h)], white, true); }
+        else ell(cx, ey, er * big, er * 1.15 * big, white, 16);
+        const pr = er * (j.scared ? .25 : .42);
+        ell(cx + look[0] * er * .5, ey + look[1] * er * .55, pr, pr, sc(LC.white, 1.2), 8);
+      }
+      // brows
+      const by = ey + er * 1.15 * big + .025, worry = j.scared || (j.say && j.sayName === 'wahwah') ? 1 : 0, happy = j.joy;
+      const tilt = worry ? .45 : -.15 * happy;
+      line(P(cx - er * .9, by + side * tilt * er * .5 - (worry ? 0 : happy * .01)), P(cx + er * .9, by - side * tilt * er * .5), dim);
+    }
+    // mouth: shaped by the voice's jaw / lips
+    const m = j.mouth, my = d.ry * (d.p > 4 ? -.2 : -.18), mw = clamp(d.rx * .55, .07, .15);
+    const open = clamp(m.vol, 0, 1.2) * (.25 + .75 * m.jaw) * (1 - m.closed);
+    const w = mw * (.6 + .5 * m.spread - .38 * m.round + .25 * open), h = mw * (.08 + 1.1 * open + .25 * m.round * m.vol);
+    if (m.vol > .06 && !m.closed) { ell(0, my, w, h, white, 20); if (open > .4) ell(0, my - h * .55, w * .45, h * .25, sc(LC.red, .9), 10, P, 0, Math.PI); }
+    else if (m.closed && m.vol > .06) { const pts = []; for (let q = 0; q <= 8; q++) pts.push(P(-mw * .45 + mw * .9 * q / 8, my + Math.sin(q * 2.2 + simT * 40) * .006)); poly(pts, white); }
+    else if (j.scared) ell(0, my, mw * .4, mw * .3, white, 14);
+    else if (j.dizzy > 0) { const pts = []; for (let q = 0; q <= 10; q++) pts.push(P(-mw * .6 + mw * 1.2 * q / 10, my + Math.sin(q * 1.3) * .012)); poly(pts, white); }
+    else ell(0, my + mw * .55, mw * .75, mw * .55 * (.4 + j.joy * .6 + (j.cSub ? .2 : .4)), white, 14, P, Math.PI * 1.2, Math.PI * 1.8);
+    // signature features
+    if (d.feature === 'stache') {
+      const wob = Math.sin(simT * 30) * .01 * clamp(j.F / (d.mass * G) - .8) + j.sq * .04;
+      for (const side of [-1, 1]) { const pts = []; for (let q = 0; q <= 10; q++) { const u = q / 10; pts.push(P(side * (.01 + u * .15), my + .045 + Math.sin(u * Math.PI) * .03 - u * u * (.04 + wob))); } poly(pts, bright); }
+    } else if (d.feature === 'nose') {
+      poly([P(0, ey - .01), P(.06 + j.vx * .02, ey - .07 - j.ay * .0006), P(0, ey - .09)], col);
+    } else if (d.feature === 'cheeks') {
+      for (const side of [-1, 1]) { ell(side * d.rx * .6, my + .03, .025, .016, sc(LC.pink, .7), 10); }
+    } else if (d.feature === 'visor') {
+      poly([P(-.06, -d.ry * .55), P(.06, -d.ry * .55), P(.06, -d.ry * .7), P(-.06, -d.ry * .7)], dim, true);
+      const lit = (simT * 3) % 3 | 0; for (let q = 0; q < 3; q++) ell(-.035 + q * .035, -d.ry * .625, .01, .01, q === lit ? sc(LC.amber, 1.4) : dim, 6);
+    }
+  } else {
+    line(P(0, d.ry * .6), P(0, -d.ry * .6), dim); // the back seam
+  }
+  // cartoon stars after a bonk
+  if (j.dizzy > 0) {
+    for (let q = 0; q < 4; q++) {
+      const a = simT * 5 + q * TAU / 4, cx = Math.cos(a) * d.rx * 1.3, cy = d.ry * 1.15 + Math.sin(a) * .05, r = .035;
+      const pts = []; for (let k = 0; k <= 10; k++) { const b = k * Math.PI / 5 + simT * 4, rr = k % 2 ? r * .45 : r; pts.push(Q(cx + rr * Math.cos(b), cy + rr * Math.sin(b))); }
+      poly(pts, sc(LC.amber, 1.3));
+    }
+  }
+  // motion lines while rocketing up
+  if (!j.cSub && j.vy > 4.5) for (let q = -1; q <= 1; q++) line(Q(q * d.rx * .6, -d.ry - d.leg - .05), Q(q * d.rx * .6, -d.ry - d.leg - .05 - j.vy * .05), sc(col, .35));
+  L.end();
+  j.group.position.set(j.x, j.y, j.z);
+  j.group.rotation.y = Math.atan2(camera.position.x - j.x, camera.position.z - j.z);
+  // shadow on the mat
+  j.shadow.off = Math.hypot(j.x, j.z) > RM - .05;
+  const hgt = Math.max(0, j.y - j.probe - sample(H, j.x, j.z));
+  j.shadow.x = j.x; j.shadow.z = j.z; j.shadow.r = Math.max(d.rx, .15) * (1 + hgt * .25); j.shadow.c = sc(col, .5 / (1 + hgt * 1.2));
+}
+
+// ---------------------------------------------------------------- input
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.05), hit = new THREE.Vector3();
+let down = null;
+canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+canvas.addEventListener('pointerup', e => {
+  if (!down) return; const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t; down = null;
+  if (moved > 6 || dt > 450) return;
+  if (!soundOn && !audioInit) setSound(true);
+  const r = canvas.getBoundingClientRect();
+  // jumpers first: nearest projected body within reach
+  let best = null, bd = 1e9;
+  for (const j of live().filter(j => !j.landed)) {
+    vtmp.set(j.x, j.y, j.z).project(camera);
+    const px = (vtmp.x * .5 + .5) * r.width, py = (-vtmp.y * .5 + .5) * r.height;
+    const dd = Math.hypot(px - (e.clientX - r.left), py - (e.clientY - r.top));
+    vtmp.set(j.x + Math.max(j.def.rx, j.def.ry), j.y, j.z).project(camera);
+    const rad = Math.max(30, Math.abs((vtmp.x * .5 + .5) * r.width - px) * 1.4);
+    if (dd < rad && dd < bd) { bd = dd; best = j; }
+  }
+  if (best) { megaBounce(best); return; }
+  ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  if (ray.ray.intersectPlane(plane, hit) && Math.hypot(hit.x, hit.z) < RM - 0.1) {
+    poke(hit.x, hit.z, 4.5); ripples.push({ x: hit.x, z: hit.z, r: 0.05, t: 0, s: 6 });
+    post({ type: 'thump', amp: .4, tone: 1.2 });
+  }
+});
+function stomp() { poke(0, 0, 7, 0.45); ripples.push({ x: 0, z: 0, r: .05, t: 0, s: 8 }); post({ type: 'thump', amp: .6, tone: .8 }); }
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); if (!soundOn && !audioInit) setSound(true); stomp(); }
+  if (e.key === 'm' || e.key === 'M') setSound(!soundOn);
+  const n = parseInt(e.key); if (n >= 1 && n <= JUMPERS.length) choose(n - 1);
+});
+
+// ---------------------------------------------------------------- main loop
+const SUB = 1 / 960;
+function tick(dt) {
+  simT += dt;
+  stageTick();
+  const ON = live();
+  // the camera tilts up a little to keep the performer in frame on big jumps (but lets the exit fly off)
+  const act = stage.act, k = clamp(dt * 5);
+  let tx = 0, ty = .85, tz = 0;
+  if (act && act.leaving >= 2) { tx = act.pad.x * .45; tz = act.pad.z * .45; ty = .5 + clamp((act.y - 1.0) * .85, 0, 2.6); }
+  else if (act) ty = .85 + clamp((act.y - 1.0) * .9, 0, 3);
+  controls.target.x += (tx - controls.target.x) * k; controls.target.y += (ty - controls.target.y) * k; controls.target.z += (tz - controls.target.z) * k;
+  const n = Math.ceil(dt / SUB), h = dt / n, events = [];
+  const PH = ON.filter(j => !j.landed);
+  for (const j of PH) j.gatherKernel();
+  for (let s = 0; s < n; s++) {
+    F.fill(0);
+    for (const j of PH) j.physics(h, events);
+    matStep(h);
+  }
+  for (const [type, j, v] of events) type === 'land' ? onLand(j, v) : onTakeoff(j);
+  for (const j of ON) {
+    if (!j.cSub && !j.leaving && j.prevVyAir > 0 && j.vy <= 0) onApex(j);
+    j.prevVyAir = j.cSub ? 0 : j.vy;
+  }
+  // after a seat drop or a flop, scramble back onto your feet (the legs unfold and pop you up)
+  for (const j of ON) {
+    if (j.cSub && j.mode !== 'feet') { j.lowT = (j.lowT || 0) + dt; if (j.lowT > (j.landed ? 1.0 : 0.45)) { if (j.landed) j.y = PAD_TOP + j.probeFeet; j.mode = 'feet'; j.nextMode = null; j.lowT = 0; j.gatherKernel(); } }
+    else j.lowT = 0;
+  }
+  if (bottomed > 0) { post({ type: 'clank', amp: clamp(bottomed / 6, .3, 1.2) }); bottomed = 0; }
+  collide();
+  for (const j of ON) { if (j.pending && simT >= j.pending.at) { speak(j, j.pending.name); j.pending = null; } animate(j, dt); }
+  for (let i = ripples.length - 1; i >= 0; i--) { const rp = ripples[i]; rp.t += dt; rp.r += dt * (1.5 + rp.s * .25); if (rp.t > .7) ripples.splice(i, 1); }
+  // stereo: pan each voice by where its owner sits on screen
+  for (const j of ON) {
+    vtmp.set(j.x, j.y, j.z).project(camera); const pan = clamp(vtmp.x * .8, -.9, .9);
+    if (CAPTURE) panLog.push([simT, j.i, pan]);
+    if (ac && soundOn && panners[j.i]) panners[j.i].pan.setTargetAtTime(pan, ac.currentTime, .05);
+  }
+}
+function render(dt) {
+  drawMat();
+  for (const j of live()) drawJumper(j);
+  composer.render();
+  updateBubbles(dt);
+  if (!CAPTURE) drawSlots(simT);
+}
+
+if (CAPTURE) {
+  window.__frame = i => { const target = i / 30; while (simT < target - 1e-6) { const d = Math.min(1 / 60, target - simT); tick(d); } controls.update(1 / 30); render(1 / 30); return simT; };
+  window.__renderAudio = async secs => { // -> base64 16-bit stereo WAV of the first `secs` of what has been captured
+    const SR = 48000, off = new OfflineAudioContext(2, Math.ceil(secs * SR), SR);
+    const g = await buildAudio(off, capLog.filter(e => e.t < secs).map(e => ({ f: Math.round(e.t * SR), m: e.m })));
+    g.master.gain.value = .9;
+    for (const [t, i, v] of panLog) if (t < secs) g.panners[i].pan.linearRampToValueAtTime(v, t);
+    const buf = await off.startRendering(), n = buf.length, L = buf.getChannelData(0), Rr = buf.getChannelData(1);
+    const wav = new DataView(new ArrayBuffer(44 + n * 4)), str = (o, x) => { for (let i = 0; i < x.length; i++) wav.setUint8(o + i, x.charCodeAt(i)); };
+    str(0, 'RIFF'); wav.setUint32(4, 36 + n * 4, true); str(8, 'WAVEfmt '); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 2, true);
+    wav.setUint32(24, SR, true); wav.setUint32(28, SR * 4, true); wav.setUint16(32, 4, true); wav.setUint16(34, 16, true); str(36, 'data'); wav.setUint32(40, n * 4, true);
+    for (let i = 0; i < n; i++) { wav.setInt16(44 + i * 4, clamp(L[i], -1, 1) * 32767, true); wav.setInt16(46 + i * 4, clamp(Rr[i], -1, 1) * 32767, true); }
+    const b = new Uint8Array(wav.buffer); let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
+    return btoa(s);
+  };
+  window.__ready = true;
+} else {
+  let last = performance.now() / 1000;
+  const loop = () => {
+    const now = performance.now() / 1000, dt = Math.min(1 / 30, now - last); last = now;
+    tick(dt); controls.update(dt); render(dt);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  if (AUDIOREC) { setSound(true); window.__ready = true; }
+}
+</script>
+</body>
+</html>
