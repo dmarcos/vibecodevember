@@ -31,12 +31,21 @@
   .t1 { right: 16px; top: 14px; transform: translateY(-6px); font: 600 21px Fredoka, sans-serif; color: #fff; letter-spacing: .02em;
         -webkit-text-stroke: 5px #123a52; paint-order: stroke fill; }
   .t1 small { display: block; text-align: right; font: 600 10px Fredoka, sans-serif; letter-spacing: .14em; text-transform: uppercase; -webkit-text-stroke: 3px #123a52; }
-  .t2 { right: 16px; top: 16px; transform: translateY(-6px); font: 400 13px Silkscreen, monospace; color: #e5ffff; background: #333319; padding: 6px 9px 5px; letter-spacing: .06em; text-align: right; }
+  .t2 { right: 16px; top: 16px; transform: translateY(-6px); font: 400 13px Silkscreen, monospace; color: #f5ebd1; background: #13110e; padding: 6px 9px 5px; letter-spacing: .06em; text-align: right; }
   .t2 small { display: block; font-size: 8px; opacity: .8; margin-top: 3px; }
 
   #load { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font: 500 9px Inter, sans-serif; letter-spacing: .4em; text-transform: uppercase; color: rgba(255,255,255,.75); text-shadow: 0 0 8px rgba(0,0,0,.6); transition: opacity 1s; pointer-events: none; }
   #load.done { opacity: 0; }
   @media (max-width: 640px) { .hint.r { display: none; } }
+
+  /* ?capture: clean square frame for social video, titled like the other days */
+  .ctitle, .cursor { display: none; }
+  body.capture .bar, body.capture #load { display: none !important; }
+  body.capture #stage { width: 100vw; height: 100vh; }
+  body.capture .ctitle { display: block; position: fixed; top: 32px; left: 32px; z-index: 3; pointer-events: none; color: #fff; font: 400 34px Inter, sans-serif; letter-spacing: .005em; padding: 16px 22px 18px; border-radius: 10px; background: rgba(6, 14, 20, .62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  body.capture .ctitle small { display: block; margin-top: 8px; font: 500 15px Inter, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.88); }
+  body.capture .cursor { display: block; position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2.5px solid #fff; background: rgba(255,255,255,.16); box-shadow: 0 0 0 1.5px rgba(0,0,0,.3), 0 3px 12px rgba(0,0,0,.35); z-index: 4; pointer-events: none; }
+  body.capture .tag { scale: 1.6; transform-origin: top right; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -53,6 +62,8 @@
   <div class="tag t1">Cel shaded<small>Toon water</small></div>
   <div class="tag t2">1-BIT<small>DITHERED</small></div>
   <div id="load">Fish are coming</div>
+  <div class="cursor" id="cur"></div>
+  <div class="ctitle">Vibecodevember - Caustics<small>Nov 11th 2026</small></div>
 </main>
 <footer class="bar bottom"><span class="hint">Hover a band · touch the water</span><span class="hint r">Fish · <a href="https://cda-social.github.io/fish/gallery.html" target="_blank" rel="noopener">CC0 fish kit</a></span></footer>
 
@@ -80,7 +91,10 @@ const SUN_R = SUN_IN.clone().negate();                                          
 
 // ---------------------------------------------------------------- renderer
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+// ?capture renders deterministic frames on demand (window.__frame) along a scripted 15 s timeline
+const CAPTURE = /[?&]capture\b/.test(location.search);
+if (CAPTURE) document.body.classList.add('capture');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: CAPTURE });
 renderer.autoClear = false;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 renderer.setPixelRatio(DPR);
@@ -402,12 +416,15 @@ const compMat = new THREE.ShaderMaterial({
   const vec3 SKY = vec3(.55, .74, .95);
   const float EXPOSURE = 1.0;
 
+  // explicit LOD: implicit derivatives break where neighbouring pixels run different styles (seams)
+  vec4 tf(vec2 p){ return textureLod(tFloor, p, 0.); }
+  vec4 tc(vec2 p){ return textureLod(tCaust, p, 0.); }
   vec3 aces(vec3 x){ return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), 0., 1.); }
   vec3 surf(vec2 uv){ return texture2D(tSurf, (uv + MARGIN) / (1. + 2. * MARGIN)).xyz; }
   vec3 floorNormal(vec2 uv){
     float e = 1.5 / ${FLOOR}.0;
-    float hx = texture2D(tFloor, uv + vec2(e, 0)).a - texture2D(tFloor, uv - vec2(e, 0)).a;
-    float hy = texture2D(tFloor, uv + vec2(0, e)).a - texture2D(tFloor, uv - vec2(0, e)).a;
+    float hx = tf(uv + vec2(e, 0)).a - tf(uv - vec2(e, 0)).a;
+    float hy = tf(uv + vec2(0, e)).a - tf(uv - vec2(0, e)).a;
     return normalize(vec3(-hx, -hy, 2. * e * S));
   }
   float shadowAt(vec2 uv, float r){
@@ -462,9 +479,9 @@ const compMat = new THREE.ShaderMaterial({
   vec3 shadeReal(vec2 uv){
     W w = water(uv);
     vec2 fu = uv + w.off;
-    vec4 fl = texture2D(tFloor, fu);
+    vec4 fl = tf(fu);
     vec3 N = floorNormal(fu);
-    vec3 caust = texture2D(tCaust, fu).rgb;
+    vec3 caust = tc(fu).rgb;
     caust = max(mix(vec3(luma(caust)), caust, 1.45), 0.);      // let the spectral fringes sing
     float sh = shadowAt(fu, .0045);
     float ndl = max(dot(N, uSunR), 0.);
@@ -493,7 +510,7 @@ const compMat = new THREE.ShaderMaterial({
     if (fc.a > .002 && air) col = mix(col, fc.rgb / fc.a * 1.3, fc.a);     // airborne: above the surface, dry and sunlit
     return col;
   }
-  vec3 finishReal(vec3 c){ c = aces(c * EXPOSURE); c = clamp(mix(vec3(luma(c)), c, 1.22), 0., 1.); return toSRGB(c); }
+  vec3 finishReal(vec3 c){ c = aces(c * EXPOSURE); c = clamp(mix(vec3(luma(c)), c, 1.3), 0., 1.); c = toSRGB(c); return mix(c, c * c * (3. - 2. * c), .45); }
 
   // ---------- 2. cel shaded (sRGB)
   vec3 posterize(vec3 c, float n, float sat){
@@ -514,7 +531,7 @@ const compMat = new THREE.ShaderMaterial({
   vec3 shadeToon(vec2 uv){
     W w = water(uv);
     vec2 fu = uv + w.off;
-    vec4 fl = texture2D(tFloor, fu);
+    vec4 fl = tf(fu);
     float stone = smoothstep(.0068, .0078, fl.a);
     vec3 blur = toSRGB(textureLod(tFloor, fu, 5.).rgb);
     vec3 sandLight = vec3(1., .97, .84), sandMid = vec3(.98, .86, .62);
@@ -527,12 +544,14 @@ const compMat = new THREE.ShaderMaterial({
     vec3 base = mix(sand, st, stone);
     vec3 N = floorNormal(fu);
     base *= mix(.74, 1., smoothstep(.5, .55, dot(N, uSunR)));
-    float edge = clamp(fwidth(stone) * 1.3, 0., 1.);
+    vec2 e1 = uPx / uRes;
+    float sN = smoothstep(.0068, .0078, tf(fu + vec2(e1.x, 0)).a), sM = smoothstep(.0068, .0078, tf(fu + vec2(0, e1.y)).a);
+    float edge = clamp(max(abs(stone - sN), abs(stone - sM)) * 1.3, 0., 1.);
     base = mix(base, vec3(.04, .16, .42), edge * .85);
     float sh = smoothstep(.36, .42, shadowAt(fu, .0025));
     base *= mix(vec3(1.), vec3(.38, .48, .86), sh * .9);
-    float c = luma(texture2D(tCaust, fu).rgb);
-    float aa = fwidth(c) * .75 + .002;
+    float c = luma(tc(fu).rgb);
+    float aa = .06;
     float glow = smoothstep(1.3 - aa, 1.3 + aa, c);
     float line = smoothstep(1.65 - aa, 1.65 + aa, c);
     // water: flat turquoise, stepped by depth
@@ -558,11 +577,11 @@ const compMat = new THREE.ShaderMaterial({
     // sun sparkles on the surface
     vec3 V = normalize(vec3(vec2(S * .5) - w.X, CAM_H - WL));
     float nh = dot(w.n, normalize(uSun + V));
-    float aa2 = fwidth(nh) + 1e-5;
+    float aa2 = .00015;
     col = mix(col, vec3(1.), smoothstep(.9995 - aa2, .9995 + aa2, nh));
     // splash foam: flat cartoon shapes
     float fo = foam(uv);
-    float fa = fwidth(fo) + 1e-3;
+    float fa = .04;
     col = mix(col, vec3(.55, .80, 1.), smoothstep(.22 - fa, .22 + fa, fo) * .85);
     col = mix(col, vec3(1.), smoothstep(.5 - fa, .5 + fa, fo));
     if (fc.a > .01 && air) col = mix(col, toonFish(fuF, fc.a) * 1.06, smoothstep(.35, .65, fc.a));
@@ -587,13 +606,13 @@ const compMat = new THREE.ShaderMaterial({
     float ol = fishEdge(cuv + w.off * fishK(cuv), uCell);
     vec2 fu = cuv + w.off;
     vec2 d = uCell / uRes;
-    float s0 = step(.007, texture2D(tFloor, fu).a);
-    float s1 = step(.007, texture2D(tFloor, fu + vec2(d.x, 0)).a);
-    float s2 = step(.007, texture2D(tFloor, fu + vec2(0, d.y)).a);
+    float s0 = step(.007, tf(fu).a);
+    float s1 = step(.007, tf(fu + vec2(d.x, 0)).a);
+    float s2 = step(.007, tf(fu + vec2(0, d.y)).a);
     float se = max(abs(s0 - s1), abs(s0 - s2));
     bit = mix(bit, 0., se);
     bit = max(bit, step(.5, ol));
-    return mix(vec3(.2, .2, .098), vec3(.898, 1., 1.), bit);
+    return mix(vec3(.075, .065, .055), vec3(.96, .92, .82), bit);
   }
 
   void main(){
@@ -610,7 +629,7 @@ const compMat = new THREE.ShaderMaterial({
 let size = 0;
 function resize() {
   const bar = 56;
-  const sz = Math.max(240, Math.floor(Math.min(innerWidth - 32, innerHeight - bar * 2 - 8)));
+  const sz = CAPTURE ? innerWidth : Math.max(240, Math.floor(Math.min(innerWidth - 32, innerHeight - bar * 2 - 8)));
   document.documentElement.style.setProperty('--sz', sz + 'px');
   if (sz === size) return;
   size = sz;
@@ -623,8 +642,8 @@ function resize() {
   u.tFishCol.value = fishRT.textures[0]; u.tFishAlb.value = fishRT.textures[1]; u.tFishInfo.value = fishRT.textures[2];
   u.tShadow.value = shadowRT.texture;
   u.uRes.value.set(px, px);
-  u.uPx.value = DPR;
-  u.uCell.value = Math.max(2, Math.round(2 * DPR));
+  u.uPx.value = CAPTURE ? 1.5 : DPR;
+  u.uCell.value = CAPTURE ? 3 : Math.max(2, Math.round(2 * DPR));
 }
 addEventListener('resize', resize);
 resize();
@@ -649,7 +668,7 @@ function placeAcross(sw, inside) {
   const fwd = new THREE.Vector2(Math.sin(th), Math.cos(th));       // world (x, z)
   const side = new THREE.Vector2(fwd.y, -fwd.x);
   const lat = rand(-0.85, 0.85);
-  const back = inside ? rand(-0.9, 0.6) : EDGE;
+  const back = inside ? (CAPTURE ? rand(-0.35, 1.05) : rand(-0.9, 0.6)) : EDGE;
   sw.x = -fwd.x * back + side.x * lat;
   sw.z = -fwd.y * back + side.y * lat;
   sw.heading = th;
@@ -695,16 +714,17 @@ let ready = false;
   const done = new Set();
   for (const sw of swimmers) {
     if (sw.school) { if (done.has(sw.school)) continue; done.add(sw.school); }
-    spawn(sw, Math.random() < 0.6);
+    spawn(sw, CAPTURE || Math.random() < 0.6);
   }
   ready = true;
+  window.__ready = true;
   document.getElementById('load').classList.add('done');
 })().catch((e) => { console.error(e); document.getElementById('load').textContent = 'Fish failed to load ' + e.message; });
 
 // ---------------------------------------------------------------- leaps
 const splashes = [];      // foam rings drawn by the composite
 const splashDrops = [];   // impulses for the ripple sim
-let nextJump = rand(3, 6);
+let nextJump = CAPTURE ? 1.0 : rand(3, 6);
 const uvOf = (sw) => [0.5 + sw.x / S, 0.5 - sw.z / S];
 function splashAt(sw, k) {
   const [u, v] = uvOf(sw);
@@ -822,7 +842,7 @@ function updateFish(dt, t) {
     const away = sw.x * Math.sin(sw.heading) + sw.z * Math.cos(sw.heading) > 0;
     if (outside && away) {
       if (sw.school) { sw.out = true; actor.object.visible = false; sw.wait = 0; }
-      else sw.wait = rand(0.5, 4);
+      else sw.wait = CAPTURE ? rand(0.1, 0.8) : rand(0.5, 4);
     }
     if (sw.school && sw.out) actor.object.visible = false;
     // a faint wake on the surface
@@ -858,11 +878,8 @@ canvas.addEventListener('pointerdown', (e) => {
 const tags = [...document.querySelectorAll('.tag')];
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Timer();
 let time = 0;
-renderer.setAnimationLoop(() => {
-  clock.update();
-  const dt = Math.min(clock.getDelta(), 1 / 20);
+function step(dt) {
   time += dt;
   if (ready) updateFish(dt, time);
 
@@ -916,7 +933,44 @@ renderer.setAnimationLoop(() => {
   renderer.render(fishScene, camera);
 
   pass(compMat, null);
-});
+}
+
+if (!CAPTURE) {
+  const clock = new THREE.Timer();
+  renderer.setAnimationLoop(() => { clock.update(); step(Math.min(clock.getDelta(), 1 / 20)); });
+} else {
+  // scripted pointer: glide in, hover each band, leave. [time s, u, yDown] — outside [0,1] means off the canvas
+  // ?capture&static: no pointer at all — the three bands for the whole clip
+  const STATIC = /[?&]static\b/.test(location.search);
+  if (STATIC) document.getElementById('cur').style.display = 'none';
+  const KEYS = STATIC ? [[0, -1, -1], [99, -1, -1]] : [[0, -0.16, 0.30], [2.6, -0.16, 0.30], [3.3, 0.22, 0.30], [5.5, 0.27, 0.35],
+                [6.2, 0.50, 0.50], [8.5, 0.55, 0.46], [9.2, 0.78, 0.79], [11.5, 0.81, 0.75], [12.3, 1.16, 0.86], [15, 1.16, 0.86]];
+  const ease = (x) => x * x * (3 - 2 * x);
+  const cur = document.getElementById('cur');
+  let prev = null;
+  function pointerAt(t) {
+    let i = 0;
+    while (i < KEYS.length - 2 && t > KEYS[i + 1][0]) i++;
+    const [t0, u0, y0] = KEYS[i], [t1, u1, y1] = KEYS[i + 1];
+    const k = ease(THREE.MathUtils.clamp((t - t0) / (t1 - t0), 0, 1));
+    return [u0 + (u1 - u0) * k, y0 + (y1 - y0) * k];
+  }
+  window.__frame = (i) => {
+    const t = i / 30;
+    const [u, y] = pointerAt(t);
+    const inside = u >= 0 && u <= 1 && y >= 0 && y <= 1;
+    hovered = inside ? bandAt(u, y) : null;
+    cur.style.left = (u * 100) + '%'; cur.style.top = (y * 100) + '%';
+    if (prev && inside) {
+      const d = Math.hypot(u - prev[0], y - prev[1]);
+      if (d > 0.002) drops.push([u, 1 - y, 0.014, 0.0011 * Math.min(1, d * 40)]);
+    }
+    prev = [u, y];
+    if (i === Math.round((STATIC ? 5.6 : 12.6) * 30)) nextJump = 0;     // a second leap
+    step(1 / 30);
+    return t;
+  };
+}
 </script>
 </body>
 </html>
