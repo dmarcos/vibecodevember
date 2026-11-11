@@ -60,6 +60,12 @@
   body.capture #score { top: 150px; transform: translate(-50%, 0) scale(1.5); transform-origin: top center; }
   #move { --c: var(--white); position: fixed; z-index: 2; left: 50%; top: 92px; transform: translate(-50%, 0) scale(.9); opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; text-align: center; color: var(--c); white-space: nowrap; }
   #move.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  #move.hush { opacity: 0 !important; }
+  #crowd { position: fixed; z-index: 2; left: 50%; bottom: 120px; transform: translate(-50%, 0); opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+    font-size: 22px; font-weight: 500; letter-spacing: .3em; color: var(--amber); text-shadow: 0 0 2px currentColor, 0 0 14px currentColor; }
+  #crowd.show { opacity: 1; }
+  #crowd::before { content: 'THE CROWD'; display: block; text-align: center; font-size: 10px; letter-spacing: .5em; color: var(--blue-mid); text-shadow: none; margin-bottom: 6px; }
+  body.capture #crowd { bottom: 70px; font-size: 34px; } body.capture #crowd::before { font-size: 14px; }
   #move .mv { font-size: 28px; font-weight: 500; letter-spacing: .28em; text-shadow: 0 0 2px currentColor, 0 0 14px currentColor; }
   #move .sub { margin-top: 6px; font-size: 11px; letter-spacing: .4em; color: var(--blue-mid); }
   body.capture #move { top: 150px; } body.capture #move .mv { font-size: 40px; } body.capture #move .sub { font-size: 15px; }
@@ -95,6 +101,7 @@
 </div>
 <button id="start">Breathe in and start<small>physical voices · physical trampoline</small></button>
 <div id="move"><div class="mv"></div><div class="sub"></div></div>
+<div id="crowd"></div>
 <div id="score"><div class="who"></div><div class="cards"><b></b><b></b><b></b></div><div class="tot"></div></div>
 <div class="ctitle">Vibecodevember - Membrane<small>Nov 9th 2026</small></div>
 <div id="error">THIS NEEDS WEBGL 2.</div>
@@ -256,7 +263,7 @@ class Foley {
     this.slap = Math.min(1.5, this.slap + a * 0.6);
   }
   bonk(a) { this.ring(640, 0.07, a * 0.7); this.ring(1190, 0.05, a * 0.45); this.ring(2370, 0.03, a * 0.2); }
-  clank(a) { for (const f of [410, 777, 1213, 1838, 2610]) this.ring(f * (0.98 + Math.random() * 0.04), 0.5, a * 0.18); }
+  clank(a) { this.thump(a * .4, .6); } // was a ringing metal cluster: too bell-like
   block(out, len) {
     const { N, y1, y2, a1, a2, x } = this;
     for (let j = 0; j < len; j++) {
@@ -270,16 +277,16 @@ class Foley {
   }
 }
 
-// the stands: a few hundred hands (independent filtered-noise claps) plus a handful of
-// buzzy formant voices going "wooo!", "yaaay!" or "awww", and someone's two-finger whistle
+// the stands: a few hundred hands (independent filtered-noise claps, free or in time with a chant),
+// a murmur, and someone's two-finger whistle. The fans' voices are Chimera tracts (see Jumpers.fans).
 class Crowd {
   constructor() {
     this.t = 99; this.dur = 0; this.amp = 0; this.mood = 1; this.claps = []; this.vox = []; this.wh = null;
     this.bands = [new BP(1000, .9), new BP(1700, 1), new BP(2700, 1.2)]; this.ex = [0, 0, 0]; this.hub = new BP(550, .6);
   }
   start(m) {
-    this.t = 0; this.dur = m.dur; this.amp = m.amp; this.mood = m.mood; this.vox = [];
-    const n = m.mood > 0 ? 10 : m.mood < 0 ? 8 : 3;
+    this.t = 0; this.dur = m.dur; this.amp = m.amp; this.mood = m.mood; this.vox = []; this.beats = (m.beats || []).slice(); this.bi = 0;
+    const n = 0;
     for (let i = 0; i < n; i++) {
       const hi = Math.random() < .5, f0 = hi ? 240 + Math.random() * 160 : 105 + Math.random() * 75, k = hi ? 1.15 : 1;
       const kind = m.mood < 0 ? 'aww' : Math.random() < .55 ? 'woo' : 'yay';
@@ -294,11 +301,15 @@ class Crowd {
     const t = this.t, SR = sampleRate; this.t += 1 / SR;
     let s = 0;
     const env = t < .25 ? t / .25 : t < this.dur ? 1 : Math.max(0, 1 - (t - this.dur) / 1.4);
-    const rate = (this.mood < 0 ? 10 : this.mood === 0 ? 22 : 60) * (.4 + this.amp) * env;
+    const rate = (this.mood < 0 ? 10 : this.mood === 0 ? 22 : 60) * (.4 + this.amp) * env * (this.beats.length && this.bi < this.beats.length ? .25 : 1);
     if (Math.random() < rate / SR) this.claps.push({ t: 0, a: .4 + Math.random() * .8, d: .003 + Math.random() * .005, b: (Math.random() * 3) | 0 });
+    // a chant: everyone claps together on the beat (give or take)
+    while (this.bi < this.beats.length && t >= this.beats[this.bi]) {
+      this.bi++; for (let q = 0; q < 34; q++) this.claps.push({ t: -Math.abs(noise()) * .035, a: .5 + Math.random() * .7, d: .003 + Math.random() * .005, b: (Math.random() * 3) | 0 });
+    }
     const ex = this.ex; ex[0] = ex[1] = ex[2] = 0;
-    for (const c of this.claps) { ex[c.b] += noise() * c.a * Math.exp(-c.t / c.d); c.t += 1 / SR; }
-    while (this.claps.length && this.claps[0].t > .04) this.claps.shift();
+    for (const c of this.claps) { if (c.t >= 0) ex[c.b] += noise() * c.a * Math.exp(-c.t / c.d); c.t += 1 / SR; }
+    if (this.claps.length > 60 || (this.t * SR & 255) === 0) this.claps = this.claps.filter(c => c.t < .04);
     s += (this.bands[0].run(ex[0]) + this.bands[1].run(ex[1]) + this.bands[2].run(ex[2])) * 1.1;
     for (const v of this.vox) {
       const u = t - v.st; if (u < 0 || u > v.len) continue;
@@ -322,13 +333,19 @@ class Jumpers extends AudioWorkletProcessor {
     super();
     this.voices = o.processorOptions.voices.map(v => new Voice(v));
     this.foley = new Foley(); this.crowd = new Crowd();
+    // the audience: more Chimera voices (men, women, a kid), spread across the stands and a little muffled by distance
+    this.fans = (o.processorOptions.fans || []).map(v => new Voice(v));
+    this.fanPan = this.fans.map((_, i) => { const p = this.fans.length > 1 ? -.8 + 1.6 * i / (this.fans.length - 1) : 0; return [Math.cos((p + 1) * Math.PI / 4), Math.sin((p + 1) * Math.PI / 4)]; });
+    this.fanLp = this.fans.map(() => 0); this.tmp = new Float32Array(128);
     this.sched = o.processorOptions.sched || []; this.si = 0; // [{f: frame, m}] for offline renders
     this.port.onmessage = e => this.handle(e.data);
   }
   handle(m) {
-      if (m.type === 'phrase') {
-        const v = this.voices[m.v]; const now = currentFrame;
-        v.q = m.steps.map(s => ({ at: now + s.t * sampleRate / 1000, ...s }));
+      if (m.type === 'phrase' || m.type === 'fan') {
+        const v = m.type === 'fan' ? this.fans[m.v] : this.voices[m.v]; if (!v) return;
+        const now = currentFrame + (m.delay || 0) * sampleRate / 1000;
+        const nq = m.steps.map(s => ({ at: now + s.t * sampleRate / 1000, ...s }));
+        v.q = m.type === 'fan' ? v.q.filter(s => s.at < now).concat(nq) : nq; // a fan can queue a cheer after a chant
         if (m.vib != null) v.apply({ p: { vib: m.vib, vibR: m.vibR ?? 5.5, tense: m.tense ?? v.base.tense }, g: 120 });
       } else if (m.type === 'bend') {
         const v = this.voices[m.v]; v.tgt.bend = m.val; v.setGlide('bend', 40, false);
@@ -345,7 +362,18 @@ class Jumpers extends AudioWorkletProcessor {
       v.block(outputs[i][0], 0, len);
     });
     this.foley.block(outputs[this.voices.length][0], len);
-    const co = outputs[this.voices.length + 1][0]; for (let j = 0; j < len; j++) co[j] = Math.tanh(this.crowd.sample() * .9);
+    const out = outputs[this.voices.length + 1], co = out[0], cr = out[1] || out[0];
+    for (let j = 0; j < len; j++) { const c = this.crowd.sample() * .9; co[j] = c; cr[j] = c; }
+    if (this.tmp.length < len) this.tmp = new Float32Array(len);
+    this.fans.forEach((v, i) => {
+      while (v.q.length && v.q[0].at <= currentFrame + len) v.apply(v.q.shift());
+      if (v.cur.vol < 1e-4 && v.tgt.vol < 1e-4 && v.cur.breath < 1e-4 && v.tgt.breath < 1e-4 && !v.q.length) return; // idle seats cost nothing
+      v.block(this.tmp, 0, len);
+      const [gl, gr] = this.fanPan[i]; let lp = this.fanLp[i];
+      for (let j = 0; j < len; j++) { lp += (this.tmp[j] - lp) * .45; co[j] += lp * gl * .34; cr[j] += lp * gr * .34; }
+      this.fanLp[i] = lp;
+    });
+    for (let j = 0; j < len; j++) { co[j] = Math.tanh(co[j]); cr[j] = Math.tanh(cr[j]); }
     return true;
   }
 }
@@ -365,7 +393,7 @@ const CAPTURE = /[?&]capture\b/.test(location.search), AUDIOREC = /[?&]audiorec\
 if (CAPTURE) document.body.classList.add('capture');
 
 // ---------------------------------------------------------------- utils
-let rs = 20261109;
+let rs = +(new URLSearchParams(location.search).get("seed") || 13);
 const rnd = () => { rs |= 0; rs = rs + 0x6D2B79F5 | 0; let t = Math.imul(rs ^ rs >>> 15, 1 | rs); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const R = (a, b) => a + (b - a) * rnd();
 const pick = a => a[(rnd() * a.length) | 0];
@@ -375,7 +403,7 @@ const ss = t => (t = clamp(t), t * t * (3 - 2 * t));
 const TAU = Math.PI * 2, G = 9.81;
 
 // ---------------------------------------------------------------- palette (CHIMERA's vector display)
-const HEX = { blue: '#4fb6f2', blueMid: '#3487c4', blueDim: '#1f5f8c', frame: '#133954', green: '#5be381', red: '#ff5d40', pink: '#ff73cf', white: '#eef6f8', amber: '#ffb340' };
+const HEX = { blue: '#4fb6f2', blueMid: '#3487c4', blueDim: '#1f5f8c', frame: '#133954', green: '#5be381', red: '#ff5d40', pink: '#ff73cf', violet: '#9a86ff', white: '#eef6f8', amber: '#ffb340' };
 const LC = {}; for (const k in HEX) { const c = new THREE.Color(HEX[k]); LC[k] = [c.r, c.g, c.b]; }
 const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 const sc = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
@@ -388,7 +416,7 @@ catch (e) { document.getElementById('error').style.display = 'flex'; throw e; }
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0);
 const camera = new THREE.PerspectiveCamera(43, 1, 0.05, 100);
-camera.position.set(4.7, 2.7, 5.3);
+camera.position.set(4.7, 2.7, 5.3).multiplyScalar(CAPTURE ? .86 : 1);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0.85, 0);
 controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
@@ -581,7 +609,7 @@ const CN = {
   f: { lip: .09, voice: 0, breath: .3, g: 16 }, s: { cI: 36.5, cD: .14, voice: 0, breath: .2, g: 14 }, sh: { cI: 33, cD: .3, lip: .9, voice: 0, breath: .2, g: 14, round: .6 },
   t: { cI: 37, cD: 0, voice: 0, g: 8 }, d: { cI: 37, cD: 0, voice: .3, g: 8 }, n: { cI: 37, cD: 0, voice: .7, g: 12 },
   k: { cI: 23, cD: 0, voice: 0, g: 8 }, g: { cI: 23, cD: 0, voice: .3, g: 8 }, ng: { cI: 23, cD: 0, voice: .7, g: 12 },
-  l: { cI: 36, cD: .45, voice: 1, g: 22 }, r: { tI: 21, tD: 2.5, lip: .9, cI: 33, cD: .75, voice: 1, g: 26, round: .4 },
+  l: { cI: 36, cD: .45, voice: 1, g: 22 }, _: { voice: 0, breath: 0, g: 30 }, r: { tI: 21, tD: 2.5, lip: .9, cI: 33, cD: .75, voice: 1, g: 26, round: .4 },
 };
 function build(def, segs) {
   const steps = []; let t = 0, lastM = { jaw: .4, round: 0, spread: 0 };
@@ -666,6 +694,87 @@ const WORD = {
 const VIB = { aaah: [1.9, 8.5, .55], wahwah: [.9, 5, .45], whoa: [1.1, 7, .6], ugh: [.3, 4, .85], oof: [.1, 5, .8], bleat: [2.3, 11, .65],
   squeal: [.8, 9, .8], bwah: [1.3, 5.5, .35], mwahaha: [.5, 6, .6], byebye: [.9, 7, .7], siren: [.3, 6, .7], hoho: [.6, 6, .5], tada: [.6, 6, .6], diva: [1.5, 6, .6], tarzan: [.7, 7, .7], geronimo: [.8, 7, .65], mamamia: [.9, 6.5, .55], whoawhoa: [.6, 8, .6], yodelay: [.4, 6, .6], ohno: [1.1, 9, .7], eep: [.6, 10, .8], wow: [.5, 6, .6] };
 
+// ---------------------------------------------------------------- the audience
+// Eight more Chimera voices in the stands: different tract lengths (n), pitches and tenseness.
+const FANS = [
+  { n: 47, f0: 96, tense: .55, vib: .2, loud: 1 }, { n: 44, f0: 118, tense: .62, vib: .15, loud: 1 }, { n: 45, f0: 134, tense: .5, vib: .25, loud: 1 },
+  { n: 38, f0: 205, tense: .66, vib: .3, loud: .95 }, { n: 37, f0: 232, tense: .72, vib: .25, loud: .95 }, { n: 36, f0: 258, tense: .6, vib: .35, loud: .9 },
+  { n: 46, f0: 108, tense: .45, vib: .2, loud: 1 }, { n: 31, f0: 315, tense: .7, vib: .3, loud: .85 },
+];
+let cs = 777; // the crowd's own dice, so the routines stay the same whatever the stands do
+const crnd = () => { cs = (cs * 1664525 + 1013904223) >>> 0; return cs / 4294967296; };
+const CR = (a, b) => a + (b - a) * crnd(), cpick = a => a[(crnd() * a.length) | 0];
+const FAN_EX = {
+  yeah: () => [['y', 40, 1.1], ['e', 90, 1.3], ['a', CR(250, 420), 1.5, 1, 120], ['h', 40, 1.2, .4]],
+  whoo: () => [['w', 50, 1.1], ['u', CR(500, 900), 1.7, 1.1, 250], ['u', 150, 1.4, .4]],
+  yay: () => [['y', 40, 1.2], ['e', 90, 1.4], ['i', CR(300, 520), 1.65, 1, 150], ['i', 100, 1.4, .4]],
+  woohoo: () => [['w', 50], ['u', 150, 1.1], ['h', 50, 1.35], ['u', CR(300, 500), 1.6, 1, 120], ['u', 100, 1.3, .4]],
+  bravo: () => [['b', 30, 1.2], ['r', 40, 1.2], ['a', 170, 1.35], ['b', 30, 1.5], ['o', CR(350, 550), 1.6, 1, 150], ['o', 120, 1.3, .4]],
+  boo: () => [['b', 45, 1], ['u', CR(700, 1200), .97, 1.15, 500], ['u', 320, .8, .6, 320]],
+  booboo: () => [['b', 40, 1], ['u', 260, 1, 1.1], ['_', 90], ['b', 40, 1], ['u', CR(600, 900), .95, 1.1, 400], ['u', 250, .8, .5, 300]],
+  aww: () => [['a', 180, 1.25], ['o', CR(400, 600), .9, 1, 350], ['u', 150, .8, .4]],
+  oooh: () => [['o', 110, 1.0, .8], ['o', CR(450, 650), 1.4, 1.15, 300], ['u', 280, 1.0, .6, 300]],
+  laugh: () => rep(5, i => [['h', 45, 1.45 - i * .07], ['a', 85, 1.45 - i * .07, .9]]),
+  whistlewoo: () => [['w', 40, 1.3], ['i', 140, 1.8], ['u', CR(400, 600), 1.5, 1, 200]],
+};
+const FAN_VIB = { boo: [.7, 5.5, .5], booboo: [.6, 5.5, .5], aww: [.6, 5, .45], oooh: [.5, 6, .55], whoo: [.4, 6.5, .65] };
+function fanSay(i, segs, delay, name) {
+  const f = FANS[i], ph = build(f, segs), vb = FAN_VIB[name];
+  post({ type: 'fan', v: i, delay, steps: ph.steps.map(s => ({ t: s.t, p: s.p, g: s.g, gf: s.gf })), vib: vb ? vb[0] : f.vib, vibR: vb ? vb[1] : 5.5, tense: vb ? lerp(f.tense, vb[2], .5) : f.tense });
+  return ph.dur;
+}
+// crowd caption along the bottom (what the stands are shouting)
+const crowdEl = document.getElementById('crowd');
+const crowdCap = { text: '', t0: -9, dur: 0, beats: [] };
+function crowdSay(text, dur, beats = []) { Object.assign(crowdCap, { text, t0: simT, dur, beats }); crowdEl.textContent = text; }
+function crowdTick() {
+  const e = simT - crowdCap.t0, on = e >= 0 && e < crowdCap.dur;
+  crowdEl.classList.toggle('show', on);
+  let pulse = 0; for (const b of crowdCap.beats) if (e >= b) pulse = Math.exp(-(e - b) * 9);
+  crowdEl.style.transform = `translate(-50%, 0) scale(${(1 + .14 * pulse).toFixed(3)})`;
+}
+// how the stands react: to the landing, then to the judges' total
+function fans(kind, j) {
+  const all = FANS.map((_, i) => i);
+  if (kind === 'land') { for (const i of all) { const w = cpick(['yeah', 'whoo', 'yay', 'woohoo', 'bravo', 'whistlewoo']); fanSay(i, FAN_EX[w](), CR(0, 450), w); } crowdSay('YEAAAH!', 1.4); }
+  else if (kind === 'splat') {
+    for (const i of all) fanSay(i, FAN_EX.oooh(), CR(0, 120), 'oooh');
+    for (const i of [1, 4, 7]) fanSay(i, FAN_EX.laugh(), CR(900, 1200), 'laugh');
+    crowdSay('OOOOOH!', 1.6);
+  } else if (kind === 'wobble') { for (const i of all.filter(i => i % 2)) fanSay(i, FAN_EX.oooh(), CR(0, 200), 'oooh'); crowdSay('OOOH...', 1.2); }
+  else if (kind === 'boo') {
+    for (const i of all) { const w = i % 4 === 3 ? 'aww' : cpick(['boo', 'boo', 'booboo']); fanSay(i, FAN_EX[w](), CR(0, 380), w); }
+    for (const i of [0, 2, 5]) fanSay(i, FAN_EX.boo(), CR(1500, 1800), 'boo'); // a second wave
+    crowdSay('BOOOOOO!', 2.6);
+    post({ type: 'crowd', mood: -1, amp: .45, dur: 1.2 });
+  } else if (kind === 'mixed') {
+    for (const i of all) { const w = i % 3 === 0 ? 'boo' : i % 3 === 1 ? 'yeah' : 'aww'; fanSay(i, FAN_EX[w](), CR(0, 500), w); }
+    crowdSay('MEH!', 1.6);
+    post({ type: 'crowd', mood: 0, amp: .6, dur: 1.4 });
+  } else if (kind === 'chant') {
+    // NAME! NAME! NAME! in rhythm, everyone together (give or take), claps on every syllable, then a roar
+    const syl = j.def.chant, SLOT = 190, beatGap = Math.max(560, syl.length * SLOT + 260), reps = 3, beats = [];
+    for (let r = 0; r < reps; r++) syl.forEach((_, k) => beats.push((r * beatGap + k * SLOT) / 1000));
+    for (const i of all) {
+      const segs = [], jit = CR(0, 35);
+      for (let r = 0; r < reps; r++) {
+        let used = 0;
+        syl.forEach((sy, k) => {
+          const loud = k === syl.length - 1 ? 1.15 : 1, sd = sy.reduce((a, x) => a + x[1], 0);
+          for (const [ph, d, pm = 1, vm = 1] of sy) segs.push([ph, d, pm * (1 + r * .04), vm * loud]);
+          if (k < syl.length - 1) { segs.push(['_', Math.max(10, SLOT - sd)]); used += Math.max(SLOT, sd); } else used += sd;
+        });
+        if (r < reps - 1) segs.push(['_', Math.max(20, beatGap - used)]);
+      }
+      fanSay(i, segs, 150 + jit, 'chant');
+      const w = cpick(['whoo', 'yeah', 'woohoo', 'whistlewoo']); fanSay(i, FAN_EX[w](), 150 + reps * beatGap + CR(0, 250), w); // queued after: replaces the chant's tail
+    }
+    const name = j.def.chantText || j.def.name;
+    crowdSay(`${name}! ${name}! ${name}!`, (150 + reps * beatGap) / 1000 + 1.2, beats.map(b => b + .15));
+    post({ type: 'crowd', mood: 1, amp: .5, dur: (reps * beatGap) / 1000 + 1.8, beats: beats.map(b => b + .15) });
+  }
+}
+
 // ---------------------------------------------------------------- audio graph
 let ac = null, wn = null, soundOn = false, master = null;
 const analysers = [], panners = [];
@@ -675,6 +784,7 @@ async function initAudio() {
   master = g.master; wn = g.node; analysers.push(...g.analysers); panners.push(...g.panners);
   if (AUDIOREC) { const d = ac.createMediaStreamDestination(); g.comp.connect(d); window.__audioStream = d.stream; }
 }
+const SOLO_CROWD = /[?&]solo=crowd\b/.test(location.search); // debugging: hear only the stands
 async function buildAudio(ac, sched) {
   const master = ac.createGain(); master.gain.value = 0;
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = .003; comp.release.value = .15;
@@ -687,17 +797,17 @@ async function buildAudio(ac, sched) {
   const url = URL.createObjectURL(new Blob([document.getElementById('worklet').textContent], { type: 'application/javascript' }));
   await ac.audioWorklet.addModule(url);
   const wn = new AudioWorkletNode(ac, 'jumpers', {
-    numberOfInputs: 0, numberOfOutputs: JUMPERS.length + 2, outputChannelCount: Array(JUMPERS.length + 2).fill(1),
-    processorOptions: { voices: JUMPERS.map(j => ({ n: j.def.n, f0: j.def.f0, tense: j.def.tense, vib: j.def.vib, quant: j.def.quant, fricF: j.def.fricF })), sched },
+    numberOfInputs: 0, numberOfOutputs: JUMPERS.length + 2, outputChannelCount: [...Array(JUMPERS.length + 1).fill(1), 2],
+    processorOptions: { voices: JUMPERS.map(j => ({ n: j.def.n, f0: j.def.f0, tense: j.def.tense, vib: j.def.vib, quant: j.def.quant, fricF: j.def.fricF })), fans: FANS, sched },
   });
   const analysers = [], panners = [];
   JUMPERS.forEach((j, i) => {
-    const g = ac.createGain(); g.gain.value = j.def.gain * 1.25;
+    const g = ac.createGain(); g.gain.value = SOLO_CROWD ? 0 : j.def.gain * 1.25;
     const an = ac.createAnalyser(); an.fftSize = 1024; analysers[i] = an;
     const pn = ac.createStereoPanner(); panners[i] = pn;
     wn.connect(g, i).connect(an); an.connect(pn).connect(bus);
   });
-  const fg = ac.createGain(); fg.gain.value = .26; wn.connect(fg, JUMPERS.length).connect(bus);
+  const fg = ac.createGain(); fg.gain.value = SOLO_CROWD ? 0 : .26; wn.connect(fg, JUMPERS.length).connect(bus);
   const cg = ac.createGain(); cg.gain.value = .6; wn.connect(cg, JUMPERS.length + 1).connect(bus);
   return { master, comp, node: wn, analysers, panners };
 }
@@ -718,20 +828,54 @@ soundBtn.addEventListener('click', () => setSound(!soundOn));
 startBtn.addEventListener('click', () => setSound(true));
 
 // ---------------------------------------------------------------- the jumpers
+// ---------------------------------------------------------------- drawing a Chimera-style wireframe person
+// A mannequin head in dim blue slices with the voice's anatomy lit up (red jaw muscles, lips, teeth,
+// tongue, a glowing trachea), on a wireframe suit with a gold chain that swings with the stunts.
+const HEAD_T = [ // y (× head radius, from its centre), half-width, front depth, back depth
+  [1.28, .04, .04, .04], [1.2, .5, .5, .6], [1.05, .76, .78, .9], [.8, .92, .92, 1.02], [.5, .98, .98, 1.04], [.2, .97, 1.0, .98],
+  [-.1, .92, 1.0, .86], [-.35, .86, .98, .72], [-.6, .78, .93, .6], [-.85, .62, .85, .5], [-1.03, .42, .74, .38], [-1.14, .2, .6, .28]];
+function headProf(y) {
+  if (y >= HEAD_T[0][0]) return HEAD_T[0];
+  for (let q = 1; q < HEAD_T.length; q++) if (y >= HEAD_T[q][0]) {
+    const a = HEAD_T[q - 1], b = HEAD_T[q], u = (y - a[0]) / (b[0] - a[0]);
+    return [y, lerp(a[1], b[1], u), lerp(a[2], b[2], u), lerp(a[3], b[3], u)];
+  }
+  return HEAD_T[HEAD_T.length - 1];
+}
+const SEP = 2.4, SET = 3.2;
+const supZ = (x, w, zf, p) => zf * Math.pow(Math.max(0, 1 - Math.pow(Math.min(1, Math.abs(x) / Math.max(w, 1e-4)), p)), 1 / p);
+function geoOf(d) {
+  const hr = d.hr, shY = d.ry * .8, hipY = -d.ry * .95, neckBot = shY + .02, Hc = neckBot + d.neck + hr * 1.08;
+  return { hr, shY, hipY, neckBot, Hc, top: Hc + hr * 1.28, chest: shY - d.ry * .5, waist: hipY + d.ry * .5 };
+}
+function torsoAt(d, y) { // half-width, front depth, back depth of the jacket at height y
+  const g = d.g, u = clamp((y - g.hipY) / (g.shY - g.hipY)), b = d.belly * Math.exp(-(((u - .35) / .32) ** 2));
+  return [d.rx * (.86 + .14 * u) + b * .8, d.rx * .55 + b * 1.6 + (d.bust || 0) * Math.exp(-(((u - .72) / .14) ** 2)), d.rx * .52];
+}
+function torsoZ(d, x, y) { const [w, zf] = torsoAt(d, y); return supZ(x, w, zf, SET); }
+
 const DEFS = [
-  { name: 'BLOB', col: 'green', mass: 95, rx: .36, ry: .33, p: 2, leg: .3, arm: .3, f0: 98, n: 46, tense: .5, vib: .2, loud: 1, gain: 1.0, fricF: 1800,
+  { name: 'SAL', col: 'white', mass: 95, rx: .2, ry: .27, belly: .1, hr: .175, neck: .05, leg: .38, arm: .36, thick: .04, f0: 98, n: 46, tense: .5, vib: .2, loud: 1, gain: 1.0, fricF: 1800,
     H: [.5, 1.2], tricks: ['seat', 'tuckjump', 'backtuck', 'flop', 'straddle', 'disco', 'seat'], likes: ['hoho', 'yodelay', 'yodel', 'tarzan', 'mwahaha', 'diva'], hop: ['hoho', 'hup', 'yeah', 'wobble'],
-    strands: [{ x: -.04, len: .07, segs: 3, k: 30, curl: 1 }, { x: .05, len: .06, segs: 3, k: 30, curl: -1 }], feature: 'stache', x: -.85, z: .35 },
-  { name: 'NOODLE', col: 'red', mass: 58, rx: .15, ry: .4, p: 2.6, leg: .52, arm: .48, f0: 165, n: 40, tense: .62, vib: .25, loud: .95, gain: 1.0,
+    strands: [{ x: -.015, len: .07, segs: 3, k: 26, curl: 1.5 }], feature: 'stache', x: -.85, z: .35,
+    chant: [[['s', 90], ['a', 250, 1.3, 1.1], ['l', 70, 1.2]]] },
+  { name: 'STRETCH', col: 'violet', mass: 62, rx: .15, ry: .3, belly: 0, hr: .145, neck: .09, leg: .56, arm: .5, thick: .03, nose: 1.9, f0: 165, n: 40, tense: .62, vib: .25, loud: .95, gain: 1.0,
     H: [1.1, 2.3], tricks: ['layout', 'frontpike', 'straddle', 'flail', 'rudolph', 'scared', 'split'], likes: ['yahoo', 'tarzan', 'ohmygosh', 'ohno', 'blbl', 'geronimo', 'whoopsie'], hop: ['huh', 'hic', 'eep', 'whoa'],
-    strands: [{ x: -.06, len: .2, segs: 4, k: 14 }, { x: 0, len: .24, segs: 4, k: 14 }, { x: .06, len: .2, segs: 4, k: 14 }], feature: 'nose', x: .8, z: -.45 },
-  { name: 'BEAN', col: 'pink', mass: 24, rx: .19, ry: .23, p: 2, pear: .14, leg: .17, arm: .17, f0: 330, n: 30, tense: .7, vib: .3, loud: .9, gain: .85, fricF: 2800,
+    strands: [{ x: -.05, len: .13, segs: 4, k: 14 }, { x: 0, len: .16, segs: 4, k: 14 }, { x: .05, len: .13, segs: 4, k: 14 }], x: .8, z: -.45,
+    chant: [[['s', 70], ['t', 25], ['r', 40, 1.2], ['e', 220, 1.35, 1.1], ['t', 30, 1.3], ['sh', 90, 1.2]]] },
+  { name: 'LIL PIP', col: 'pink', mass: 26, rx: .12, ry: .16, belly: .03, hr: .15, neck: .03, leg: .24, arm: .22, thick: .026, f0: 330, n: 30, tense: .7, vib: .3, loud: .9, gain: .85, fricF: 2800,
     H: [.8, 1.9], tricks: ['backtuck', 'fulltwist', 'barani', 'pikejump', 'cartwheel', 'tuckjump'], likes: ['whee', 'giggle', 'yippee', 'squeal', 'diva', 'woopwoop'], hop: ['giggle', 'eep', 'yeah', 'lala'],
-    strands: [{ x: 0, len: .22, segs: 5, k: 12, ball: .035 }], feature: 'cheeks', x: .25, z: .95 },
-  { name: 'UNIT-4', col: 'white', mass: 75, rx: .27, ry: .29, p: 7, leg: .3, arm: .3, f0: 128, n: 42, tense: .86, vib: 0, quant: 1, loud: .85, gain: .9,
-    H: [.7, 1.6], tricks: ['fulltwist', 'layout', 'superman', 'disco', 'pikejump', 'pirouette'], likes: ['beepboop', 'siren', 'yodelay', 'woopwoop', 'diva'], hop: ['beepboop', 'hic'],
-    strands: [{ x: .1, len: .14, segs: 3, k: 40, ball: .025, blink: 1 }], feature: 'visor', x: -.3, z: -.95 },
+    strands: [{ x: 0, len: .13, segs: 5, k: 12, ball: .03 }], feature: 'cheeks', x: .25, z: .95,
+    chant: [[['l', 40, 1.1], ['i', 130, 1.15], ['l', 40, 1.1]], [['p', 40, 1.3], ['i', 220, 1.4, 1.1], ['p', 50, 1.3]]] },
+  { name: 'DOLORES', col: 'red', mass: 58, rx: .15, ry: .24, belly: 0, bust: .03, hr: .145, neck: .07, leg: .46, arm: .4, thick: .03, f0: 215, n: 37, tense: .72, vib: .3, loud: .95, gain: .95, fricF: 2600,
+    H: [.8, 1.8], tricks: ['fulltwist', 'layout', 'superman', 'disco', 'pikejump', 'pirouette'], likes: ['diva', 'yodelay', 'woopwoop', 'squeal', 'ohmygosh', 'wheehee'], hop: ['lala', 'eep', 'yeah', 'giggle'],
+    strands: [{ x: 0, back: 1, len: .2, segs: 5, k: 11, dir: -1 }], feature: 'lashes', x: -.3, z: -.95, chantText: 'DO-LO-RES',
+    chant: [[['d', 30, 1.1], ['o', 130, 1.15]], [['l', 40, 1.25], ['o', 130, 1.3]], [['r', 40, 1.4], ['e', 170, 1.45, 1.1], ['s', 90, 1.3]]] },
 ];
+for (const d of DEFS) {
+  d.g = geoOf(d);
+  for (const st of d.strands) { st.y0 = st.back ? d.g.Hc + d.hr * .55 : d.g.top - .01; st.z = st.back ? -d.hr * 1.02 : 0; }
+}
 const TRICK = {
   hop: { dd: 0, pose: 'hop', land: 'feet' },
   star: { dd: 0.6, pose: 'star', land: 'feet', expr: ['yippee', 'yahoo', 'whee'], label: 'STAR JUMP' },
@@ -781,11 +925,11 @@ class Jumper {
     this.blinkT = R(1, 4); this.impactT = 9; this.dizzy = 0; this.lastBonk = -9; this.scaredT = 0; this.joy = 0;
     this.prevVyAir = 0; this.apexH = 0; this.kernel = [];
     this.strands = def.strands.map(s => {
-      const pts = []; for (let q = 0; q <= s.segs; q++) pts.push({ x: s.x, y: def.ry + s.len * q / s.segs, px: s.x, py: def.ry + s.len * q / s.segs });
+      const pts = []; for (let q = 0; q <= s.segs; q++) { const y = s.y0 + (s.dir || 1) * s.len * q / s.segs; pts.push({ x: s.x, y, px: s.x, py: y }); }
       return { ...s, pts };
     });
     this.group = new THREE.Group(); scene.add(this.group);
-    this.lines = new Lines(2600, this.group);
+    this.lines = new Lines(7000, this.group);
     this.shadow = { x: 0, z: 0, r: .2, c: [0, 0, 0] }; shadows.push(this.shadow);
     this.f0Now = def.f0; this.bend = 1; this.bendMode = 0; this.takeoffY = 0;
     this.on = false; this.leaving = 0; this.bounces = 0; this.landed = null; this.best = 0; this.last = null; this.group.visible = false; this.shadow.off = true;
@@ -886,7 +1030,7 @@ const bubEl = document.getElementById('bubbles'); const bubbles = [];
 function bubble(j, text, big = 1) {
   const el = document.createElement('div'); el.className = 'bub'; el.textContent = text; el.style.color = j.hex;
   el.style.fontSize = `${Math.round((CAPTURE ? 30 : 20) * big)}px`;
-  for (const b of bubbles) if (b.j === j) b.dur = Math.min(b.dur, b.t + 0.12);
+  for (const b of bubbles) if (b.j === j) b.dur = Math.min(b.dur, b.t);
   bubEl.appendChild(el); bubbles.push({ el, j, t: 0, dur: 1.5, dx: R(-30, 30) });
 }
 const vtmp = new THREE.Vector3();
@@ -895,7 +1039,7 @@ function updateBubbles(dt) {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i]; b.t += dt;
     if (b.t > b.dur) { b.el.remove(); bubbles.splice(i, 1); continue; }
-    vtmp.set(b.j.x, b.j.y + b.j.def.ry + 0.25, b.j.z).project(camera);
+    vtmp.set(b.j.x, b.j.y + b.j.def.g.top + 0.12, b.j.z).project(camera);
     const x = (vtmp.x * 0.5 + 0.5) * W + b.dx * b.t, y = (-vtmp.y * 0.5 + 0.5) * Hh - 40 * b.t;
     const pop = b.t < 0.12 ? 0.6 + 0.4 * ss(b.t / 0.12) * 1.15 : 1 + 0.15 * Math.max(0, 1 - (b.t - 0.12) * 8);
     b.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) scale(${pop.toFixed(3)}) rotate(${(b.dx * 0.1).toFixed(1)}deg)`;
@@ -960,11 +1104,11 @@ function stickLanding(j) {
   if (j.fail) {
     j.mode = 'flop'; j.rot = (j.rotTo > j.rotFrom ? 1 : -1) * Math.PI / 2; j.y = PAD_TOP + j.def.rx * .95 + .02; j.dizzy = 1.8; j.trickName = 'SPLAT';
     speak(j, pick(['mamamia', 'ouchie', 'oof', 'bwah']), .8, true); showMove(j, 'SPLAT!', 'UNDER-ROTATED', 1.3);
-    post({ type: 'crowd', mood: -1, amp: .8, dur: .5 });
-  } else if (j.stumble) {
+    post({ type: 'crowd', mood: -1, amp: .8, dur: .5 }); fans('splat', j);
+  } else if (j.stumble) { fans('wobble', j);
     j.mode = 'feet'; j.rot = 0; j.y = PAD_TOP + j.probeFeet; j.wobble = 1.1; j.trickName = 'STUMBLE';
     speak(j, 'whoawhoa', .6, true); j.pending = { name: pick(['nailedit', 'tada']), at: simT + 1.15 }; showMove(j, 'STUMBLE...', 'HOLD IT, HOLD IT', 1.3);
-  } else { j.mode = 'feet'; j.rot = 0; j.y = PAD_TOP + j.probeFeet; j.trickName = 'STUCK IT'; speak(j, pick(['tada', 'nailedit']), .8, true); showMove(j, 'STUCK IT!', 'PERFECT LANDING', 1.3); }
+  } else { j.mode = 'feet'; j.rot = 0; j.y = PAD_TOP + j.probeFeet; j.trickName = 'STUCK IT'; speak(j, pick(['tada', 'nailedit']), .8, true); showMove(j, 'STUCK IT!', 'PERFECT LANDING', 1.3); fans('land', j); post({ type: 'crowd', mood: 1, amp: .6, dur: .9 }); }
   j.rotFrom = j.rotTo = j.rot;
   post({ type: 'thump', amp: .35, tone: 1.6 });
   // the judges
@@ -979,23 +1123,25 @@ function stageTick() {
   if (a && !a.leaving && stage.t0 > 0 && simT - stage.t0 > stage.len) { a.leaving = 1; a.mega = 1; }
   if (a && a.leaving === 2 && a.vy < 0 && Math.hypot(a.x, a.z) > RF && a.y <= PAD_TOP + a.probeFeet) stickLanding(a);
   if (a && a.leaving === 2 && a.y < FLOOR - 1) offstage(a); // safety net
-  if (a && a.landed && simT - a.landedT > 1.7) { if (stage.prev) offstage(stage.prev); stage.prev = a; stage.act = null; stage.nextAt = simT; }
-  if (stage.prev && simT - stage.prev.landedT > 3.6) offstage(stage.prev);
+  if (a && a.landed && simT - a.landedT > 3.7) { if (stage.prev) offstage(stage.prev); stage.prev = a; stage.act = null; stage.nextAt = simT; }
+  if (stage.prev && simT - stage.prev.landedT > 5.6) offstage(stage.prev);
   if (!stage.act && simT >= stage.nextAt) { const j = JUMPERS[stage.next]; stage.next = (stage.next + 1) % JUMPERS.length; enter(j); }
   if (stage.moveUntil && simT > stage.moveUntil) { moveEl.classList.remove('show'); stage.moveUntil = 0; }
-  scoreTick();
+  scoreTick(); crowdTick();
 }
 // caption at the top: the name of the move in progress
 const moveEl = document.getElementById('move');
 function showMove(j, name, sub, dur) {
+  if (stage.card && stage.card.shown > 0) return; // the judges have the stage
   moveEl.style.setProperty('--c', j.hex); moveEl.querySelector('.mv').textContent = name; moveEl.querySelector('.sub').textContent = sub;
   moveEl.classList.remove('show'); void moveEl.offsetWidth; moveEl.classList.add('show'); stage.moveUntil = simT + dur + .4;
 }
 // scoreboard: three judges flip their cards, then the total, then the jumper reacts
 const scoreEl = document.getElementById('score');
 function scoreTick() {
+  moveEl.classList.toggle('hush', !!(stage.card && stage.card.shown > 0));
   const c = stage.card; if (!c) return;
-  const e = simT - c.t, step = e < .5 ? 0 : e < .8 ? 1 : e < 1.1 ? 2 : e < 1.4 ? 3 : e < 3.4 ? 4 : 5;
+  const e = simT - c.t, step = e < .5 ? 0 : e < .8 ? 1 : e < 1.1 ? 2 : e < 1.4 ? 3 : e < 4.4 ? 4 : 5;
   while (c.shown < step) {
     c.shown++;
     if (c.shown === 1) {
@@ -1006,7 +1152,7 @@ function scoreTick() {
     if (c.shown <= 3) scoreEl.querySelectorAll('.cards b')[c.shown - 1].classList.add('on');
     if (c.shown === 4) {
       scoreEl.querySelector('.tot').textContent = c.total.toFixed(1);
-      post({ type: 'crowd', mood: c.total >= 7.3 ? 1 : c.total >= 5.8 ? 0 : -1, amp: clamp((c.total - 4.5) / 4.5, .35, 1), dur: c.total >= 7.3 ? 2.2 : 1.2 });
+      fans(c.total >= 7 ? 'chant' : c.total >= 5.5 ? 'mixed' : 'boo', c.j);
       const j = c.j; if (!j.on) continue;
       if (c.total >= 9) speak(j, pick(['squeal', 'yodelay', 'tarzan', 'woohoo']), 1.2, true);
       else if (c.total >= 7.6) speak(j, pick(JOY), 1, true);
@@ -1064,7 +1210,6 @@ function onTakeoff(j) {
     if (rnd() < 0.4) e = pick(j.def.likes);
     if (T > 1.4 && rnd() < 0.3) e = pick(FEAR);
     if (j.megaJump) e = T > 1.4 ? pick(['aaah', 'squeal', 'aaah', 'bleat']) : 'whee';
-    if (j.def.name === 'UNIT-4' && rnd() < 0.5) e = 'beepboop';
     if (!EX[e]) e = 'whee';
     speak(j, e, T);
   }
@@ -1166,17 +1311,36 @@ function animate(j, dt) {
   const spin = (j.rot - (j._lastRot ?? j.rot)) / Math.max(dt, 1e-4); j._lastRot = j.rot;
   for (const st of j.strands) {
     const P = st.pts, seg = st.len / st.segs;
-    P[0].x = st.x * (1 + j.sq * .6); P[0].y = d.ry * (1 - j.sq) * (d.p > 4 ? 1 : 0.98);
+    P[0].x = st.x * (1 + j.sq * .35); P[0].y = st.y0 * (1 - j.sq * .55);
     for (let q = 1; q < P.length; q++) {
       const p = P[q], vx = (p.x - p.px) * 0.94, vy = (p.y - p.py) * 0.94;
       p.px = p.x; p.py = p.y;
-      const restX = P[0].x + (st.curl || 0) * 0.02 * q, restY = P[0].y + seg * q;
+      const restX = P[0].x + (st.curl || 0) * 0.02 * q, restY = P[0].y + (st.dir || 1) * seg * q;
       const ax = gx * 0.6 + (restX - p.x) * st.k * st.k - spin * p.y * 2, ay2 = gy * 0.6 + (restY - p.y) * st.k * st.k + spin * p.x * 2;
       p.x += vx + ax * dt * dt; p.y += vy + ay2 * dt * dt;
     }
     for (let it = 0; it < 3; it++) for (let q = 1; q < P.length; q++) {
       const a = P[q - 1], b = P[q], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1e-6, k = (l - seg) / l;
       if (q === 1) { b.x -= dx * k; b.y -= dy * k; } else { a.x += dx * k * .5; a.y += dy * k * .5; b.x -= dx * k * .5; b.y -= dy * k * .5; }
+    }
+  }
+  // the gold chain: a rope pinned at both sides of the collar
+  if (!j.chain) {
+    const n = 13, ax = d.hr * .5, y0 = d.g.shY + .015, dep = (d.g.shY - d.g.chest) * 1.15; j.chain = [];
+    for (let q = 0; q < n; q++) { const u = q / (n - 1), x = lerp(-ax, ax, u), y = y0 - Math.sin(Math.PI * u) * dep; j.chain.push({ x, y, px: x, py: y, rx: x, ry: y }); }
+    let len = 0; for (let q = 1; q < n; q++) len += Math.hypot(j.chain[q].x - j.chain[q - 1].x, j.chain[q].y - j.chain[q - 1].y); j.chainSeg = len / (n - 1);
+  }
+  {
+    const C = j.chain, n = C.length, ax = d.hr * .5 * (1 + j.sq * .35), y0 = (d.g.shY + .015) * (1 - j.sq * .55);
+    C[0].x = -ax; C[0].y = y0; C[n - 1].x = ax; C[n - 1].y = y0;
+    for (let q = 1; q < n - 1; q++) {
+      const p = C[q], vx = (p.x - p.px) * .96, vy = (p.y - p.py) * .96; p.px = p.x; p.py = p.y;
+      p.x += vx + (gx - spin * p.y * 2 + (p.rx - p.x) * 60) * dt * dt; p.y += vy + (gy + spin * p.x * 2 + (p.ry - p.y) * 60) * dt * dt; // a weak memory of its hanging shape keeps it from tangling
+    }
+    for (let it = 0; it < 6; it++) for (let q = 1; q < n; q++) {
+      const a = C[q - 1], b = C[q], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1e-6, k = (l - j.chainSeg) / l;
+      const wa = q - 1 === 0 ? 0 : .5, wb = q === n - 1 ? 0 : .5, ws = wa + wb || 1;
+      a.x += dx * k * wa / ws; a.y += dy * k * wa / ws; b.x -= dx * k * wb / ws; b.y -= dy * k * wb / ws;
     }
   }
   // mouth follows the articulatory score
@@ -1198,118 +1362,221 @@ function animate(j, dt) {
   j.scared = !j.cSub && (j.trick.pose === 'scared' || (j.y - j.probeFeet > 2.4));
 }
 
-// ---------------------------------------------------------------- drawing a vector puppet
 function drawJumper(j) {
-  const d = j.def, L = j.lines, col = j.c, bright = mixc(col, [1, 1, 1], .45), dim = sc(col, .55), white = sc(LC.white, .9);
+  const d = j.def, g = d.g, hr = g.hr, L = j.lines, wk = d.col === 'white' ? .62 : 1, col = sc(j.c, .8 * wk), bright = sc(mixc(j.c, [1, 1, 1], .3), wk), dim = sc(j.c, .3 * wk);
+  const skin = LC.blue, skinD = sc(LC.blue, .3), white = sc(LC.white, .95);
   L.begin();
-  const sx = 1 + j.sq * 0.6, sy = 1 - j.sq, tw = Math.cos(j.twist), cr = Math.cos(j.rot), sr = Math.sin(j.rot);
-  const Q = (x, y) => { x *= tw; return [x * cr - y * sr, x * sr + y * cr]; };
-  const P = (x, y) => Q(x * sx, y * sy);
-  const line = (a, b, c) => L.seg(a[0], a[1], 0, b[0], b[1], 0, c);
-  const poly = (pts, c, closed) => { for (let q = 0; q < pts.length - (closed ? 0 : 1); q++) line(pts[q], pts[(q + 1) % pts.length], c); };
-  const ell = (cx, cy, rx, ry, c, n = 18, T = P, a0 = 0, a1 = TAU) => { const pts = []; for (let q = 0; q <= n; q++) { const a = a0 + (a1 - a0) * q / n; pts.push(T(cx + rx * Math.cos(a), cy + ry * Math.sin(a))); } poly(pts, c, false); };
-  // body outline (superellipse, pear for the bean), drawn twice for a hot core
-  const body = []; const NB = 56;
-  for (let q = 0; q < NB; q++) {
-    const a = q / NB * TAU, ca = Math.cos(a), sa = Math.sin(a), e = 2 / d.p;
-    let x = d.rx * Math.sign(ca) * Math.pow(Math.abs(ca), e), y = d.ry * Math.sign(sa) * Math.pow(Math.abs(sa), e);
-    if (d.pear) x *= 1 - d.pear * sa;
-    body.push(P(x, y));
+  const sx = 1 + j.sq * .35, sy = 1 - j.sq * .55, ct = Math.cos(j.twist), st = Math.sin(j.twist), cr = Math.cos(j.rot), sr = Math.sin(j.rot);
+  // body space → group space: twist about the spine, then the somersault roll
+  const T3 = (x, y, z) => { const X = x * ct + z * st, Z = -x * st + z * ct; return [X * cr - y * sr, X * sr + y * cr, Z]; };
+  const P = (x, y, z) => T3(x * sx, y * sy, z * sx); // squashed with the body
+  const shade = (c, z) => { const k = clamp(.62 + z * 2.4, .22, 1.15); return [c[0] * k, c[1] * k, c[2] * k]; };
+  const seg = (a, b, c) => L.seg(a[0], a[1], a[2], b[0], b[1], b[2], shade(c, a[2]), shade(c, b[2]));
+  const poly = (pts, c, closed) => { for (let q = 0; q < pts.length - (closed ? 0 : 1); q++) seg(pts[q], pts[(q + 1) % pts.length], c); };
+
+  // ---- voice state
+  const m = j.mouth, vol = clamp(m.vol, 0, 1.2);
+  const open = vol * (.25 + .75 * m.jaw) * (1 - m.closed);
+  const jd = open * .42 * (j.scared ? 1.3 : 1); // jaw drop (× head radius)
+
+  // ---- head: horizontal slices and meridians
+  const Hc = g.Hc, NR = 22;
+  const hp = (x, y, z) => P(x * hr, Hc + y * hr, z * hr);
+  const jawY = y => y < -.32 ? y - jd * ss((-.32 - y) / .45) : y;
+  const ringPts = (y) => {
+    const [, w, zf, zb] = headProf(y), out = [], yy = jawY(y);
+    for (let q = 0; q < NR; q++) {
+      const a = q / NR * TAU, ca = Math.cos(a), sa = Math.sin(a);
+      out.push([w * Math.sign(ca) * Math.pow(Math.abs(ca), 2 / SEP), yy, (sa > 0 ? zf : zb) * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SEP)]);
+    }
+    return out;
+  };
+  const LV = 15, rings = [];
+  for (let k = 0; k < LV; k++) rings.push(ringPts(lerp(1.24, -1.12, k / (LV - 1))));
+  const hcol = sc(skin, .38);
+  for (let k = 0; k < LV; k++) poly(rings[k].map(p => hp(...p)), k === LV - 1 ? sc(skin, .6) : hcol, true);
+  for (let q = 0; q < NR; q += 2) poly(rings.map(r => hp(...r[q])), hcol);
+  const fz = (x, y) => { const [, w, zf] = headProf(y); return supZ(x, w, zf, SEP); };
+  const F3 = (x, y, dz = .02) => hp(x, jawY(y), fz(x, y) + dz); // a point on the face
+  const curve = (pts, c, closed) => poly(pts.map(p => F3(p[0], p[1], p[2] ?? .02)), c, closed);
+  // ears
+  for (const s of [-1, 1]) { const pts = []; for (let q = 0; q <= 14; q++) { const a = q / 14 * TAU; pts.push(hp(s * (.98 + .05 * Math.max(0, Math.cos(a))), -.1 + .24 * Math.sin(a), -.05 + .13 * Math.cos(a))); } poly(pts, sc(skin, .7)); }
+
+  // ---- eyes and brows
+  const scared = j.scared, big = scared ? 1.35 : 1 + j.joy * .08;
+  const look = [clamp(j.vx * .03, -.06, .06), clamp(j.vy * .012, -.05, .05)];
+  const squint = j.impactT < .18 && j.F > d.mass * G * 2.4;
+  const eyeC = sc(LC.white, .85), irisC = mixc(LC.blue, LC.white, .5);
+  for (const s of [-1, 1]) {
+    const ex = s * .37, ey = .2, ew = .17;
+    if (j.dizzy > 0) { const pts = []; for (let q = 0; q < 24; q++) { const a = q * .55 + simT * 9 * s, r = .13 * q / 24; pts.push([ex + r * Math.cos(a), ey + r * Math.sin(a)]); } curve(pts, eyeC); }
+    else if (squint) curve([[ex - s * ew, ey + .08], [ex + s * ew * .5, ey], [ex - s * ew, ey - .08]], eyeC);
+    else if (j.blinkT < 0) curve([[ex - ew, ey], [ex, ey - .02], [ex + ew, ey]], eyeC);
+    else if (j.sayName === 'giggle' && j.say) { const pts = []; for (let q = 0; q <= 8; q++) { const t = q / 8; pts.push([ex - ew + 2 * ew * t, ey - .03 + .08 * Math.sin(Math.PI * t)]); } curve(pts, eyeC); }
+    else {
+      const up = [], lo = [], hu = .1 * big, hl = .07 * big, w = ew * Math.min(big, 1.15);
+      for (let q = 0; q <= 10; q++) { const t = q / 10, x = ex - w + 2 * w * t, b = Math.sin(Math.PI * t); up.push([x, ey + hu * b * (1 + .2 * (t - .5) * -s)]); lo.push([x, ey - hl * b]); }
+      curve(up, eyeC); curve(lo, sc(eyeC, .7));
+      const ir = .075 * (scared ? .8 : 1), ix = ex + look[0], iy = ey + look[1], ring = [], pupil = [];
+      for (let q = 0; q <= 12; q++) { const a = q / 12 * TAU; ring.push([ix + ir * Math.cos(a), iy + ir * Math.sin(a), .045]); pupil.push([ix + ir * .4 * Math.cos(a), iy + ir * .4 * Math.sin(a), .05]); }
+      curve(ring, irisC); curve(pupil, sc(LC.white, 1.2));
+      if (d.feature === 'lashes') for (let q = 1; q <= 3; q++) { const t = q / 4, x = ex - w + 2 * w * t, y = ey + hu * Math.sin(Math.PI * t); curve([[x, y], [x + s * .03 * (t - .2), y + .06]], sc(LC.pink, 1.1)); }
+    }
+    const worry = scared || (j.say && (j.sayName === 'wahwah' || j.sayName === 'ohno')) ? 1 : 0, tilt = worry ? .1 : -.04 * j.joy;
+    const by = ey + .2 + (scared ? .08 : 0) + j.joy * .02;
+    curve([[ex - s * .2, by - tilt * 0], [ex + s * .02, by + .03 + tilt * .2], [ex + s * .2, by - tilt * 1.2]].map(p => [s < 0 ? p[0] : p[0], p[1]]), sc(skin, .85));
   }
-  poly(body, bright, true);
-  // limbs
-  const front = tw > 0.12;
-  const sh = d.p > 4 ? [d.rx * .98, d.ry * .25] : [d.rx * .82, d.ry * .22], hp = [d.rx * .45, -d.ry * .86];
-  const la = d.arm / 2, ll = (d.leg + .14 * d.ry) / 2;
+  // ---- nose (big for some)
+  const nz = d.nose || 1;
+  curve([[0, .12, .02], [0, -.3, .26 * nz]], sc(skin, .7));
+  for (const s of [-1, 1]) {
+    curve([[s * .07, .1, .02], [s * .09, -.22, .1 * nz]], sc(skin, .55));
+    curve([[s * .1, -.24, .1 * nz], [s * .15, -.32, .06], [s * .07, -.37, .12 * nz], [0, -.34, .2 * nz]], sc(skin, .85));
+  }
+  // ---- red jaw muscles (they glow as the voice works)
+  const mus = sc(LC.red, .55 + .9 * vol), sp = m.spread * .07 + j.joy * .03;
+  for (const s of [-1, 1]) {
+    curve([[s * .5, -.2], [s * .68, -.2]], mus);
+    curve([[s * .64, -.26, .0], [s * (.66 + sp), -.55, .0], [s * (.62 + sp * .5), -.85, .0], [s * .45, -1.0], [s * .2, -1.08], [0, -1.1]], mus);
+  }
+  // ---- mouth: lips, teeth, tongue
+  const my = -.6, lw = .27 * (.8 + .45 * m.spread - .35 * m.round + .25 * open + j.joy * .1);
+  const ih = .012 + .22 * open + .06 * m.round * vol + jd * .35;
+  const mc = my - jd * .35, lipC = sc(LC.pink, d.feature === 'lashes' ? 1.25 : .95);
+  const ellF = (cx, cy, rx, ry, c, n = 18, a0 = 0, a1 = TAU, dz = .04) => { const pts = []; for (let q = 0; q <= n; q++) { const a = a0 + (a1 - a0) * q / n; pts.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a), dz]); } curve(pts, c); };
+  if (vol > .06 && !m.closed) {
+    ellF(0, mc, lw + .05, ih + .07, lipC, 22);
+    ellF(0, mc, lw, ih, sc(lipC, .7), 20);
+    if (ih > .05) {
+      // teeth: an arc of little ticks top and bottom
+      for (const s of [1, -1]) {
+        const ty = mc + s * ih * .82, pts = [];
+        for (let q = 0; q <= 8; q++) { const t = q / 8, x = -lw * .7 + lw * 1.4 * t, y = ty - s * .02 * (1 - Math.sin(Math.PI * t)); pts.push([x, y, .02]); if (q % 1 === 0 && q > 0 && q < 8) curve([[x, y, .02], [x, y - s * .045, .02]], white); }
+        curve(pts, white);
+      }
+      if (ih > .1) ellF(0, mc - ih * .55, lw * .5, ih * .32, sc(LC.green, .9), 12, .1, Math.PI - .1, -.02); // tongue
+    }
+  } else if (m.closed && vol > .06) { // a raspberry
+    const pts = []; for (let q = 0; q <= 10; q++) pts.push([-lw + 2 * lw * q / 10, my + Math.sin(q * 2.2 + simT * 40) * .025, .04]); curve(pts, lipC);
+  } else if (scared) ellF(0, my - .04, .12, .1, lipC, 14);
+  else if (j.dizzy > 0) { const pts = []; for (let q = 0; q <= 10; q++) pts.push([-lw + 2 * lw * q / 10, my + Math.sin(q * 1.3) * .03, .04]); curve(pts, lipC); }
+  else { // resting smile (bigger with joy)
+    const k = .03 + j.joy * .07 + (j.cSub ? 0 : .03), up = [], lo = [];
+    for (let q = 0; q <= 10; q++) { const t = q / 10, x = -lw + 2 * lw * t, b = Math.sin(Math.PI * t); up.push([x, my + .02 + (1 - b) * k, .04]); lo.push([x, my - .02 - b * k * .8 + (1 - b) * k, .04]); }
+    curve(up, lipC); curve(lo, sc(lipC, .8));
+  }
+  // signature features
+  if (d.feature === 'stache') {
+    const wob = Math.sin(simT * 30) * .03 * clamp(j.F / (d.mass * G) - .8) + j.sq * .12;
+    for (const s of [-1, 1]) { const pts = []; for (let q = 0; q <= 10; q++) { const u = q / 10; pts.push([s * (.02 + u * .42), -.42 + Math.sin(u * Math.PI) * .06 - u * u * (.1 + wob), .09]); } curve(pts, sc(LC.amber, .9)); }
+  } else if (d.feature === 'cheeks') {
+    for (const s of [-1, 1]) ellF(s * .52, -.4, .1, .06, sc(LC.pink, .7), 10, 0, TAU, .02);
+  }
+  // hair / bobbles
+  for (const stn of j.strands) {
+    const pts = stn.pts.map(p => P(p.x, p.y, (stn.z || 0)));
+    poly(pts, bright);
+    if (stn.ball) { const e = stn.pts[stn.pts.length - 1], b = []; for (let q = 0; q <= 10; q++) { const a = q / 10 * TAU; b.push(P(e.x + stn.ball * Math.cos(a), e.y + stn.ball * Math.sin(a), stn.z || 0)); } poly(b, sc(LC.pink, 1.2)); }
+  }
+
+  // ---- neck: shell rings, and the trachea glowing with the voice
+  const nTop = Hc - .7 * hr, nBot = g.neckBot, nr = hr * .44;
+  const glow = mixc(sc(LC.blue, .5), sc(LC.green, 1.2), clamp(vol));
+  for (let k = 0; k <= 4; k++) {
+    const y = lerp(nBot, nTop, k / 4), pts = [], tr = [];
+    for (let q = 0; q <= 14; q++) { const a = q / 14 * TAU; pts.push(P(nr * Math.cos(a), y, -.06 * hr + nr * .9 * Math.sin(a))); tr.push(P(hr * .16 * Math.cos(a), y, hr * .2 + hr * .12 * Math.sin(a))); }
+    poly(pts, sc(skin, .3)); poly(tr, sc(glow, .5 + .6 * vol * (.6 + .4 * Math.sin(simT * 40 - k * 1.3))));
+  }
+  for (const a of [0, Math.PI / 2, Math.PI, 1.5 * Math.PI]) seg(P(nr * Math.cos(a), nBot, -.06 * hr + nr * .9 * Math.sin(a)), P(nr * Math.cos(a), nTop, -.06 * hr + nr * .9 * Math.sin(a)), sc(skin, .3));
+
+  // ---- the jacket: boxy slices, a yoke up to the collar, lapels, buttons, the chain
+  const TL = 7, tr = [], NT = 20;
+  for (let k = 0; k < TL; k++) {
+    const y = lerp(g.hipY, g.shY, k / (TL - 1)), [w, zf, zb] = torsoAt(d, y), r = [];
+    for (let q = 0; q < NT; q++) { const a = q / NT * TAU, ca = Math.cos(a), sa = Math.sin(a); r.push([w * Math.sign(ca) * Math.pow(Math.abs(ca), 2 / SET), y, (sa > 0 ? zf : zb) * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SET)]); }
+    tr.push(r);
+    poly(r.map(p => P(...p)), k === 0 ? bright : k === TL - 1 ? col : dim, true);
+  }
+  for (let q = 0; q < NT; q += 2) poly(tr.map(r => P(...r[q])), q === 5 || q === 15 ? col : dim);
+  // yoke: shoulders round up to the collar
+  for (let q = 0; q < NT; q += 2) {
+    const s = tr[TL - 1][q], a = q / NT * TAU, c = [nr * 1.15 * Math.cos(a), nBot, -.06 * hr + nr * 1.1 * Math.sin(a)];
+    poly([P(...s), P(s[0] * .8 + c[0] * .2, (s[1] + c[1]) / 2 + .025, s[2] * .8 + c[2] * .2), P(...c)], dim);
+  }
+  { const pts = []; for (let q = 0; q <= 16; q++) { const a = q / 16 * TAU; pts.push(P(nr * 1.15 * Math.cos(a), nBot, -.06 * hr + nr * 1.1 * Math.sin(a))); } poly(pts, col); }
+  const FP = (x, y, dz = .006) => P(x, y, torsoZ(d, x, y) + dz), c = d.rx;
+  for (const s of [-1, 1]) {
+    poly([FP(s * .22 * c, g.shY + .01), FP(s * .62 * c, g.chest - .01), FP(0, g.waist + .02)], bright); // lapel edge
+    poly([FP(s * .62 * c, g.chest - .01), FP(s * .48 * c, g.chest + .05), FP(s * .5 * c, g.shY - .04)], col); // the notch
+    poly([FP(s * .22 * c, g.shY + .01), FP(0, g.chest - .02)], sc(LC.white, .5)); // the shirt
+  }
+  for (const by of [g.waist - .005, g.waist - .07]) { const pts = []; for (let q = 0; q <= 8; q++) { const a = q / 8 * TAU; pts.push(FP(.013 * Math.cos(a), by + .013 * Math.sin(a), .01)); } poly(pts, bright); }
+  // the gold chain: a hanging rope (simulated in animate), drawn hatched
+  if (j.chain) {
+    const C = j.chain, gold = sc(LC.amber, 1.1), A = [], B = [];
+    for (let q = 0; q < C.length; q++) {
+      const p = C[q], n = C[Math.min(q + 1, C.length - 1)], o = C[Math.max(q - 1, 0)], tx = n.x - o.x, ty = n.y - o.y, tl = Math.hypot(tx, ty) || 1;
+      const z = torsoZ(d, p.x, p.y) + .02, w = .009;
+      A.push(P(p.x - ty / tl * w, p.y + tx / tl * w, z)); B.push(P(p.x + ty / tl * w, p.y - tx / tl * w, z));
+      if (q % 1 === 0) seg(A[q], B[q], gold);
+    }
+    poly(A, gold); poly(B, gold);
+  }
+
+  // ---- limbs: sleeves and trousers as tubes in the body's plane
+  const Q = (x, y, z) => T3(x, y, z);
+  const tube = (A, B, r0, r1, c, cuff) => {
+    const dx = B[0] - A[0], dy = B[1] - A[1], l = Math.hypot(dx, dy) || 1e-6, nx = -dy / l, ny = dx / l;
+    for (const s of [-1, 1]) {
+      seg(Q(A[0] + nx * r0 * s, A[1] + ny * r0 * s, 0), Q(B[0] + nx * r1 * s, B[1] + ny * r1 * s, 0), c);
+      seg(Q(A[0], A[1], r0 * s), Q(B[0], B[1], r1 * s), sc(c, .7));
+    }
+    const pts = []; for (let q = 0; q <= 10; q++) { const a = q / 10 * TAU; pts.push(Q(B[0] + nx * r1 * Math.cos(a), B[1] + ny * r1 * Math.cos(a), r1 * Math.sin(a))); }
+    poly(pts, cuff || c);
+  };
+  const sh = [d.rx * .9, g.shY - .03], hpp = [d.rx * .48, g.hipY + .02];
+  const la = d.arm / 2, ll = (d.leg + .1 * d.ry) / 2, th = d.thick;
   for (const side of [-1, 1]) {
     const o = side < 0 ? 0 : 2;
-    // arm
     const S = [side * sh[0] * sx, sh[1] * sy], a = j.j[o], e = j.j[o + 1];
     const E = [S[0] + side * Math.sin(a) * la, S[1] - Math.cos(a) * la], a2 = a + e;
     const Hd = [E[0] + side * Math.sin(a2) * la, E[1] - Math.cos(a2) * la];
-    poly([Q(...S), Q(...E), Q(...Hd)], col);
-    ell(Hd[0], Hd[1], .028, .028, col, 10, Q);
+    tube(S, E, th * 1.05, th * .95, col); tube(E, Hd, th * .95, th * .85, col, bright);
+    // a hand: mitten and thumb
+    const hx = Hd[0] + side * Math.sin(a2) * th * 1.2, hy = Hd[1] - Math.cos(a2) * th * 1.2, hpts = [];
+    for (let q = 0; q <= 12; q++) { const b = q / 12 * TAU; hpts.push(Q(hx + th * .75 * Math.cos(b), hy + th * 1.05 * Math.sin(b), 0)); }
+    poly(hpts, sc(skin, .9));
+    seg(Q(hx - side * th * .5, hy + th * .3, 0), Q(hx - side * th * 1.1, hy + th * .9, .02), sc(skin, .9));
     // leg
-    const Hp = [side * hp[0] * sx, hp[1] * sy];
+    const Hp = [side * hpp[0] * sx, hpp[1] * sy];
     let lg = j.j[4 + o], kn = j.j[5 + o];
     if (j.cSub && j.mode === 'feet') {
-      const D = (j.y + hp[1] * sy) - (j.landed ? PAD_TOP : sample(H, j.x, j.z));
+      const D = (j.y + Hp[1]) - (j.landed ? PAD_TOP : sample(H, j.x, j.z));
       const ang = Math.acos(clamp(D / (2 * ll), 0, 1));
       lg = 0.1 + ang; kn = 2 * ang + 0.1;
     }
     const K = [Hp[0] + side * Math.sin(lg) * ll, Hp[1] - Math.cos(lg) * ll], a3 = lg - kn;
     const Ft = [K[0] + side * Math.sin(a3) * ll, K[1] - Math.cos(a3) * ll];
-    poly([Q(...Hp), Q(...K), Q(...Ft)], col);
-    // shoe: a little outward-pointing loop
-    const sz = .05 + d.leg * .08;
-    poly([Q(Ft[0] - side * .015, Ft[1]), Q(Ft[0] + side * sz, Ft[1] - .005), Q(Ft[0] + side * sz * .8, Ft[1] + .03), Q(Ft[0], Ft[1] + .02)], col, true);
-  }
-  // hair / antennae
-  for (const st of j.strands) {
-    const pts = st.pts.map(p => Q(p.x, p.y));
-    poly(pts, bright);
-    if (st.ball) { const e = st.pts[st.pts.length - 1]; ell(e.x, e.y, st.ball, st.ball, st.blink && (simT * 2 % 1) < .5 ? sc(LC.amber, 1.4) : bright, 12, Q); }
-  }
-  if (front) {
-    const ey = d.ry * (d.p > 4 ? .3 : .32), ex = Math.min(d.rx * .42, .1), er = clamp(d.rx * .28, .04, .07);
-    const big = j.scared ? 1.45 : 1 + j.joy * .1;
-    const look = [clamp(j.vx * .2, -.5, .5), clamp(j.vy * .07, -.6, .6)];
-    const squint = j.impactT < 0.18 && j.F > d.mass * G * 2.4;
-    for (const side of [-1, 1]) {
-      const cx = side * ex;
-      if (j.dizzy > 0) { // spiral eyes
-        const pts = []; for (let q = 0; q < 26; q++) { const a = q * .55 + simT * 9 * side, r = er * q / 26; pts.push(P(cx + r * Math.cos(a), ey + r * Math.sin(a))); } poly(pts, white);
-      } else if (squint) {
-        poly([P(cx - side * er, ey + er * .7), P(cx + side * er * .6, ey), P(cx - side * er, ey - er * .7)], white);
-      } else if (j.blinkT < 0) {
-        line(P(cx - er, ey), P(cx + er, ey), white);
-      } else if (j.sayName === 'giggle' && j.say) {
-        ell(cx, ey - er * .3, er, er * .8, white, 10, P, .15, Math.PI - .15);
-      } else {
-        if (d.feature === 'visor') { const w = er * 1.15 * big, h = er * .8 * big; poly([P(cx - w, ey - h), P(cx + w, ey - h), P(cx + w, ey + h), P(cx - w, ey + h)], white, true); }
-        else ell(cx, ey, er * big, er * 1.15 * big, white, 16);
-        const pr = er * (j.scared ? .25 : .42);
-        ell(cx + look[0] * er * .5, ey + look[1] * er * .55, pr, pr, sc(LC.white, 1.2), 8);
-      }
-      // brows
-      const by = ey + er * 1.15 * big + .025, worry = j.scared || (j.say && j.sayName === 'wahwah') ? 1 : 0, happy = j.joy;
-      const tilt = worry ? .45 : -.15 * happy;
-      line(P(cx - er * .9, by + side * tilt * er * .5 - (worry ? 0 : happy * .01)), P(cx + er * .9, by - side * tilt * er * .5), dim);
+    tube(Hp, K, th * 1.45, th * 1.25, col); tube(K, Ft, th * 1.25, th * 1.1, col, bright);
+    // shoe: a loafer pointing at the camera
+    const fl = .06 + d.leg * .14, fw = th * 1.1, fh = th * .9, fx = Ft[0], fy = Ft[1] - fh * .4, sole = [], top = [];
+    for (let q = 0; q <= 12; q++) {
+      const t = q / 12 * TAU, x = fx + fw * Math.cos(t), zz = -.03 + (Math.sin(t) > 0 ? fl : .04) * Math.sin(t);
+      sole.push(Q(x, fy - fh * .5, zz)); top.push(Q(fx + fw * .8 * Math.cos(t), fy + fh * .4 - (Math.sin(t) > 0 ? Math.sin(t) * fh * .5 : 0), -.03 + (Math.sin(t) > 0 ? fl * .9 : .035) * Math.sin(t)));
     }
-    // mouth: shaped by the voice's jaw / lips
-    const m = j.mouth, my = d.ry * (d.p > 4 ? -.2 : -.18), mw = clamp(d.rx * .55, .07, .15);
-    const open = clamp(m.vol, 0, 1.2) * (.25 + .75 * m.jaw) * (1 - m.closed);
-    const w = mw * (.6 + .5 * m.spread - .38 * m.round + .25 * open), h = mw * (.08 + 1.1 * open + .25 * m.round * m.vol);
-    if (m.vol > .06 && !m.closed) { ell(0, my, w, h, white, 20); if (open > .4) ell(0, my - h * .55, w * .45, h * .25, sc(LC.red, .9), 10, P, 0, Math.PI); }
-    else if (m.closed && m.vol > .06) { const pts = []; for (let q = 0; q <= 8; q++) pts.push(P(-mw * .45 + mw * .9 * q / 8, my + Math.sin(q * 2.2 + simT * 40) * .006)); poly(pts, white); }
-    else if (j.scared) ell(0, my, mw * .4, mw * .3, white, 14);
-    else if (j.dizzy > 0) { const pts = []; for (let q = 0; q <= 10; q++) pts.push(P(-mw * .6 + mw * 1.2 * q / 10, my + Math.sin(q * 1.3) * .012)); poly(pts, white); }
-    else ell(0, my + mw * .55, mw * .75, mw * .55 * (.4 + j.joy * .6 + (j.cSub ? .2 : .4)), white, 14, P, Math.PI * 1.2, Math.PI * 1.8);
-    // signature features
-    if (d.feature === 'stache') {
-      const wob = Math.sin(simT * 30) * .01 * clamp(j.F / (d.mass * G) - .8) + j.sq * .04;
-      for (const side of [-1, 1]) { const pts = []; for (let q = 0; q <= 10; q++) { const u = q / 10; pts.push(P(side * (.01 + u * .15), my + .045 + Math.sin(u * Math.PI) * .03 - u * u * (.04 + wob))); } poly(pts, bright); }
-    } else if (d.feature === 'nose') {
-      poly([P(0, ey - .01), P(.06 + j.vx * .02, ey - .07 - j.ay * .0006), P(0, ey - .09)], col);
-    } else if (d.feature === 'cheeks') {
-      for (const side of [-1, 1]) { ell(side * d.rx * .6, my + .03, .025, .016, sc(LC.pink, .7), 10); }
-    } else if (d.feature === 'visor') {
-      poly([P(-.06, -d.ry * .55), P(.06, -d.ry * .55), P(.06, -d.ry * .7), P(-.06, -d.ry * .7)], dim, true);
-      const lit = (simT * 3) % 3 | 0; for (let q = 0; q < 3; q++) ell(-.035 + q * .035, -d.ry * .625, .01, .01, q === lit ? sc(LC.amber, 1.4) : dim, 6);
-    }
-  } else {
-    line(P(0, d.ry * .6), P(0, -d.ry * .6), dim); // the back seam
+    poly(sole, white); poly(top, sc(LC.white, .6));
   }
+
   // cartoon stars after a bonk
   if (j.dizzy > 0) {
     for (let q = 0; q < 4; q++) {
-      const a = simT * 5 + q * TAU / 4, cx = Math.cos(a) * d.rx * 1.3, cy = d.ry * 1.15 + Math.sin(a) * .05, r = .035;
-      const pts = []; for (let k = 0; k <= 10; k++) { const b = k * Math.PI / 5 + simT * 4, rr = k % 2 ? r * .45 : r; pts.push(Q(cx + rr * Math.cos(b), cy + rr * Math.sin(b))); }
+      const a = simT * 5 + q * TAU / 4, cx = Math.cos(a) * hr * 1.4, cy = g.top + .05 + Math.sin(a) * .04, cz = Math.sin(a) * hr * 1.4, r = .035;
+      const pts = []; for (let k = 0; k <= 10; k++) { const b = k * Math.PI / 5 + simT * 4, rr = k % 2 ? r * .45 : r; pts.push(Q(cx + rr * Math.cos(b), cy + rr * Math.sin(b), cz)); }
       poly(pts, sc(LC.amber, 1.3));
     }
   }
   // motion lines while rocketing up
-  if (!j.cSub && j.vy > 4.5) for (let q = -1; q <= 1; q++) line(Q(q * d.rx * .6, -d.ry - d.leg - .05), Q(q * d.rx * .6, -d.ry - d.leg - .05 - j.vy * .05), sc(col, .35));
+  if (!j.cSub && j.vy > 4.5) for (let q = -1; q <= 1; q++) seg(Q(q * d.rx * .6, g.hipY - d.leg - .05, 0), Q(q * d.rx * .6, g.hipY - d.leg - .05 - j.vy * .05, 0), sc(col, .35));
   L.end();
   j.group.position.set(j.x, j.y, j.z);
   j.group.rotation.y = Math.atan2(camera.position.x - j.x, camera.position.z - j.z);
@@ -1362,8 +1629,8 @@ function tick(dt) {
   // the camera tilts up a little to keep the performer in frame on big jumps (but lets the exit fly off)
   const act = stage.act, k = clamp(dt * 5);
   let tx = 0, ty = .85, tz = 0;
-  if (act && act.leaving >= 2) { tx = act.pad.x * .45; tz = act.pad.z * .45; ty = .5 + clamp((act.y - 1.0) * .85, 0, 2.6); }
-  else if (act) ty = .85 + clamp((act.y - 1.0) * .9, 0, 3);
+  if (act && act.leaving >= 2) { tx = act.pad.x * .45; tz = act.pad.z * .45; ty = .55 + clamp((act.y - .9) * .95, 0, 3); }
+  else if (act) ty = .95 + clamp((act.y - .85) * 1.0, 0, 3.6);
   controls.target.x += (tx - controls.target.x) * k; controls.target.y += (ty - controls.target.y) * k; controls.target.z += (tz - controls.target.z) * k;
   const n = Math.ceil(dt / SUB), h = dt / n, events = [];
   const PH = ON.filter(j => !j.landed);
@@ -1383,7 +1650,7 @@ function tick(dt) {
     if (j.cSub && j.mode !== 'feet') { j.lowT = (j.lowT || 0) + dt; if (j.lowT > (j.landed ? 1.0 : 0.45)) { if (j.landed) j.y = PAD_TOP + j.probeFeet; j.mode = 'feet'; j.nextMode = null; j.lowT = 0; j.gatherKernel(); } }
     else j.lowT = 0;
   }
-  if (bottomed > 0) { post({ type: 'clank', amp: clamp(bottomed / 6, .3, 1.2) }); bottomed = 0; }
+  if (bottomed > 0) { post({ type: 'thump', amp: clamp(bottomed / 12, .15, .5), tone: .6 }); bottomed = 0; } // bottoming out: a dull thud, never a bell
   collide();
   for (const j of ON) { if (j.pending && simT >= j.pending.at) { speak(j, j.pending.name); j.pending = null; } animate(j, dt); }
   for (let i = ripples.length - 1; i >= 0; i--) { const rp = ripples[i]; rp.t += dt; rp.r += dt * (1.5 + rp.s * .25); if (rp.t > .7) ripples.splice(i, 1); }
@@ -1415,7 +1682,7 @@ if (CAPTURE) {
     wav.setUint32(24, SR, true); wav.setUint32(28, SR * 4, true); wav.setUint16(32, 4, true); wav.setUint16(34, 16, true); str(36, 'data'); wav.setUint32(40, n * 4, true);
     for (let i = 0; i < n; i++) { wav.setInt16(44 + i * 4, clamp(L[i], -1, 1) * 32767, true); wav.setInt16(46 + i * 4, clamp(Rr[i], -1, 1) * 32767, true); }
     const b = new Uint8Array(wav.buffer); let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
-    return btoa(s);
+    window.__wav = btoa(s); return window.__wav.length; // fetched in slices: one huge CDP reply can stall
   };
   window.__ready = true;
 } else {
