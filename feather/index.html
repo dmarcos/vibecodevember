@@ -1,0 +1,988 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Feather</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #3a2214; --ink-soft: #7d5a40; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #aee3f7; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  canvas { display: block; touch-action: none; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(60,30,10,0.28) 100%); }
+  .title { position: fixed; top: 24px; left: 28px; pointer-events: none; font-family: Fraunces, serif; font-weight: 400; font-size: 22px; letter-spacing: 0.01em; text-shadow: 0 1px 10px rgba(255,255,255,0.7); }
+  .title small { display: block; margin-top: 4px; font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+  .hint { position: fixed; bottom: 22px; left: 16px; right: 16px; text-align: center; pointer-events: none; font-size: 12px; letter-spacing: 0.08em; color: var(--ink-soft); text-shadow: 0 1px 8px rgba(255,255,255,0.8); transition: opacity .6s; }
+  .hint b { color: var(--ink); font-weight: 500; }
+  #count { position: fixed; top: 22px; right: 28px; text-align: right; pointer-events: none; font-family: Fraunces, serif; opacity: 0; transition: opacity .4s; text-shadow: 0 1px 10px rgba(255,255,255,0.7); }
+  #count b { display: block; font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  #count small { font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+  @media (max-width: 640px) { .title { top: 16px; left: 16px; font-size: 19px; } #count { top: 16px; right: 16px; } #count b { font-size: 26px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="vignette"></div>
+<div class="title">Vibecodevember - Feather<small>Nov 11th 2026</small></div>
+<div id="count"><b id="countN">0</b><small>feathers lost</small></div>
+<div class="hint" id="hint"><b>grab</b> the chicken &nbsp;·&nbsp; <b>shake</b> it &nbsp;·&nbsp; <b>let go</b> &nbsp;·&nbsp; <b>m</b> mute</div>
+<script type="module">
+import * as THREE from 'three';
+
+// ───────────────────────── utils ─────────────────────────
+const V3 = THREE.Vector3, Q = THREE.Quaternion;
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const smooth = e => e * e * (3 - 2 * e);
+const sstep = (a, b, x) => smooth(clamp((x - a) / (b - a), 0, 1));
+const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+const dk = (l, dt) => 1 - Math.exp(-l * dt);
+const tA = new V3(), tB = new V3(), tC = new V3(), tD = new V3(), tF = new V3(), tS = new V3(), tR = new V3();
+const tE = new THREE.Euler(), qT = new Q(), qT2 = new Q(), mT = new THREE.Matrix4();
+const UP = new V3(0, 1, 0), ZAX = new V3(0, 0, 1), ORIGIN = new V3();
+function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function ctex(c, rep) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); } t.anisotropy = 4; return t; }
+
+// ───────────────────────── renderer / scene ─────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+{
+  const [c, g] = canvas(2, 256);
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#4fb8ec'); gr.addColorStop(0.5, '#a6def6'); gr.addColorStop(0.72, '#fff2d2'); gr.addColorStop(1, '#ffd9a0');
+  g.fillStyle = gr; g.fillRect(0, 0, 2, 256);
+  scene.background = ctex(c);
+}
+scene.fog = new THREE.Fog(0xf6e6c4, 20, 48);
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 150);
+const camLook = new V3(0, 0.75, 0);
+
+scene.add(new THREE.HemisphereLight(0xfff4e2, 0x9a7650, 1.25));
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.5);
+sun.position.set(4, 9, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+// toon + outline
+const gm = new THREE.DataTexture(new Uint8Array([95, 95, 95, 255, 180, 180, 180, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
+gm.minFilter = gm.magFilter = THREE.NearestFilter; gm.needsUpdate = true;
+const tm = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: gm, ...extra });
+function outlineMat(th) {
+  const m = new THREE.MeshBasicMaterial({ color: 0x24150c, side: THREE.BackSide });
+  m.onBeforeCompile = s => { s.vertexShader = s.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = position + normal * ${th.toFixed(4)};`); };
+  m.customProgramCacheKey = () => 'ol' + th;
+  return m;
+}
+const OL = outlineMat(0.013), OLT = outlineMat(0.007), OLB = outlineMat(0.03);
+function mk(geo, mat, ol = OL, shadow = true) {
+  const m = new THREE.Mesh(geo, mat); m.castShadow = shadow;
+  if (ol) { const o = new THREE.Mesh(geo, ol); o.raycast = () => {}; m.add(o); }
+  return m;
+}
+const ell = (rx, ry, rz, ws = 18, hs = 14) => new THREE.SphereGeometry(1, ws, hs).scale(rx, ry, rz);
+
+// ───────────────────────── barnyard ─────────────────────────
+{
+  const [c, g] = canvas(512, 512);
+  g.fillStyle = '#d8b67c'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 70; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(186,140,88,0.35)' : 'rgba(236,206,150,0.4)'; g.beginPath(); g.ellipse(rand(0, 512), rand(0, 512), rand(20, 70), rand(12, 40), rand(0, 3), 0, 7); g.fill(); }
+  for (let i = 0; i < 380; i++) { g.fillStyle = ['#b08656', '#c79a64', '#9c7448', '#e6cb98'][i % 4]; g.beginPath(); g.arc(rand(0, 512), rand(0, 512), rand(1.5, 4.5), 0, 7); g.fill(); }
+  g.lineCap = 'round';
+  for (let i = 0; i < 160; i++) { g.strokeStyle = Math.random() < 0.5 ? '#f0d488' : '#d9b860'; g.lineWidth = rand(1.5, 3); const x = rand(0, 512), y = rand(0, 512), a = rand(0, 6.3), l = rand(10, 26); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 72).rotateX(-Math.PI / 2), tm(0xffffff, { map: ctex(c, 10) }));
+  ground.receiveShadow = true; scene.add(ground);
+  const grass = new THREE.Mesh(new THREE.RingGeometry(8.3, 60, 72).rotateX(-Math.PI / 2), tm(0x8cc65a));
+  grass.position.y = 0.004; grass.receiveShadow = true; scene.add(grass);
+  // grass tufts
+  const gGeo = new THREE.ConeGeometry(0.05, 0.28, 4).translate(0, 0.14, 0);
+  const gIM = new THREE.InstancedMesh(gGeo, tm(0x6fae3e), 900);
+  for (let i = 0; i < 900; i++) {
+    const a = rand(0, 6.283), r = i < 200 ? rand(6.6, 8.2) : rand(8.2, 22);
+    tE.set(rand(-0.3, 0.3), rand(0, 6), rand(-0.3, 0.3)); qT.setFromEuler(tE);
+    mT.compose(tA.set(Math.cos(a) * r, 0, Math.sin(a) * r), qT, tB.setScalar(rand(0.6, 1.5))); gIM.setMatrixAt(i, mT);
+  }
+  scene.add(gIM);
+  // fence
+  const wood = tm(0xa06c3e), woodD = tm(0x8a5a32);
+  const N = 44, R = 7.7, post = new THREE.BoxGeometry(0.16, 1.1, 0.16).translate(0, 0.55, 0);
+  for (let i = 0; i < N; i++) {
+    const a = i / N * Math.PI * 2, a2 = (i + 1) / N * Math.PI * 2;
+    const p = mk(post, wood, OL); p.position.set(Math.cos(a) * R, 0, Math.sin(a) * R); p.rotation.y = -a + rand(-0.1, 0.1); p.rotation.z = rand(-0.06, 0.06); scene.add(p);
+    const mx = (Math.cos(a) + Math.cos(a2)) / 2 * R, mz = (Math.sin(a) + Math.sin(a2)) / 2 * R, len = 2 * R * Math.sin(Math.PI / N);
+    for (const y of [0.42, 0.85]) { const rl = mk(new THREE.BoxGeometry(len + 0.1, 0.12, 0.06), woodD, OL); rl.position.set(mx, y + rand(-0.03, 0.03), mz); rl.rotation.y = -(a + a2) / 2 + Math.PI / 2; rl.rotation.z = rand(-0.04, 0.04); scene.add(rl); }
+  }
+  // ACME crate
+  const [cc, cg] = canvas(256, 256);
+  cg.fillStyle = '#c98e4e'; cg.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 5; i++) { cg.fillStyle = i % 2 ? '#c08446' : '#cf9656'; cg.fillRect(0, i * 51, 256, 50); cg.fillStyle = '#7a4f28'; cg.fillRect(0, i * 51 + 49, 256, 3); }
+  cg.strokeStyle = '#6d4322'; cg.lineWidth = 16; cg.strokeRect(8, 8, 240, 240);
+  cg.save(); cg.translate(128, 128); cg.rotate(-0.08);
+  cg.font = 'bold 72px Georgia, serif'; cg.textAlign = 'center'; cg.textBaseline = 'middle'; cg.fillStyle = '#b3201b'; cg.fillText('ACME', 0, -6);
+  cg.font = 'bold 15px Georgia, serif'; cg.fillStyle = '#3a2210'; cg.fillText('INSTANT  CHICKEN  CALMER', 0, 44);
+  cg.font = '11px Georgia, serif'; cg.fillText('(does not work)', 0, 64); cg.restore();
+  const crate = mk(new THREE.BoxGeometry(1.1, 1.1, 1.1), tm(0xffffff, { map: ctex(cc) }), OL);
+  crate.position.set(-3.5, 0.55, -3.1); crate.rotation.y = 0.35; crate.receiveShadow = true; scene.add(crate);
+  // hay bale
+  const [hc, hg] = canvas(256, 128);
+  hg.fillStyle = '#e8c35a'; hg.fillRect(0, 0, 256, 128);
+  for (let i = 0; i < 500; i++) { hg.strokeStyle = ['#d4a83c', '#f5d978', '#c9982e'][i % 3]; hg.lineWidth = rand(1, 2.5); const x = rand(0, 256), y = rand(0, 128); hg.beginPath(); hg.moveTo(x, y); hg.lineTo(x + rand(-14, 14), y + rand(-4, 4)); hg.stroke(); }
+  const hay = mk(new THREE.CylinderGeometry(0.55, 0.55, 1.3, 24).rotateZ(Math.PI / 2), tm(0xffffff, { map: ctex(hc) }), OL);
+  hay.position.set(3.7, 0.55, -2.8); hay.rotation.y = -0.5; hay.receiveShadow = true; scene.add(hay);
+  // barn
+  const barn = new THREE.Group(); barn.position.set(-6, 0, -21); barn.rotation.y = 0.25; scene.add(barn);
+  const bw = mk(new THREE.BoxGeometry(7, 4.4, 6).translate(0, 2.2, 0), tm(0xc9443a), OLB); barn.add(bw);
+  const roof = mk(new THREE.CylinderGeometry(1, 1, 6.4, 3, 1).rotateX(Math.PI / 2).rotateZ(Math.PI).scale(4.3, 1.8, 1), tm(0x6e3b28), OLB);
+  roof.position.y = 4.4 + 0.9; barn.add(roof);
+  const door = mk(new THREE.BoxGeometry(2.6, 3, 0.1).translate(0, 1.5, 3.02), tm(0xf3eadb), OLB); barn.add(door);
+  const doorIn = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.6, 0.1).translate(0, 1.5, 3.06), tm(0xa8352d)); barn.add(doorIn);
+  for (const s of [1, -1]) { const x = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.2, 0.1), tm(0xf3eadb)); x.position.set(0, 1.5, 3.1); x.rotation.z = s * 0.86; barn.add(x); }
+  // silo
+  const silo = mk(new THREE.CylinderGeometry(1.3, 1.3, 6.5, 20).translate(0, 3.25, 0), tm(0xb9b2a6), OLB); silo.position.set(-1.6, 0, -24); scene.add(silo);
+  const dome = mk(new THREE.SphereGeometry(1.3, 20, 10, 0, 6.3, 0, Math.PI / 2), tm(0x8a4a33), OLB); dome.position.set(-1.6, 6.5, -24); scene.add(dome);
+  // trees
+  for (const [x, z, s] of [[7, -18, 1.3], [10, -16, 1], [4.5, -22, 1.1], [-13, -17, 1.2], [14, -12, 0.9]]) {
+    const tr = mk(new THREE.CylinderGeometry(0.2 * s, 0.28 * s, 2 * s, 8).translate(0, s, 0), tm(0x7a5030), OLB); tr.position.set(x, 0, z); scene.add(tr);
+    for (let k = 0; k < 4; k++) { const b = mk(new THREE.SphereGeometry(rand(0.9, 1.3) * s, 14, 10), tm(k % 2 ? 0x6cb04a : 0x5c9d3e), OLB); b.position.set(x + rand(-0.8, 0.8) * s, (2.4 + rand(0, 1.2)) * s, z + rand(-0.6, 0.6) * s); scene.add(b); }
+  }
+  // clouds
+  const cm = tm(0xffffff, { fog: false });
+  for (const [x, y, z, s] of [[-14, 10, -36, 1.6], [6, 12.5, -40, 1.3], [20, 9, -32, 1.1], [-26, 13, -42, 1.2]]) {
+    for (let k = 0; k < 6; k++) { const b = mk(new THREE.SphereGeometry(rand(1, 1.8) * s, 14, 10), cm, OLB, false); b.position.set(x + (k - 2.5) * 1.3 * s, y + rand(-0.4, 0.6) * s, z + rand(-0.5, 0.5)); b.scale.y = 0.7; scene.add(b); }
+  }
+}
+const OBST = [{ x: -3.5, z: -3.1, r: 0.8 }, { x: 3.7, z: -2.8, r: 0.8 }];
+
+// ───────────────────────── textures for the bird ─────────────────────────
+const gooseTex = (() => {
+  const [c, g] = canvas(256, 256);
+  g.fillStyle = '#f4a796'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 20; i++) { g.fillStyle = 'rgba(230,120,120,0.25)'; g.beginPath(); g.ellipse(rand(0, 256), rand(0, 256), rand(15, 40), rand(10, 30), rand(0, 3), 0, 7); g.fill(); }
+  for (let i = 0; i < 900; i++) {
+    const x = rand(0, 256), y = rand(0, 256), r = rand(1.4, 3.4);
+    g.fillStyle = 'rgba(196,96,92,0.75)'; g.beginPath(); g.arc(x, y + 0.8, r, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,214,200,0.9)'; g.beginPath(); g.arc(x - 0.5, y - 0.5, r * 0.55, 0, 7); g.fill();
+  }
+  return ctex(c, 2);
+})();
+const veinTex = (() => {
+  const [c, g] = canvas(256, 128);
+  g.lineCap = 'round';
+  for (let i = 0; i < 46; i++) {
+    let x = rand(0, 256), y = rand(0, 128);
+    if (Math.hypot((x - 64) / 2, y - 64) < 26) { x = (x + 128) % 256; }
+    g.strokeStyle = Math.random() < 0.5 ? '#c41a1f' : '#e0333a'; let w = rand(1.2, 2.8);
+    for (let s = 0; s < 28; s++) {
+      const dx = 64 - x, dy = 64 - y, d = Math.hypot(dx / 2, dy); if (d < 22) break;
+      const a = Math.atan2(dy, dx / 2) + rand(-1.1, 1.1); const nx = x + Math.cos(a) * 9, ny = y + Math.sin(a) * 5;
+      g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(nx, ny); g.stroke(); x = nx; y = ny; w *= 0.93;
+      if (Math.random() < 0.15) { g.lineWidth = w * 0.6; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-10, 10), y + rand(-8, 8)); g.stroke(); }
+    }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const featherTex = (() => {
+  const [c, g] = canvas(64, 128);
+  g.translate(32, 0);
+  const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#eee2cf');
+  g.fillStyle = gr; g.beginPath(); g.moveTo(0, 4); g.bezierCurveTo(30, 26, 26, 92, 3, 120); g.bezierCurveTo(-22, 96, -30, 30, 0, 4); g.fill();
+  g.strokeStyle = 'rgba(180,160,140,0.55)'; g.lineWidth = 1;
+  for (let y = 14; y < 112; y += 5) { g.beginPath(); g.moveTo(0, y); g.lineTo(-20, y - 9); g.moveTo(1, y); g.lineTo(20, y - 7); g.stroke(); }
+  g.globalCompositeOperation = 'destination-out';
+  for (let k = 0; k < 4; k++) { const y = rand(30, 100), s = Math.random() < 0.5 ? -1 : 1; g.beginPath(); g.moveTo(s * 30, y - 6); g.lineTo(s * 6, y + 2); g.lineTo(s * 30, y + 4); g.fill(); }
+  g.globalCompositeOperation = 'source-over';
+  g.strokeStyle = '#c9b89e'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(0, 6); g.quadraticCurveTo(2, 70, 2, 127); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+
+// ───────────────────────── chicken construction ─────────────────────────
+const WHITE = 0xf7f0e3, SKIN = 0xf2a191, RED = 0xe5352a, BEAK = 0xf7a823, LEGC = 0xf2a72e;
+const cWhite = new THREE.Color(WHITE), cSkin = new THREE.Color(SKIN);
+const BODY_H = 0.6, LEG_L = 0.36, BR = 0.4, BODY_S = new V3(1, 0.88, 1.18);
+const HEAD_REST = new V3(0, 0.48, 0.4), NECK_BASE = new V3(0, 0.18, 0.3);
+const HIP = [new V3(0.15, -0.24, 0.03), new V3(-0.15, -0.24, 0.03)];
+const invisible = new THREE.MeshBasicMaterial({ visible: false });
+
+const bodyG = new THREE.Group(); scene.add(bodyG);
+const bodyIn = new THREE.Group(); bodyG.add(bodyIn);
+const skin = mk(ell(BR * 0.96 * BODY_S.x, BR * 0.96 * BODY_S.y, BR * 0.96 * BODY_S.z, 32, 24), tm(0xffffff, { map: gooseTex }));
+bodyIn.add(skin);
+const bodyHit = new THREE.Mesh(ell(0.47 * BODY_S.x, 0.47 * BODY_S.y, 0.47 * BODY_S.z, 12, 8), invisible); bodyG.add(bodyHit);
+
+// feather tufts covering the body (each one pluckable)
+const NT = 200;
+const tuftGeo = ell(0.13, 0.05, 0.17, 10, 8);
+const tufts = new THREE.InstancedMesh(tuftGeo, tm(WHITE), NT); tufts.castShadow = true;
+const tuftsOL = new THREE.InstancedMesh(tuftGeo, OL, NT); tuftsOL.instanceMatrix = tufts.instanceMatrix;
+bodyIn.add(tufts, tuftsOL);
+const TUFT = [];
+{
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < NT; i++) {
+    const y = 1 - (i + 0.5) / NT * 2, r = Math.sqrt(1 - y * y), th = golden * i;
+    const u = new V3(Math.cos(th) * r, y, Math.sin(th) * r);
+    const p = new V3(u.x * BODY_S.x, u.y * BODY_S.y, u.z * BODY_S.z).multiplyScalar(BR * 0.96);
+    const n = new V3(u.x / BODY_S.x, u.y / BODY_S.y, u.z / BODY_S.z).normalize();
+    const t = new V3(0, -0.3, -1); t.addScaledVector(n, -t.dot(n));
+    if (t.lengthSq() < 1e-3) { t.set(0, -1, 0).addScaledVector(n, -n.y); }
+    t.normalize();
+    const x = new V3().crossVectors(n, t);
+    const q = new Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, n, t));
+    p.addScaledVector(n, 0.012).addScaledVector(t, 0.05);
+    TUFT.push({ p, q, n, s: rand(0.9, 1.12), g: 1, gv: 0, alive: true });
+  }
+}
+const _tm = new THREE.Matrix4(), _ts = new V3();
+function setTuft(i) { const f = TUFT[i]; const g = Math.max(0.0001, f.g) * f.s; _tm.compose(f.p, f.q, _ts.set(g, g, g)); tufts.setMatrixAt(i, _tm); }
+for (let i = 0; i < NT; i++) setTuft(i);
+let tuftsAlive = NT;
+
+// wings
+const WINGS = [];
+for (const s of [1, -1]) {
+  const piv = new THREE.Group(); piv.position.set(s * 0.36, 0.1, 0.06); bodyIn.add(piv);
+  const w = mk(ell(0.07, 0.2, 0.33), tm(WHITE)); w.position.set(s * 0.045, -0.09, -0.12); w.rotation.x = -0.28; piv.add(w);
+  for (let k = 0; k < 3; k++) { const f = mk(ell(0.03, 0.05, 0.16, 10, 8), tm(0xeee4d2)); f.position.set(s * 0.05, -0.21 + k * 0.045, -0.33 + k * 0.02); f.rotation.x = 0.35 - k * 0.12; piv.add(f); }
+  WINGS.push({ piv, s });
+}
+// tail
+const tailG = new THREE.Group(); tailG.position.set(0, 0.12, -0.4); bodyIn.add(tailG);
+const TAIL = [];
+for (let k = 0; k < 5; k++) {
+  const piv = new THREE.Group(); piv.rotation.set(-0.55 - Math.abs(k - 2) * 0.08, 0, (k - 2) * 0.3); tailG.add(piv);
+  const f = mk(ell(0.05, 0.26, 0.1).translate(0, 0.22, 0), tm(k % 2 ? 0xefe4d0 : WHITE)); piv.add(f);
+  TAIL.push({ piv, mesh: f, alive: true, g: 1 });
+}
+// thighs (drumsticks!)
+const thighMat = tm(WHITE);
+for (const s of [1, -1]) { const t = mk(ell(0.12, 0.15, 0.13), thighMat); t.position.set(s * 0.16, -0.19, 0.02); bodyIn.add(t); }
+
+// neck
+const neckMat = tm(WHITE);
+const neck = mk(new THREE.CylinderGeometry(0.1, 0.135, 1, 16, 1, true).translate(0, 0.5, 0), neckMat); scene.add(neck);
+
+// head
+const headG = new THREE.Group(); scene.add(headG);
+const headIn = new THREE.Group(); headG.add(headIn);
+headIn.add(mk(new THREE.SphereGeometry(0.2, 28, 20), tm(WHITE)));
+const headHit = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), invisible); headG.add(headHit);
+const combG = new THREE.Group(); combG.position.set(0, 0.16, 0.0); headIn.add(combG);
+for (const [y, z, r] of [[0.04, 0.08, 0.065], [0.08, 0.01, 0.085], [0.07, -0.08, 0.075], [0.03, -0.15, 0.055]]) { const m = mk(ell(r * 0.42, r, r), tm(RED)); m.position.set(0, y, z); combG.add(m); }
+const wattleG = new THREE.Group(); wattleG.position.set(0, -0.08, 0.15); headIn.add(wattleG);
+for (const s of [1, -1]) { const m = mk(ell(0.03, 0.065, 0.04).translate(0, -0.05, 0), tm(RED)); m.position.x = s * 0.022; m.rotation.z = s * 0.15; wattleG.add(m); }
+const beakG = new THREE.Group(); beakG.position.set(0, -0.01, 0.15); headIn.add(beakG);
+const upperPiv = new THREE.Group(); upperPiv.position.set(0, 0.012, 0); beakG.add(upperPiv);
+upperPiv.add(mk(new THREE.ConeGeometry(0.065, 0.17, 16).rotateX(Math.PI / 2).scale(1, 0.6, 1).translate(0, 0.008, 0.08), tm(BEAK)));
+const lowerPiv = new THREE.Group(); lowerPiv.position.set(0, -0.02, -0.005); beakG.add(lowerPiv);
+lowerPiv.add(mk(new THREE.ConeGeometry(0.05, 0.13, 16).rotateX(Math.PI / 2).scale(1, 0.5, 1).translate(0, -0.006, 0.065), tm(0xe8961a)));
+const tongue = mk(ell(0.032, 0.013, 0.06, 12, 8).translate(0, 0, 0.04), tm(0xff7f8f), OLT); tongue.position.set(0, 0.008, 0.0); lowerPiv.add(tongue);
+const mouth = new THREE.Mesh(ell(0.05, 0.042, 0.04), new THREE.MeshBasicMaterial({ color: 0x4a0b10 })); mouth.position.set(0, -0.008, 0.035); beakG.add(mouth);
+// eyes
+const EYES = [];
+const veinMat = new THREE.MeshBasicMaterial({ map: veinTex, transparent: true, opacity: 0, depthWrite: false });
+const stalkMat = tm(0xd9564f);
+for (const s of [1, -1]) {
+  const socket = new V3(s * 0.095, 0.055, 0.15);
+  const out = new V3(s * 0.5, 0.15, 1).normalize();
+  const eyeG = new THREE.Group(); eyeG.position.copy(socket); eyeG.quaternion.setFromUnitVectors(ZAX, out); headIn.add(eyeG);
+  const ball = mk(new THREE.SphereGeometry(0.068, 24, 16), tm(0xfffdf8), OLT); eyeG.add(ball);
+  const veins = new THREE.Mesh(new THREE.SphereGeometry(0.0685, 24, 16), veinMat); eyeG.add(veins);
+  const pupil = new THREE.Mesh(ell(0.03, 0.03, 0.012, 14, 10), new THREE.MeshBasicMaterial({ color: 0x120a06 })); eyeG.add(pupil);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); pupil.add(glint); glint.position.set(0.012, 0.012, 0.01);
+  const lid = mk(new THREE.SphereGeometry(0.075, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2), tm(WHITE, { side: THREE.DoubleSide }), OLT); eyeG.add(lid);
+  const stalk = mk(new THREE.CylinderGeometry(0.02, 0.028, 1, 10, 1, true).translate(0, 0.5, 0), stalkMat, OLT); stalk.visible = false; headIn.add(stalk);
+  EYES.push({ s, socket, out, eyeG, pupil, lid, stalk, look: new V3(0, 0, 1) });
+}
+// legs
+const LEGS = [];
+const shinGeo = new THREE.CylinderGeometry(0.026, 0.02, 1, 8).translate(0, 0.5, 0);
+const toeGeo = new THREE.CylinderGeometry(0.016, 0.009, 0.13, 6).translate(0, 0.065, 0).rotateX(Math.PI / 2);
+const legMat = tm(LEGC);
+for (let i = 0; i < 2; i++) {
+  const shin = mk(shinGeo, legMat, OLT); scene.add(shin);
+  const foot = new THREE.Group(); scene.add(foot);
+  const toes = new THREE.Group(); toes.position.y = 0.015; foot.add(toes);
+  for (const a of [-0.5, 0, 0.5, Math.PI]) { const t = mk(toeGeo, legMat, OLT); t.rotation.y = a; if (a === Math.PI) t.scale.setScalar(0.6); toes.add(t); }
+  const ankle = mk(new THREE.SphereGeometry(0.03, 10, 8), legMat, OLT); ankle.position.y = 0.035; foot.add(ankle);
+  LEGS.push({ shin, foot, toes });
+}
+// dizzy stars
+const starsG = new THREE.Group(); scene.add(starsG); starsG.visible = false;
+{
+  const sh = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2 + Math.PI / 2, r = i % 2 ? 0.035 : 0.08; i ? sh.lineTo(Math.cos(a) * r, Math.sin(a) * r) : sh.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false }).center();
+  for (let k = 0; k < 5; k++) starsG.add(mk(g, tm(0xffd33a), OLT, false));
+}
+
+// ───────────────────────── particles: feathers + dirt ─────────────────────────
+const MAXF = 1500;
+const featherIM = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.12, 0.24), new THREE.MeshToonMaterial({ map: featherTex, gradientMap: gm, alphaTest: 0.5, side: THREE.DoubleSide }), MAXF);
+featherIM.frustumCulled = false; featherIM.castShadow = true; featherIM.count = 0; scene.add(featherIM);
+featherIM.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: featherTex, alphaTest: 0.5 });
+const FE = Array.from({ length: MAXF }, () => ({ p: new V3(), v: new V3(), b: new V3(), sp: new V3(), ph: 0, fq: 6, s: 1, st: 0 }));
+let fHead = 0, fCount = 0, lost = 0; const _sv = new V3();
+function spawnFeather(pos, dir, speed, big = 1) {
+  const f = FE[fHead]; fHead = (fHead + 1) % MAXF; fCount = Math.min(MAXF, fCount + 1); featherIM.count = fCount;
+  f.p.copy(pos);
+  f.v.copy(dir).multiplyScalar(speed).add(_sv.set(rand(-1, 1), rand(-0.2, 1.4), rand(-1, 1))).addScaledVector(C.vel, 0.45);
+  f.b.set(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)); f.sp.set(rand(-10, 10), rand(-10, 10), rand(-10, 10));
+  f.ph = rand(0, 6.3); f.fq = rand(4, 8); f.s = big * rand(0.75, 1.3); f.st = 1;
+  lost++;
+}
+const _fe = new THREE.Euler(), _fq = new Q(), _fs = new V3();
+function updateFeathers(dt) {
+  for (let i = 0; i < fCount; i++) {
+    const f = FE[i];
+    if (f.st === 1) {
+      f.v.y -= 8 * dt; f.v.multiplyScalar(Math.exp(-3.0 * dt));
+      f.v.x += Math.cos(T * f.fq + f.ph) * 4 * dt; f.v.z += Math.sin(T * f.fq * 0.8 + f.ph) * 4 * dt;
+      f.p.addScaledVector(f.v, dt);
+      const r = Math.hypot(f.p.x, f.p.z); if (r > 7.5) { f.p.x *= 7.5 / r; f.p.z *= 7.5 / r; f.v.x *= -0.3; f.v.z *= -0.3; }
+      f.sp.multiplyScalar(Math.exp(-1.2 * dt)); f.b.addScaledVector(f.sp, dt);
+      _fe.set(f.b.x + Math.sin(T * f.fq + f.ph) * 0.8, f.b.y, f.b.z + Math.cos(T * f.fq * 0.7 + f.ph) * 0.6);
+      if (f.p.y < 0.01 && f.v.y < 0) { f.st = 2; f.p.y = 0.006 + Math.random() * 0.006; f.b.set(-Math.PI / 2 + rand(-0.12, 0.12), rand(-0.12, 0.12), rand(0, 6.3)); _fe.set(f.b.x, f.b.y, f.b.z); }
+    } else _fe.set(f.b.x, f.b.y, f.b.z);
+    _fq.setFromEuler(_fe); _tm.compose(f.p, _fq, _fs.setScalar(f.s)); featherIM.setMatrixAt(i, _tm);
+  }
+  featherIM.instanceMatrix.needsUpdate = true;
+}
+function kickFeathers(p, radius, up) {
+  for (let i = 0; i < fCount; i++) { const f = FE[i]; if (f.st !== 2) continue; const dx = f.p.x - p.x, dz = f.p.z - p.z, d = Math.hypot(dx, dz); if (d < radius) { f.st = 1; f.v.set(dx / (d + 0.01) * rand(0.5, 1.5), up * rand(0.6, 1.2), dz / (d + 0.01) * rand(0.5, 1.5)); f.sp.set(rand(-6, 6), rand(-6, 6), rand(-6, 6)); } }
+}
+const MAXD = 120;
+const dirtIM = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.025, 0), tm(0x9a7246), MAXD); dirtIM.frustumCulled = false; dirtIM.count = MAXD; scene.add(dirtIM);
+const DI = Array.from({ length: MAXD }, () => ({ p: new V3(), v: new V3(), life: 0 })); let dHead = 0;
+function spawnDirt(p, n, sp = 1.6) { for (let k = 0; k < n; k++) { const d = DI[dHead]; dHead = (dHead + 1) % MAXD; d.p.copy(p); d.v.set(rand(-1, 1) * sp, rand(1, 2.4) * sp, rand(-1, 1) * sp); d.life = rand(0.4, 0.8); } }
+function updateDirt(dt) {
+  for (let i = 0; i < MAXD; i++) { const d = DI[i]; let s = 0; if (d.life > 0) { d.life -= dt; d.v.y -= 12 * dt; d.p.addScaledVector(d.v, dt); if (d.p.y < 0.02) { d.p.y = 0.02; d.v.multiplyScalar(0.4); d.v.y *= -0.3; } s = Math.min(1, d.life * 4); }
+    _tm.compose(d.p, _fq.identity(), _fs.setScalar(s)); dirtIM.setMatrixAt(i, _tm); }
+  dirtIM.instanceMatrix.needsUpdate = true;
+}
+
+// ───────────────────────── audio (all synthesized) ─────────────────────────
+let AC = null, master = null, noiseBuf = null, scr = null, muted = false;
+function distCurve(k) { const n = 1024, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); } return c; }
+const curves = {};
+const curve = k => curves[k] || (curves[k] = distCurve(k));
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5; comp.knee.value = 8;
+  master = AC.createGain(); master.gain.value = muted ? 0 : 0.85; master.connect(comp); comp.connect(AC.destination);
+  noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  // persistent scream voice
+  const o1 = AC.createOscillator(), o2 = AC.createOscillator(); o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = 35;
+  o1.frequency.value = o2.frequency.value = 900;
+  const lfo = AC.createOscillator(), lg = AC.createGain(); lfo.frequency.value = 13; lg.gain.value = 60; lfo.connect(lg); lg.connect(o1.frequency); lg.connect(o2.frequency);
+  const mix = AC.createGain(); mix.gain.value = 0.5; o1.connect(mix); const m2 = AC.createGain(); m2.gain.value = 0.22; o2.connect(m2); m2.connect(mix);
+  const ws = AC.createWaveShaper(); ws.curve = curve(22); mix.connect(ws);
+  const sg = AC.createGain(); sg.gain.value = 0; sg.connect(master);
+  const bp1 = AC.createBiquadFilter(); bp1.type = 'bandpass'; bp1.frequency.value = 1300; bp1.Q.value = 3; const g1 = AC.createGain(); g1.gain.value = 3.2; ws.connect(bp1); bp1.connect(g1); g1.connect(sg);
+  const bp2 = AC.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 2900; bp2.Q.value = 5; const g2 = AC.createGain(); g2.gain.value = 1.8; ws.connect(bp2); bp2.connect(g2); g2.connect(sg);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200; const g3 = AC.createGain(); g3.gain.value = 0.25; ws.connect(lp); lp.connect(g3); g3.connect(sg);
+  const ns = AC.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true; const nbp = AC.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = 3300; nbp.Q.value = 0.7; const ng = AC.createGain(); ng.gain.value = 0.3; ns.connect(nbp); nbp.connect(ng); ng.connect(sg);
+  [o1, o2, lfo, ns].forEach(n => n.start());
+  scr = { o1, o2, lfo, lg, bp1, sg };
+}
+const hold = (p, t) => p.cancelAndHoldAtTime ? p.cancelAndHoldAtTime(t) : p.cancelScheduledValues(t);
+function env(g, t, vol, att, dur, rel) { g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + att); g.gain.setValueAtTime(vol, t + Math.max(att, dur - rel)); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
+function autom(p, t, pts, first) { pts.forEach(([dt, v], i) => i === 0 ? p.setValueAtTime(v, t + dt) : p.exponentialRampToValueAtTime(v, t + dt)); }
+function voice(o) {
+  if (!AC) return;
+  const t = AC.currentTime + (o.at || 0), dur = o.dur;
+  const osc = AC.createOscillator(); osc.type = o.type || 'sawtooth'; autom(osc.frequency, t, o.f);
+  const nodes = [osc]; let src = osc;
+  if (o.vib) { const l = AC.createOscillator(), lg = AC.createGain(); l.frequency.value = o.vib[0]; lg.gain.value = o.vib[1]; l.connect(lg); lg.connect(osc.frequency); nodes.push(l); }
+  if (o.am) { const a = AC.createGain(); a.gain.value = 0.5; const l = AC.createOscillator(), lg = AC.createGain(); l.type = o.am[2] || 'square'; l.frequency.value = o.am[0]; lg.gain.value = o.am[1]; l.connect(lg); lg.connect(a.gain); osc.connect(a); src = a; nodes.push(l); }
+  if (o.dist) { const ws = AC.createWaveShaper(); ws.curve = curve(o.dist); src.connect(ws); src = ws; }
+  const out = AC.createGain(); env(out, t, o.vol || 0.3, o.att || 0.01, dur, o.rel || 0.04);
+  if (o.form) for (const [f, q, g] of o.form) { const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; Array.isArray(f) ? autom(bp.frequency, t, f) : bp.frequency.setValueAtTime(f, t); bp.Q.value = q; const gg = AC.createGain(); gg.gain.value = g; src.connect(bp); bp.connect(gg); gg.connect(out); }
+  else src.connect(out);
+  out.connect(master);
+  nodes.forEach(n => { n.start(t); n.stop(t + dur + 0.05); });
+}
+function noise(o) {
+  if (!AC) return;
+  const t = AC.currentTime + (o.at || 0), s = AC.createBufferSource(); s.buffer = noiseBuf;
+  const f = AC.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.setValueAtTime(o.f, t); if (o.f2) f.frequency.exponentialRampToValueAtTime(o.f2, t + o.dur); f.Q.value = o.q || 1;
+  const g = AC.createGain(); env(g, t, o.vol, o.att || 0.003, o.dur, o.rel || o.dur * 0.7);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 1.5); s.stop(t + o.dur + 0.05);
+}
+function beak(at, dur, a) { C.beaks.push({ t0: T + at, t1: T + at + dur, a }); }
+const SFX = {
+  buk(at = 0, p = 1, vol = 0.45) { beak(at, 0.1, 0.45); voice({ at, dur: 0.1, f: [[0, 620 * p], [0.1, 360 * p]], form: [[950 * p, 5, 4], [2300 * p, 7, 2]], vol, att: 0.004, rel: 0.07, dist: 3 }); noise({ at, dur: 0.014, f: 3200, q: 1.5, vol: vol * 0.45 }); },
+  bawk(at = 0, p = 1, vol = 0.5, len = 0.42) { beak(at, len, 1); voice({ at, dur: len, f: [[0, 460 * p], [0.07, 1000 * p], [len, 640 * p]], vib: [9, 30], form: [[[[0, 750 * p], [0.08, 1500 * p], [len, 1000 * p]], 3, 4], [2500 * p, 5, 2]], vol, att: 0.01, rel: 0.14, dist: 7 }); },
+  question(at = 0) { beak(at, 0.26, 0.55); voice({ at, dur: 0.26, f: [[0, 430], [0.26, 950]], form: [[[[0, 850], [0.26, 1400]], 4, 4], [2400, 6, 2]], vol: 0.42, att: 0.01, rel: 0.08, dist: 3 }); },
+  purr(at = 0) { beak(at, 0.7, 0.12); voice({ at, dur: 0.75, f: [[0, 270], [0.75, 215]], am: [23, 0.5], form: [[650, 2, 3], [1700, 4, 1]], vol: 0.28, att: 0.06, rel: 0.25 }); },
+  tok(at = 0) { noise({ at, dur: 0.03, f: 2600, q: 3, vol: 0.4 }); voice({ at, dur: 0.035, type: 'sine', f: [[0, 1500], [0.035, 800]], vol: 0.14, att: 0.001, rel: 0.025 }); },
+  whistleUp() { voice({ dur: 0.45, type: 'sine', f: [[0, 420], [0.42, 1650]], vib: [6, 22], vol: 0.17, att: 0.02, rel: 0.08 }); },
+  whistleDown() { voice({ dur: 0.8, type: 'sine', f: [[0, 1800], [0.8, 300]], vib: [6, 25], vol: 0.16, att: 0.02, rel: 0.1 }); },
+  thud(v) { voice({ dur: 0.24, type: 'sine', f: [[0, 150], [0.24, 40]], vol: 0.7 * v, att: 0.002, rel: 0.2 }); noise({ dur: 0.14, f: 600, f2: 120, type: 'lowpass', q: 0.7, vol: 0.55 * v }); },
+  boing(v) {
+    if (!AC) return; const t = AC.currentTime, o = AC.createOscillator(), l = AC.createOscillator(), lg = AC.createGain(), g = AC.createGain();
+    o.type = 'sine'; o.frequency.value = 160; l.frequency.value = 15; lg.gain.setValueAtTime(110, t); lg.gain.exponentialRampToValueAtTime(2, t + 0.7);
+    l.connect(lg); lg.connect(o.frequency); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.4 * v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+    o.connect(g); g.connect(master); [o, l].forEach(n => { n.start(t); n.stop(t + 0.8); });
+  },
+  poof(v) { noise({ dur: 0.22, f: 1600, f2: 600, q: 0.7, vol: 0.14 * v, att: 0.01 }); },
+  pop() { voice({ dur: 0.09, type: 'sine', f: [[0, 260], [0.09, 1500]], vol: 0.45, att: 0.002, rel: 0.05 }); },
+  awooga() {
+    for (const at of [0.05, 0.68]) {
+      voice({ at, dur: 0.56, f: [[0, 140], [0.18, 235], [0.56, 185]], form: [[[[0, 1300], [0.2, 420], [0.45, 1400]], 2, 4], [[[0, 2400], [0.2, 900], [0.45, 2200]], 3, 2]], vol: 0.45, att: 0.02, rel: 0.12, dist: 5 });
+      voice({ at, dur: 0.56, type: 'square', f: [[0, 141], [0.18, 237], [0.56, 186]], form: [[[[0, 1000], [0.2, 380], [0.45, 1100]], 2, 2]], vol: 0.25, att: 0.02, rel: 0.12 });
+    }
+  },
+  tweet(at = 0) { for (let k = 0; k < 2; k++) voice({ at: at + k * 0.12, dur: 0.09, type: 'sine', f: [[0, 2600], [0.09, 3900]], vol: 0.1, att: 0.005, rel: 0.04 }); },
+};
+function squawk(d, f0, vol) {
+  if (!scr) return; const t = AC.currentTime;
+  for (const o of [scr.o1, scr.o2]) { hold(o.frequency, t); o.frequency.setTargetAtTime(f0 * 1.35, t, 0.015); o.frequency.setTargetAtTime(f0 * 0.8, t + 0.07, d * 0.6); }
+  scr.lfo.frequency.setValueAtTime(rand(9, 18), t); scr.lg.gain.setValueAtTime(f0 * rand(0.05, 0.13), t);
+  hold(scr.bp1.frequency, t); scr.bp1.frequency.setTargetAtTime(1900, t, 0.02); scr.bp1.frequency.setTargetAtTime(1100, t + 0.08, d * 0.5);
+  hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(vol, t, 0.012); scr.sg.gain.setTargetAtTime(0, t + d, 0.03);
+}
+function screamOff() { if (!scr) return; const t = AC.currentTime; hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(0, t, 0.04); }
+const rl = {}; function limit(k, s) { if ((rl[k] || -9) + s > T) return false; rl[k] = T; return true; }
+function idleSound() {
+  const r = Math.random();
+  if (r < 0.42) { const n = randInt(1, 3); let t = 0; for (let k = 0; k < n; k++) { SFX.buk(t, rand(0.92, 1.1)); t += rand(0.16, 0.28); } }
+  else if (r < 0.66) SFX.purr();
+  else if (r < 0.84) { for (let k = 0; k < 3; k++) SFX.buk(k * 0.14, 1.05); SFX.bawk(0.46, 1.05, 0.5, 0.5); }
+  else { SFX.buk(0, 0.86); SFX.buk(0.55, 0.84); }
+}
+
+// ───────────────────────── chicken state ─────────────────────────
+const mkFoot = () => ({ p: new V3(), v: new V3(), from: new V3(), to: new V3(), t: 0, dur: 0.15, step: false });
+const C = {
+  mode: 'wander', act: 'walk', actT: 0, actDur: 2,
+  pos: new V3(0, BODY_H, 0), vel: new V3(), quat: new Q(), yaw: 0.6, lean: 0, roll: 0,
+  target: new V3(1.4, 0, 1.2),
+  head: new V3(), headPrev: new V3(), headVel: new V3(), headVelVis: new V3(), headAcc: new V3(), headHold: new V3(), headQuat: new Q(), headYawOff: 0, glance: 0, glanceT: 1,
+  feet: [mkFoot(), mkFoot()],
+  hand: new V3(), handPrev: new V3(), handVel: new V3(), handVelPrev: new V3(), shakeE: 0,
+  gLocal: new V3(), grabL: 0.4, grabPart: 'body', quat0: new Q(), twist: 0, twistV: 0,
+  panic: 0, pop: 0, popV: 0, mouth: 0, sq: 0, sqV: 0, flapPh: 0, flapAmp: 0, flapFreq: 10,
+  combA: 0, combV: 0, watA: 0, watV: 0, lid: 0.45, blinkT: 2, pluckAcc: 0, fluffAcc: 0, regrowAcc: 0,
+  sqEnd: 0, sqNext: 0, soundT: 1.2, beaks: [], angVel: new V3(), restT: 0, impactMax: 0, dazed: false, rT: 0, rPhase: '',
+  peck: { left: 0, start: 0, e: 0, hit: false }, lookRoll: 0, scream: 0,
+};
+function b2w(v, out) { return out.copy(v).applyQuaternion(C.quat).add(C.pos); }
+function footRest(i, out) { const s = i ? -1 : 1; return out.set(C.pos.x + Math.cos(C.yaw) * 0.13 * s, 0, C.pos.z - Math.sin(C.yaw) * 0.13 * s); }
+function initWanderPose() {
+  C.quat.setFromEuler(tE.set(0, C.yaw, 0, 'YXZ'));
+  b2w(HEAD_REST, C.head); C.headHold.copy(C.head); C.headPrev.copy(C.head); C.headQuat.copy(C.quat);
+  C.feet.forEach((f, i) => { footRest(i, f.p); f.step = false; f.v.set(0, 0, 0); });
+}
+initWanderPose();
+
+function pickTarget() {
+  for (let k = 0; k < 20; k++) {
+    const a = rand(0, 6.283), r = Math.sqrt(Math.random()) * 4.2; tA.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    if (tA.distanceTo(tB.set(C.pos.x, 0, C.pos.z)) < 1.2) continue;
+    if (OBST.some(o => Math.hypot(tA.x - o.x, tA.z - o.z) < o.r + 0.8)) continue;
+    break;
+  }
+  C.target.copy(tA);
+}
+function nextAct() {
+  C.actT = 0; const r = Math.random(), prev = C.act;
+  if ((prev !== 'walk' && r < 0.5) || r < 0.12) { C.act = 'walk'; pickTarget(); }
+  else if (r < 0.76) { C.act = 'peck'; C.peck.left = randInt(2, 5); C.peck.start = 0.15; C.peck.e = 0; C.actDur = 99; }
+  else if (r < 0.9) { C.act = 'look'; C.actDur = rand(1.3, 2.3); C.lookRoll = rand(-0.55, 0.55); SFX.question(0.15); }
+  else { C.act = 'idle'; C.actDur = rand(0.8, 1.8); }
+}
+function peckHit() {
+  const fwdx = Math.sin(C.yaw), fwdz = Math.cos(C.yaw);
+  tA.set(C.pos.x + fwdx * 0.75, 0.03, C.pos.z + fwdz * 0.75);
+  spawnDirt(tA, randInt(3, 6), 0.7); SFX.tok();
+  kickFeathers(tA, 0.18, 1.2);
+}
+
+// ───────────────────────── input ─────────────────────────
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), dragPlane = new THREE.Plane();
+const cvs = renderer.domElement;
+let hovering = false;
+function setNDC(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); }
+function hitChicken() { ray.setFromCamera(ndc, camera); return ray.intersectObjects([headHit, bodyHit], false)[0]; }
+cvs.addEventListener('pointerdown', e => {
+  initAudio(); setNDC(e);
+  if (C.mode === 'held') return;
+  const h = hitChicken(); if (!h) return;
+  cvs.setPointerCapture(e.pointerId); startGrab(h);
+});
+cvs.addEventListener('pointermove', e => {
+  setNDC(e);
+  if (C.mode !== 'held') { hovering = !!hitChicken(); cvs.style.cursor = hovering ? 'grab' : 'default'; }
+});
+const endGrab = () => { if (C.mode === 'held') release(); };
+cvs.addEventListener('pointerup', endGrab); cvs.addEventListener('pointercancel', endGrab); addEventListener('blur', endGrab);
+addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.85, AC.currentTime, 0.05); } });
+
+function startGrab(h) {
+  const wasMode = C.mode;
+  C.mode = 'held'; cvs.style.cursor = 'grabbing';
+  document.getElementById('hint').style.opacity = 0;
+  C.grabPart = h.object === headHit ? 'head' : 'body';
+  if (wasMode === 'wander') { C.vel.set(0, 0, 0); C.headVel.set(0, 0, 0); }
+  C.quat0.copy(C.quat);
+  if (C.grabPart === 'head') C.gLocal.copy(HEAD_REST);
+  else { C.gLocal.subVectors(h.point, C.pos).applyQuaternion(qT.copy(C.quat).invert()); if (C.gLocal.length() < 0.25) C.gLocal.setLength(0.25); }
+  C.grabL = C.gLocal.length();
+  camera.getWorldDirection(tA); tA.y = 0; tA.normalize().negate();
+  dragPlane.setFromNormalAndCoplanarPoint(tA, h.point);
+  C.hand.copy(h.point); C.handPrev.copy(h.point); C.handVel.set(0, 0, 0); C.handVelPrev.set(0, 0, 0); C.shakeE = 0;
+  C.twist = 0; C.twistV = 0; C.feet.forEach(f => { f.step = false; f.v.set(0, 0, 0); });
+  SFX.whistleUp(); SFX.bawk(0.08, 1.15, 0.5, 0.36);
+  C.soundT = 0.7;
+}
+function release() {
+  C.mode = 'fall'; cvs.style.cursor = hovering ? 'grab' : 'default';
+  C.vel.lerp(C.handVel, 0.5).clampLength(0, 11);
+  if (C.grabPart === 'head') C.headVel.copy(C.handVel).clampLength(0, 11);
+  const sp = C.vel.length();
+  C.angVel.crossVectors(UP, C.vel).multiplyScalar(0.9).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(1 + sp * 0.3));
+  C.impactMax = 0; C.restT = 0;
+  if (C.pos.y > 1.3 || sp > 5) SFX.whistleDown();
+}
+
+// ───────────────────────── simulation ─────────────────────────
+const GRAV = 12;
+function updateHand(dt) {
+  ray.setFromCamera(ndc, camera);
+  if (ray.ray.intersectPlane(dragPlane, tA)) {
+    tA.y = clamp(tA.y, 0.35, 2.5);
+    const r = Math.hypot(tA.x, tA.z); if (r > 6.4) { tA.x *= 6.4 / r; tA.z *= 6.4 / r; }
+    C.hand.copy(tA);
+  }
+  tB.subVectors(C.hand, C.handPrev).divideScalar(dt); C.handPrev.copy(C.hand);
+  C.handVel.lerp(tB, 0.5);
+  const dv = C.handVel.distanceTo(C.handVelPrev); C.handVelPrev.copy(C.handVel);
+  C.shakeE = C.shakeE * Math.exp(-dt / 0.35) + dv;
+  if (dv > 28 && C.panic > 0.35 && limit('jerk', 0.12)) pluck(randInt(2, 5));
+  C.twistV += rand(-1, 1) * 90 * C.panic * dt;
+}
+function physics(dt) {
+  const n = 3, h = dt / n;
+  for (let k = 0; k < n; k++) {
+    if (C.mode === 'held') {
+      tA.subVectors(C.hand, C.pos); const dist = tA.length() || 1e-4; tA.divideScalar(dist);
+      const kk = C.grabPart === 'head' ? 150 : 320;
+      tB.set(0, -GRAV, 0).addScaledVector(tA, kk * (dist - C.grabL)).addScaledVector(tA, -7 * C.vel.dot(tA)).addScaledVector(C.vel, -0.7);
+      C.vel.addScaledVector(tB, h);
+    } else C.vel.y -= GRAV * h;
+    C.pos.addScaledVector(C.vel, h);
+    if (C.mode === 'held') {
+      tA.subVectors(C.pos, C.hand); const d = tA.length(), maxL = C.grabL + (C.grabPart === 'head' ? 0.85 : 0.3);
+      if (d > maxL) { tA.multiplyScalar(1 / d); C.pos.copy(C.hand).addScaledVector(tA, maxL); const vr = C.vel.dot(tA); if (vr > 0) C.vel.addScaledVector(tA, -vr); }
+    }
+    collideBody(h);
+  }
+}
+function collideBody(h) {
+  const minY = 0.36;
+  if (C.pos.y < minY) {
+    C.pos.y = minY;
+    if (C.vel.y < 0) { const vy = -C.vel.y; if (C.mode === 'fall') { onImpact(vy); C.vel.y = vy > 2.2 ? vy * 0.42 : 0; } else C.vel.y = 0; }
+  }
+  if (C.pos.y < minY + 0.01) { const f = Math.exp(-(C.mode === 'fall' ? 5 : 8) * h); C.vel.x *= f; C.vel.z *= f; C.angVel.multiplyScalar(Math.exp(-5 * h)); }
+  const r = Math.hypot(C.pos.x, C.pos.z), RW = 7.0;
+  if (r > RW) { const nx = C.pos.x / r, nz = C.pos.z / r; C.pos.x = nx * RW; C.pos.z = nz * RW; const vn = C.vel.x * nx + C.vel.z * nz; if (vn > 0) { C.vel.x -= 1.5 * vn * nx; C.vel.z -= 1.5 * vn * nz; if (vn > 2.5 && C.mode === 'fall') onImpact(vn * 0.8); } }
+  for (const o of OBST) {
+    const dx = C.pos.x - o.x, dz = C.pos.z - o.z, d = Math.hypot(dx, dz), m = o.r + 0.35;
+    if (d < m && C.pos.y < 1.5) { const nx = dx / d, nz = dz / d; C.pos.x = o.x + nx * m; C.pos.z = o.z + nz * m; const vn = C.vel.x * nx + C.vel.z * nz; if (vn < 0) { C.vel.x -= 1.5 * vn * nx; C.vel.z -= 1.5 * vn * nz; if (vn < -2.5 && C.mode === 'fall') onImpact(-vn * 0.8); } if (C.mode === 'wander' && C.act === 'walk') pickTarget(); }
+  }
+}
+function onImpact(v) {
+  C.impactMax = Math.max(C.impactMax, v);
+  if (v > 2 && limit('thud', 0.08)) { SFX.thud(Math.min(1, v / 9)); spawnDirt(tA.set(C.pos.x, 0.05, C.pos.z), Math.floor(v * 2), 1.2); kickFeathers(C.pos, 0.6 + v * 0.06, 1.5 + v * 0.15); }
+  if (v > 5.2 && limit('boing', 0.3)) SFX.boing(Math.min(1, v / 10));
+  C.sqV -= v * 1.1;
+  if (v > 3.5) pluck(Math.floor(v * 1.4));
+}
+function headPhysics(dt) {
+  if (C.mode === 'held' && C.grabPart === 'head') { C.head.copy(C.hand); C.headVel.copy(C.handVel); return; }
+  b2w(HEAD_REST, tA);
+  const n = 3, h = dt / n, j = C.panic > 0.3 ? 70 * C.panic : 0;
+  for (let k = 0; k < n; k++) {
+    tB.subVectors(tA, C.head).multiplyScalar(110).addScaledVector(C.headVel, -7); tB.y -= 5;
+    if (j) tB.add(tC.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(j));
+    C.headVel.addScaledVector(tB, h); C.head.addScaledVector(C.headVel, h);
+  }
+  b2w(NECK_BASE, tC); tB.subVectors(C.head, tC); const d = tB.length(), maxN = 0.7 + 0.4 * C.panic;
+  if (d > maxN) C.head.copy(tC).addScaledVector(tB, maxN / d);
+  if (C.head.y < 0.18) { C.head.y = 0.18; if (C.headVel.y < 0) C.headVel.y *= -0.3; }
+}
+function feetPhysics(dt, legsUp) {
+  const runB = clamp((C.panic - 0.15) * 1.6, 0, 1) * (C.mode === 'recover' ? 0 : 1);
+  for (let i = 0; i < 2; i++) {
+    const f = C.feet[i], hip = b2w(HIP[i], tA), ph = T * 26 + i * Math.PI;
+    if (legsUp) { tB.set(0, -1, 0).applyQuaternion(C.quat).multiplyScalar(LEG_L).add(tC.set(Math.sin(T * 30 + i) * 0.03, Math.max(0, Math.sin(T * 7 + i * 2)) * 0.05, 0)); }
+    else {
+      tB.set(0, -LEG_L, 0);
+      tC.set(0, -LEG_L * 0.75 + 0.13 * Math.cos(ph), 0.17 * Math.sin(ph)).applyQuaternion(C.quat);
+      tB.lerp(tC, runB);
+    }
+    tB.add(hip);
+    tD.subVectors(tB, f.p).multiplyScalar(legsUp ? 260 : 170).addScaledVector(f.v, -10); tD.y -= 3;
+    f.v.addScaledVector(tD, dt); f.p.addScaledVector(f.v, dt);
+    tD.subVectors(f.p, hip); const d = tD.length(); if (d > LEG_L * 1.25) f.p.copy(hip).addScaledVector(tD, LEG_L * 1.25 / d);
+    if (f.p.y < 0.01) { f.p.y = 0.01; f.v.y = Math.max(0, f.v.y); }
+  }
+}
+function headLookQuat(fwd, up, out) { mT.lookAt(fwd, ORIGIN, up); return out.setFromRotationMatrix(mT); }
+
+function updateWander(dt) {
+  C.actT += dt;
+  const fwd = tF.set(Math.sin(C.yaw), 0, Math.cos(C.yaw));
+  let moving = false, leanT = 0, headPitch = 0.12, headRoll = 0, hd = null;
+  C.glanceT -= dt; if (C.glanceT <= 0) { C.glanceT = rand(0.25, 1.1); C.glance = Math.random() < 0.35 ? 0 : rand(-0.75, 0.75); }
+  let yawOff = C.glance;
+  if (C.act === 'walk') {
+    tA.subVectors(C.target, C.pos); tA.y = 0; const dist = tA.length();
+    const dy = wrap(Math.atan2(tA.x, tA.z) - C.yaw);
+    C.yaw += clamp(dy, -3.2 * dt, 3.2 * dt);
+    if (Math.abs(dy) < 0.8 && dist > 0.2) { const sp = 0.62 * (1 - Math.abs(dy) / 0.8 * 0.7); C.pos.addScaledVector(fwd, sp * dt); moving = true; }
+    if (dist < 0.3 || C.actT > 9) nextAct();
+    yawOff *= 0.5;
+  } else if (C.act === 'peck') {
+    leanT = 0.36;
+    const P = C.peck, cyc = 0.3;
+    if (P.left > 0) {
+      const k = (C.actT - P.start) / cyc;
+      if (k < 0) P.e = 0;
+      else if (k >= 1) { P.left--; P.start = C.actT + (P.left ? (Math.random() < 0.3 ? rand(0.2, 0.5) : 0.02) : 0); P.hit = false; P.e = 0; if (!P.left) C.actDur = C.actT + rand(0.4, 1.0); }
+      else { P.e = k < 0.32 ? smooth(k / 0.32) : k < 0.45 ? 1 : 1 - smooth((k - 0.45) / 0.55); if (k >= 0.32 && !P.hit) { P.hit = true; peckHit(); } }
+    } else { P.e = 0; if (C.actT > C.actDur) nextAct(); }
+    if (P.left) yawOff = 0;
+    C.quat.setFromEuler(tE.set(C.lean, C.yaw, C.roll, 'YXZ'));
+    const up = b2w(HEAD_REST, tB), gp = tC.copy(C.pos).addScaledVector(fwd, 0.58); gp.y = 0.27;
+    hd = tD.lerpVectors(up, gp, P.e); headPitch = 0.25 + 1.15 * P.e;
+  } else if (C.act === 'look') {
+    tA.subVectors(camera.position, C.pos); const yy = wrap(Math.atan2(tA.x, tA.z) - C.yaw);
+    if (Math.abs(yy) > 1.2) C.yaw += clamp(yy, -2 * dt, 2 * dt);
+    yawOff = clamp(yy, -1.3, 1.3); headRoll = C.lookRoll; headPitch = -0.05;
+    if (C.actT > C.actDur) nextAct();
+  } else if (C.actT > C.actDur) nextAct();
+
+  C.lean += (leanT - C.lean) * dk(10, dt);
+  // feet
+  let lift = 0, roll = 0;
+  for (let i = 0; i < 2; i++) {
+    const f = C.feet[i], s = i ? -1 : 1, rest = footRest(i, tR);
+    if (moving) rest.addScaledVector(fwd, 0.1);
+    if (f.step) {
+      f.t += dt / f.dur; const e = Math.min(1, f.t), se = Math.sin(Math.PI * e);
+      f.p.lerpVectors(f.from, f.to, smooth(e)); f.p.y = se * 0.13; lift = Math.max(lift, se); roll -= s * se * 0.1;
+      if (e >= 1) { f.step = false; f.p.y = 0; if (Math.random() < 0.3) kickFeathers(f.p, 0.12, 0.8); }
+    } else {
+      const o = C.feet[1 - i];
+      if (!o.step && f.p.distanceTo(rest) > (moving ? 0.18 : 0.045)) { f.step = true; f.t = 0; f.dur = moving ? 0.15 : 0.12; f.from.copy(f.p); f.to.copy(rest); if (moving) f.to.addScaledVector(fwd, 0.08); }
+    }
+  }
+  C.roll += (roll - C.roll) * dk(14, dt);
+  C.pos.y = BODY_H + lift * 0.035 + Math.sin(T * 2.2) * 0.006;
+  C.quat.setFromEuler(tE.set(C.lean, C.yaw, C.roll, 'YXZ'));
+  if (!hd) {
+    const base = b2w(HEAD_REST, tB);
+    if (moving) { if (C.headHold.distanceTo(base) > 0.08) C.headHold.copy(base).addScaledVector(fwd, 0.065); hd = C.headHold; }
+    else { C.headHold.copy(base); hd = base; }
+  }
+  C.head.lerp(hd, dk(C.act === 'peck' ? 45 : 32, dt));
+  C.headYawOff += (yawOff - C.headYawOff) * dk(22, dt);
+  qT.setFromEuler(tE.set(headPitch, C.yaw + C.headYawOff, headRoll, 'YXZ'));
+  C.headQuat.slerp(qT, dk(25, dt));
+  // regrow plumage
+  C.regrowAcc += dt * 2.2;
+  while (C.regrowAcc >= 1) { C.regrowAcc--; regrow(); }
+  C.soundT -= dt; if (C.soundT <= 0) { C.soundT = rand(1.4, 3.6); idleSound(); }
+}
+function updateHeldOrFall(dt) {
+  physics(dt);
+  if (C.mode === 'held') {
+    tA.subVectors(C.hand, C.pos).normalize();
+    tB.copy(C.gLocal).normalize().applyQuaternion(C.quat0);
+    qT.setFromUnitVectors(tB, tA).multiply(C.quat0);
+    C.twistV += (-C.twist * 30 - C.twistV * 3) * dt; C.twist += C.twistV * dt;
+    qT2.setFromAxisAngle(tA, C.twist + Math.sin(T * 2.3) * 0.15); qT.premultiply(qT2);
+    C.quat.slerp(qT, dk(16, dt));
+  } else {
+    const w = C.angVel.length();
+    if (w > 1e-4) { qT.setFromAxisAngle(tA.copy(C.angVel).divideScalar(w), w * dt); C.quat.premultiply(qT).normalize(); }
+    C.angVel.multiplyScalar(Math.exp(-0.4 * dt));
+    if (C.pos.y < 0.38 && C.vel.length() < 0.5) C.restT += dt; else C.restT = 0;
+    if (C.restT > 0.2) enterRecover();
+  }
+  headPhysics(dt); feetPhysics(dt, false);
+  // head orientation
+  tA.set(0, 0, 1).applyQuaternion(C.quat);
+  tB.subVectors(camera.position, C.head).normalize();
+  tA.lerp(tB, clamp(C.panic * 1.6, 0, 0.88) + (C.mode === 'held' ? 0.15 : 0)).normalize();
+  tC.set(0, 1, 0).applyQuaternion(C.quat).lerp(UP, 0.6).normalize();
+  headLookQuat(tA, tC, qT);
+  if (C.scream > 0.05) { qT2.setFromEuler(tE.set(rand(-1, 1) * 0.25 * C.scream, rand(-1, 1) * 0.3 * C.scream, rand(-1, 1) * 0.3 * C.scream)); qT.multiply(qT2); }
+  C.headQuat.slerp(qT, dk(14, dt));
+  if (C.mode === 'held' && C.scream < 0.05) { C.soundT -= dt; if (C.soundT <= 0) { C.soundT = rand(0.35, 0.8); SFX.buk(0, rand(1.15, 1.4), 0.4); if (Math.random() < 0.4) SFX.buk(0.13, rand(1.2, 1.45), 0.4); } }
+}
+function enterRecover() {
+  C.mode = 'recover'; C.rT = 0;
+  tA.set(0, 0, 1).applyQuaternion(C.quat); tA.y = 0;
+  if (tA.lengthSq() > 0.01) C.yaw = Math.atan2(tA.x, tA.z);
+  C.dazed = C.impactMax > 6.2 || C.panic > 0.9;
+  C.rPhase = C.dazed ? 'daze' : 'up';
+  if (C.dazed) { SFX.tweet(0.2); }
+}
+function updateRecover(dt) {
+  C.rT += dt;
+  C.vel.multiplyScalar(Math.exp(-6 * dt)); C.pos.addScaledVector(C.vel, dt); collideBody(dt);
+  if (C.rPhase === 'daze') {
+    qT.setFromEuler(tE.set(0, C.yaw, 2.55, 'YXZ')); C.quat.slerp(qT, dk(6, dt));
+    C.pos.y += (0.38 - C.pos.y) * dk(8, dt);
+    headPhysics(dt); feetPhysics(dt, true);
+    tA.set(0, 0, 1).applyQuaternion(C.quat); tC.set(0, 1, 0).applyQuaternion(C.quat);
+    headLookQuat(tA, tC, qT); qT2.setFromEuler(tE.set(0, 0, Math.sin(T * 5) * 0.25)); qT.multiply(qT2); C.headQuat.slerp(qT, dk(8, dt));
+    if (limit('tweet', 0.7)) SFX.tweet();
+    if (C.rT > 2.8) { C.rPhase = 'up'; C.rT = 0; SFX.buk(0, 0.8); }
+  } else if (C.rPhase === 'up') {
+    qT.setFromEuler(tE.set(0, C.yaw, 0, 'YXZ')); C.quat.slerp(qT, dk(11, dt));
+    const hop = C.rT < 0.42 ? Math.sin(C.rT / 0.42 * Math.PI) * 0.22 : 0;
+    C.pos.y += (BODY_H + hop - C.pos.y) * dk(14, dt);
+    b2w(HEAD_REST, tA); C.head.lerp(tA, dk(12, dt));
+    qT.setFromEuler(tE.set(0.1, C.yaw, 0, 'YXZ')); C.headQuat.slerp(qT, dk(12, dt));
+    C.feet.forEach((f, i) => { footRest(i, tA); f.p.lerp(tA, dk(14, dt)); f.p.y = Math.max(0, f.p.y); });
+    if (C.rT > 0.5) { C.rPhase = 'ruffle'; C.rT = 0; SFX.bawk(0, 0.92, 0.55, 0.5); SFX.buk(0.6, 0.85); SFX.buk(0.8, 0.82); }
+  } else {
+    const k = 1 - C.rT / 0.7;
+    C.quat.setFromEuler(tE.set(0, C.yaw, Math.sin(C.rT * 44) * 0.3 * Math.max(0, k), 'YXZ'));
+    C.pos.y = BODY_H;
+    b2w(HEAD_REST, tA); C.head.lerp(tA, dk(25, dt));
+    qT.setFromEuler(tE.set(0.05, C.yaw + Math.sin(C.rT * 40) * 0.35 * Math.max(0, k), 0, 'YXZ')); C.headQuat.slerp(qT, dk(25, dt));
+    C.feet.forEach((f, i) => { footRest(i, tA); f.p.lerp(tA, dk(14, dt)); f.p.y = 0; });
+    if (Math.random() < 6 * dt * Math.max(0, k)) looseFeather();
+    if (C.rT > 0.7) { C.mode = 'wander'; C.act = 'look'; C.actT = 0; C.actDur = 1.4; C.lookRoll = rand(-0.4, 0.4); C.headHold.copy(C.head); C.soundT = 2; }
+  }
+}
+
+// plucking / regrowth
+function pluck(n) {
+  let any = false;
+  for (let k = 0; k < n; k++) {
+    if (tuftsAlive <= 0) { looseFeather(); continue; }
+    let i = -1;
+    for (let tries = 0; tries < 30; tries++) { const j = randInt(0, NT - 1); if (TUFT[j].alive) { i = j; break; } }
+    if (i < 0) break;
+    const t = TUFT[i]; t.alive = false; t.g = 0; t.gv = 0; setTuft(i); tuftsAlive--; any = true;
+    b2w(t.p, tA); tB.copy(t.n).applyQuaternion(C.quat);
+    spawnFeather(tA, tB, rand(1.5, 4.5));
+    if (Math.random() < 0.5) spawnFeather(tA, tB, rand(1, 3), 0.8);
+  }
+  tufts.instanceMatrix.needsUpdate = true;
+  const pf = 1 - tuftsAlive / NT;
+  TAIL.forEach((tl, i) => {
+    if (tl.alive && pf > 0.25 + i * 0.12 && Math.random() < 0.25) {
+      tl.alive = false; tl.mesh.getWorldPosition(tA); tB.set(0, 1, -0.5).applyQuaternion(C.quat);
+      spawnFeather(tA, tB, rand(2, 4), 2.1);
+    }
+  });
+  if (any && limit('poof', 0.18)) SFX.poof(Math.min(1, 0.4 + n * 0.2));
+}
+function looseFeather() {
+  const s = Math.random() < 0.5 ? 1 : -1;
+  const lp = Math.random() < 0.6 ? tC.set(s * 0.42, rand(-0.1, 0.1), rand(-0.3, 0.1)) : tC.set(rand(-0.08, 0.08), 0.3, 0.3);
+  b2w(lp, tA); tB.set(s, rand(0, 1), rand(-1, 0.5)).normalize().applyQuaternion(C.quat);
+  spawnFeather(tA, tB, rand(1.5, 3.5), rand(0.8, 1.2));
+}
+function regrow() {
+  if (tuftsAlive >= NT) { TAIL.forEach(t => t.alive = true); return; }
+  for (let tries = 0; tries < 40; tries++) { const j = randInt(0, NT - 1); if (!TUFT[j].alive) { TUFT[j].alive = true; tuftsAlive++; break; } }
+  const pf = 1 - tuftsAlive / NT;
+  TAIL.forEach((tl, i) => { if (!tl.alive && pf < 0.2 + i * 0.12) tl.alive = true; });
+}
+function updateTufts(dt) {
+  let dirty = false;
+  for (let i = 0; i < NT; i++) {
+    const t = TUFT[i], tgt = t.alive ? 1 : 0;
+    if (Math.abs(t.g - tgt) < 0.002 && Math.abs(t.gv) < 0.01) { if (t.g !== tgt) { t.g = tgt; setTuft(i); dirty = true; } continue; }
+    t.gv += ((tgt - t.g) * 160 - t.gv * 12) * dt; t.g = Math.max(0, t.g + t.gv * dt); setTuft(i); dirty = true;
+  }
+  if (dirty) tufts.instanceMatrix.needsUpdate = true;
+  TAIL.forEach(tl => { tl.g += ((tl.alive ? 1 : 0) - tl.g) * dk(tl.alive ? 6 : 40, dt); tl.piv.scale.setScalar(Math.max(0.0001, tl.g)); });
+}
+
+// ───────────────────────── frame ─────────────────────────
+let T = 0;
+const clock = new THREE.Clock();
+const camShake = new V3();
+function update(dt) {
+  if (C.mode === 'held') updateHand(dt);
+  // panic
+  if (C.mode === 'held') {
+    const tgt = clamp((C.shakeE - 10) / 55, 0, 1.15);
+    C.panic += (tgt - C.panic) * (tgt > C.panic ? dk(5, dt) : dk(0.9, dt));
+  } else C.panic = Math.max(0, C.panic - dt * (C.mode === 'fall' ? 0.55 : C.mode === 'recover' ? 1.6 : 2.5));
+  C.scream = sstep(0.22, 0.55, C.panic);
+
+  if (C.mode === 'wander') updateWander(dt);
+  else if (C.mode === 'recover') updateRecover(dt);
+  else updateHeldOrFall(dt);
+  if (C.mode === 'wander') collideBody(dt);
+
+  // plucking from shaking
+  if (C.mode === 'held' || C.mode === 'fall') {
+    C.pluckAcc += (C.panic > 0.3 ? Math.pow(C.panic - 0.3, 1.2) * 30 : 0) * dt;
+    while (C.pluckAcc >= 1) { C.pluckAcc--; pluck(1); }
+    C.fluffAcc += (C.panic > 0.25 ? C.panic * 7 : 0) * dt;
+    while (C.fluffAcc >= 1) { C.fluffAcc--; looseFeather(); }
+  }
+
+  // scream voice + mouth
+  if (C.scream > 0.05) {
+    if (T >= C.sqNext) { const d = rand(0.16, 0.5) * (1.15 - 0.35 * C.scream); C.sqEnd = T + d; C.sqNext = T + d + rand(0.04, 0.13); squawk(d, rand(760, 1150) * (0.85 + 0.45 * C.scream), 0.22 + 0.4 * C.scream); }
+  } else if (C.sqEnd > T) { C.sqEnd = T; screamOff(); }
+  let mo = 0;
+  C.beaks = C.beaks.filter(b => b.t1 > T);
+  for (const b of C.beaks) if (T >= b.t0) mo = Math.max(mo, b.a * Math.sin(Math.PI * (T - b.t0) / (b.t1 - b.t0)));
+  if (C.scream > 0.05) mo = Math.max(mo, T < C.sqEnd ? C.scream : 0.3 * C.scream);
+  C.mouth += (mo - C.mouth) * dk(30, dt);
+
+  // eye pop spring + awooga
+  const popT = clamp((C.panic - 0.42) / 0.33, 0, 1);
+  const prevPop = C.pop;
+  C.popV += ((popT - C.pop) * 190 - C.popV * 8) * dt; C.pop += C.popV * dt;
+  if (prevPop < 0.55 && C.pop >= 0.55 && popT > 0.5 && limit('awooga', 3)) { SFX.pop(); SFX.awooga(); }
+
+  updateTufts(dt);
+  updateFeathers(dt);
+  updateDirt(dt);
+  applyVisuals(dt);
+  updateCamera(dt);
+  // counter
+  if (lost !== shownLost) { shownLost = lost; countN.textContent = lost; countEl.style.opacity = 1; }
+}
+let shownLost = 0; const countN = document.getElementById('countN'), countEl = document.getElementById('count');
+
+const _ov = new V3();
+function orient(mesh, a, b) { _ov.subVectors(b, a); const l = _ov.length() || 1e-4; mesh.position.copy(a); mesh.quaternion.setFromUnitVectors(UP, _ov.divideScalar(l)); return l; }
+function applyVisuals(dt) {
+  const s = C.scream, P = C.panic;
+  // body
+  bodyG.position.copy(C.pos); bodyG.quaternion.copy(C.quat);
+  C.sqV += (-C.sq * 260 - C.sqV * 11) * dt; C.sq += C.sqV * dt;
+  const sq = clamp(C.sq, -0.45, 0.6), tr = s * 0.04 * Math.sin(T * 70);
+  bodyIn.scale.set(1 - sq * 0.45 + tr, 1 + sq - tr, 1 - sq * 0.45 + tr);
+  bodyIn.position.set(rand(-1, 1) * 0.015 * s, rand(-1, 1) * 0.015 * s, 0);
+  // plumage colour
+  const pf = 1 - tuftsAlive / NT;
+  thighMat.color.copy(cWhite).lerp(cSkin, Math.pow(pf, 0.7));
+  neckMat.color.copy(cWhite).lerp(cSkin, clamp(pf * 1.3, 0, 1));
+  // wings
+  let amp = 0, freq = 4;
+  if (C.mode === 'held') { amp = 0.35 + 1.0 * Math.min(P, 1); freq = 5 + 7 * Math.min(P, 1); }
+  else if (C.mode === 'fall') { amp = 1.15; freq = 8; }
+  else if (C.mode === 'recover') { amp = C.rPhase === 'daze' ? 0.12 : C.rPhase === 'ruffle' ? 0.5 : 0.3; freq = C.rPhase === 'daze' ? 1.5 : 7; }
+  else if (C.beaks.some(b => b.a > 0.9 && T >= b.t0)) { amp = 0.5; freq = 6; }
+  C.flapAmp += (amp - C.flapAmp) * dk(8, dt); C.flapPh += freq * dt;
+  for (const w of WINGS) { const a = C.flapAmp * (0.5 + 0.5 * Math.sin(C.flapPh * 6.283)); w.piv.rotation.z = w.s * a * 1.25; w.piv.rotation.y = -w.s * 0.25 * C.flapAmp * Math.cos(C.flapPh * 6.283); }
+  tailG.rotation.set(Math.sin(T * 9) * 0.05 * (C.mode === 'wander' ? 1 : 0) + rand(-1, 1) * 0.15 * s, Math.sin(T * 6) * 0.12 + rand(-1, 1) * 0.2 * s, 0);
+  // head kinematics for jiggles
+  C.headVelVis.copy(C.head).sub(C.headPrev).divideScalar(dt); C.headPrev.copy(C.head);
+  tA.copy(C.headVelVis).sub(C.headAcc).divideScalar(dt); C.headAcc.copy(C.headVelVis);
+  tB.set(1, 0, 0).applyQuaternion(C.headQuat); tC.set(0, 1, 0).applyQuaternion(C.headQuat);
+  const ax = clamp(tA.dot(tB), -400, 400), ay = clamp(tA.dot(tC), -400, 400);
+  C.combV += (-C.combA * 150 - C.combV * 7 + ax * 0.03 + rand(-1, 1) * 60 * s) * dt; C.combA = clamp(C.combA + C.combV * dt, -0.9, 0.9);
+  C.watV += (-C.watA * 120 - C.watV * 6 - ay * 0.02 + ax * 0.01) * dt; C.watA = clamp(C.watA + C.watV * dt, -1, 1);
+  combG.rotation.z = C.combA; wattleG.rotation.x = C.watA; wattleG.rotation.z = C.combA * 0.6;
+  // head
+  headG.position.copy(C.head); headG.quaternion.copy(C.headQuat);
+  headIn.scale.setScalar(1 + 0.22 * s + C.mouth * 0.04);
+  // neck
+  const nb = b2w(NECK_BASE, tD), nt = tR.set(0, -0.07, -0.08).applyQuaternion(C.headQuat).add(C.head);
+  const nl = orient(neck, nb, nt); const nr = clamp(Math.sqrt(0.36 / Math.max(nl, 0.05)), 0.55, 1.15); neck.scale.set(nr, nl, nr);
+  // beak / mouth
+  beakG.scale.setScalar(1 + 0.55 * s);
+  upperPiv.rotation.x = -0.4 * C.mouth;
+  lowerPiv.rotation.x = 1.05 * C.mouth + Math.sin(T * 55) * 0.08 * s;
+  tongue.rotation.set(Math.sin(T * 23) * 0.35 * s, Math.sin(T * 37) * 0.6 * s, 0); tongue.scale.set(1, 1, 1 + 0.9 * s * C.mouth);
+  // eyes
+  C.blinkT -= dt; if (C.blinkT < -0.12) C.blinkT = rand(1.6, 4.5);
+  const daze = C.mode === 'recover' && C.rPhase === 'daze';
+  let lidT = C.mode === 'wander' ? (C.act === 'look' ? 0.62 : 0.42) : C.mode === 'held' ? 0.85 : C.mode === 'fall' ? 0.9 : daze ? 0.3 : 0.55;
+  lidT = Math.max(lidT, s);
+  if (C.blinkT < 0 && C.pop < 0.1) lidT = 0;
+  C.lid += (lidT - C.lid) * dk(C.blinkT < 0 ? 40 : 14, dt);
+  veinMat.opacity = clamp(C.pop * 1.3, 0, 1);
+  const lookCam = (C.mode === 'wander' && C.act === 'look') || C.mode === 'held';
+  for (const e of EYES) {
+    const pop = Math.max(-0.1, C.pop);
+    e.eyeG.position.copy(e.socket).addScaledVector(e.out, 0.2 * Math.max(0, pop));
+    const sc = 1 + 0.8 * pop + C.popV * 0.012; e.eyeG.scale.setScalar(Math.max(0.6, sc));
+    e.stalk.visible = pop > 0.04;
+    if (e.stalk.visible) { const l = orient(e.stalk, e.socket, e.eyeG.position); e.stalk.scale.set(1, l, 1); }
+    e.lid.rotation.x = 1.5 + (-1.35 - 1.5) * clamp(C.lid + Math.max(0, pop) * 0.3, 0, 1.15);
+    // pupil
+    if (daze) { const a = T * 9 * e.s; e.look.set(Math.cos(a) * 0.5, Math.sin(a) * 0.5, 1); }
+    else if (s > 0.1) { e.look.set(rand(-1, 1) * 0.25 * s, rand(-1, 1) * 0.25 * s, 1); }
+    else if (lookCam) { e.eyeG.getWorldQuaternion(qT).invert(); e.eyeG.getWorldPosition(tA); e.look.subVectors(camera.position, tA).applyQuaternion(qT); e.look.z = Math.max(0.4, e.look.z); }
+    else e.look.lerp(tA.set(-e.s * 0.25, -0.05, 1), dk(10, dt));
+    e.look.normalize();
+    e.pupil.position.copy(e.look).multiplyScalar(0.064); e.pupil.quaternion.setFromUnitVectors(ZAX, e.look);
+    const ps = (1 - 0.6 * s * (e.s > 0 ? 1 : 0.6)) * (daze ? 1.1 : 1);
+    e.pupil.scale.setScalar(ps);
+  }
+  // legs
+  const air = C.mode === 'held' || C.mode === 'fall' || daze;
+  for (let i = 0; i < 2; i++) {
+    const L = LEGS[i], f = C.feet[i];
+    const hip = b2w(HIP[i], tA), ank = tB.copy(f.p); ank.y += 0.035;
+    const l = orient(L.shin, hip, ank); L.shin.scale.set(1, l, 1);
+    L.foot.position.copy(f.p);
+    if (air) { qT.copy(C.quat).multiply(qT2.setFromEuler(tE.set(1.1 + Math.sin(T * 25 + i * 3) * 0.4 * (P + 0.2), 0, 0))); L.foot.quaternion.slerp(qT, dk(20, dt)); L.toes.scale.setScalar(1 - 0.2 * Math.sin(T * 30 + i)); }
+    else { qT.setFromEuler(tE.set(f.step ? -0.35 * Math.sin(Math.PI * Math.min(1, f.t)) : 0, C.yaw, 0, 'YXZ')); L.foot.quaternion.slerp(qT, dk(25, dt)); L.toes.scale.setScalar(1); }
+  }
+  // stars
+  starsG.visible = daze && C.rT > 0.2;
+  if (starsG.visible) {
+    starsG.position.copy(C.head).add(tA.set(0, 0.32, 0));
+    starsG.children.forEach((st, k) => { const a = T * 4 + k / 5 * Math.PI * 2; st.position.set(Math.cos(a) * 0.3, Math.sin(a * 2) * 0.04, Math.sin(a) * 0.3); st.rotation.set(0, -a, 0); st.scale.setScalar(Math.min(1, (C.rT - 0.2) * 4)); });
+  }
+  camShake.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(0.035 * s);
+}
+function updateCamera(dt) {
+  const asp = innerWidth / innerHeight, k = asp < 1 ? Math.pow(1 / asp, 0.75) : 1;
+  if (C.mode !== 'held') {
+    camLook.x += (C.pos.x * 0.55 - camLook.x) * dk(1.6, dt);
+    camLook.z += (C.pos.z * 0.35 - camLook.z) * dk(1.6, dt);
+  }
+  camera.position.set(camLook.x, camLook.y + 1.9 * k, camLook.z + 6.4 * k);
+  camera.lookAt(camLook);
+}
+function frame() {
+  const dt = Math.min(clock.getDelta(), 1 / 30) || 1 / 60; T += dt;
+  update(dt);
+  camera.position.add(camShake); renderer.render(scene, camera); camera.position.sub(camShake);
+  requestAnimationFrame(frame);
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+updateCamera(1);
+pickTarget();
+frame();
+</script>
+</body>
+</html>
