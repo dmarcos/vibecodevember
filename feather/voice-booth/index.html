@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Feather Voice Booth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f5ead6; --panel: #fffaf0; --ink: #33200f; --ink-soft: #7b5b42; --line: #e3d2b4;
+    --accent: #c8382c; --accent-soft: #f6d8d2; --ok: #4f8a3a; --chip: #efe1c6; --wave: #8a5a35;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px; }
+  button:hover:not(:disabled) { border-color: var(--ink-soft); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+  .app { display: grid; grid-template-columns: 270px 1fr; grid-template-rows: auto 1fr auto; height: 100%; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 14px 22px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { margin: 0; font-family: Fraunces, serif; font-weight: 400; font-size: 22px; }
+  header h1 small { display: block; font-family: Inter, sans-serif; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); margin-top: 2px; }
+  .hgroup { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 12.5px; }
+  .hgroup select { max-width: 220px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .spacer { flex: 1; }
+  input[type=range] { accent-color: var(--accent); width: 120px; }
+  aside { border-right: 1px solid var(--line); overflow-y: auto; padding: 14px 10px 30px; }
+  .group-title { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); padding: 14px 12px 6px; display: flex; justify-content: space-between; }
+  .slot { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; background: none; padding: 9px 12px; border-radius: 8px; }
+  .slot:hover { background: var(--chip); }
+  .slot.active { background: var(--ink); color: var(--panel); }
+  .slot .cnt { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-soft); white-space: nowrap; }
+  .slot.active .cnt { color: #e6d3b8; }
+  .slot .cnt.done::before { content: '✓ '; color: var(--ok); }
+  .slot.active .cnt.done::before { color: #a6dd8c; }
+  main { overflow-y: auto; padding: 26px 34px 40px; }
+  .slot-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .slot-head h2 { margin: 0 0 4px; font-family: Fraunces, serif; font-weight: 600; font-size: 30px; }
+  .slot-head .say { font-family: Fraunces, serif; font-style: italic; font-size: 19px; color: var(--accent); margin-bottom: 8px; }
+  .slot-head p { margin: 0; max-width: 560px; line-height: 1.55; color: var(--ink-soft); }
+  .slot-head .when { margin-top: 8px; font-size: 12.5px; }
+  .booth { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: center; }
+  .rec { width: 92px; height: 92px; border-radius: 50%; border: 4px solid var(--accent-soft); background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 600; letter-spacing: .06em; font-size: 12px; padding: 0; transition: transform .1s; }
+  .rec:hover:not(:disabled) { border-color: var(--accent-soft); transform: scale(1.04); }
+  .rec.on { animation: pulse 1s infinite; border-radius: 22px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(200,56,44,.15); } }
+  .live { display: grid; gap: 8px; min-width: 0; }
+  .live canvas { width: 100%; height: 86px; display: block; border-radius: 10px; background: #f8efdf; }
+  .meter { height: 8px; border-radius: 4px; background: #eadbbf; overflow: hidden; position: relative; }
+  .meter i { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #6aa84f 0%, #6aa84f 65%, #e3b23c 80%, var(--accent) 95%); transition: width .05s linear; }
+  .live-info { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .clip { color: var(--accent); font-weight: 600; visibility: hidden; }
+  .enable { grid-column: 1 / -1; text-align: center; padding: 20px; }
+  .enable p { color: var(--ink-soft); margin: 10px auto 0; max-width: 460px; line-height: 1.5; }
+  .takes-head { display: flex; align-items: baseline; justify-content: space-between; margin: 30px 0 10px; }
+  .takes-head h3 { margin: 0; font-family: Fraunces, serif; font-weight: 400; font-size: 20px; }
+  .takes-head span { color: var(--ink-soft); font-size: 12.5px; }
+  .take { display: grid; grid-template-columns: 36px 1fr auto auto; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin-bottom: 8px; }
+  .take.playing { border-color: var(--ink); }
+  .take .n { font-family: Fraunces, serif; font-size: 18px; color: var(--ink-soft); text-align: center; }
+  .take canvas { width: 100%; height: 44px; display: block; cursor: pointer; }
+  .take .dur { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .take .acts { display: flex; gap: 6px; }
+  .take .acts button { padding: 6px 10px; }
+  .empty { padding: 26px; text-align: center; color: var(--ink-soft); border: 1px dashed var(--line); border-radius: 12px; }
+  footer { grid-column: 1 / -1; border-top: 1px solid var(--line); padding: 9px 22px; font-size: 12px; color: var(--ink-soft); display: flex; gap: 18px; flex-wrap: wrap; }
+  kbd { font-family: Inter, sans-serif; font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; background: var(--panel); color: var(--ink); }
+  .toast { position: fixed; left: 50%; bottom: 54px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--panel); padding: 10px 14px; border-radius: 10px; display: flex; gap: 14px; align-items: center; opacity: 0; pointer-events: none; transition: .2s; z-index: 5; }
+  .toast.show { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+  .toast button { background: none; color: #f1c27d; border: 0; padding: 0; font-weight: 600; }
+  label.chk { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+    main { padding: 20px 16px 30px; }
+    .booth { grid-template-columns: 1fr; justify-items: center; }
+    .live { width: 100%; }
+    .take { grid-template-columns: 28px 1fr auto; }
+    .take .dur { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Voice booth<small>Feather · chicken sounds</small></h1>
+    <div class="hgroup"><span>Mic</span><select id="micSel"><option>—</option></select></div>
+    <div class="hgroup"><label class="chk" title="Browser noise suppression / echo cancellation / auto gain. Usually best off — it mangles squawks."><input type="checkbox" id="procChk"> voice cleanup</label></div>
+    <div class="hgroup" title="Playback rate the game will use. Higher = smaller, more chicken-y."><span>Chicken pitch</span><input type="range" id="rate" min="0.7" max="2.2" step="0.05" value="1.3"><b id="rateV">1.30×</b></div>
+    <div class="spacer"></div>
+    <div class="hgroup"><label class="chk" title="Resample files at the chicken pitch instead of storing it in manifest.json"><input type="checkbox" id="bakeChk"> bake pitch</label></div>
+    <button id="saveDir">Save to folder…</button>
+    <button id="saveZip" class="primary">Download .zip</button>
+  </header>
+  <aside id="slots"></aside>
+  <main id="main"></main>
+  <footer>
+    <span><kbd>Space</kbd> tap to start / stop · hold to talk</span>
+    <span><kbd>↑</kbd><kbd>↓</kbd> slot</span>
+    <span><kbd>P</kbd> play last take</span>
+    <span><kbd>R</kbd> reference</span>
+    <span><kbd>⌫</kbd> delete last take</span>
+  </footer>
+</div>
+<div class="toast" id="toast"><span id="toastMsg"></span><button id="toastUndo">Undo</button></div>
+
+<script type="module">
+// ───────────────────────── sound slots ─────────────────────────
+const GROUPS = [
+  { id: 'idle', title: 'Idle / pacing', slots: [
+    { id: 'idle-buk', name: 'Single buk', say: '“buk.”', target: 6, when: 'Random idle chatter while walking and pecking.',
+      dir: 'One short, low, bored cluck. Barely open your mouth, push it from the throat. Nudge the pitch up or down a little on each take so they don’t repeat.' },
+    { id: 'idle-chatter', name: 'Buk-buk chatter', say: '“buk… buk-buk.”', target: 5, when: 'Idle phrase while pacing.',
+      dir: '2–4 relaxed clucks in one breath, uneven rhythm. Minding its own business, slightly self-important.' },
+    { id: 'idle-purr', name: 'Contented purr', say: '“brrrrrrrp”', target: 4, when: 'While pecking the ground happily.',
+      dir: 'Low rolling throat trill, about half a second to a second. Happy chicken settling in. A lip or tongue trill works too.' },
+    { id: 'idle-question', name: 'Curious bwok?', say: '“bwok?”', target: 4, when: 'When it stops and stares at you, head tilted.',
+      dir: 'A single rising question. Suspicious, a bit dim. Snap upward at the end.' },
+    { id: 'idle-song', name: 'Egg song', say: '“buk-buk-buk BUKAAAWK!”', target: 3, when: 'Occasional proud outburst while pacing.',
+      dir: 'Three quick buks, then a big proud, nasal BUKAAAWK that rises then drops. Go full barnyard.' },
+  ] },
+  { id: 'grab', title: 'Grabbed', slots: [
+    { id: 'grab-surprise', name: 'Picked up!', say: '“BAWK?!”', target: 4, when: 'The instant the mouse lifts it off the ground.',
+      dir: 'Startled yelp. Sharp attack, pitch jumps up. Pure “what is happening”. Keep it under half a second.' },
+    { id: 'grab-nervous', name: 'Nervous clucks', say: '“buk? buk? buk?”', target: 6, when: 'Held but not shaken yet.',
+      dir: 'Quick, higher, worried clucks. Trying to stay calm and failing. One to three per take.' },
+    { id: 'grab-squawk', name: 'Panic squawks', say: '“BAWK!” “BRAAK!” “BWAK!”', target: 10, when: 'While being shaken. Chained back to back, faster the harder you shake.',
+      dir: 'Short frantic screams, 0.2–0.5 s each, one per take. Record lots of different ones because they get chained rapidly. Raspy is good.' },
+    { id: 'grab-scream', name: 'Full meltdown', say: '“BWAAAAAAAAK!!”', target: 4, when: 'Maximum shaking, eyes fully popped.',
+      dir: 'Long unhinged scream, 1–2 s. Let your voice crack, warble and go ugly. Cartoon over realism.' },
+    { id: 'grab-gasp', name: 'Gasp', say: '“hhhk!”', target: 3, when: 'Breaths between screams.',
+      dir: 'Sharp breathless inhale or wheeze. Short and pathetic.' },
+  ] },
+];
+const SLOTS = GROUPS.flatMap(g => g.slots.map(s => ({ ...s, group: g.id })));
+const slotById = Object.fromEntries(SLOTS.map(s => [s.id, s]));
+
+// ───────────────────────── storage (IndexedDB, survives reloads) ─────────────────────────
+let db = null;
+try {
+  db = await new Promise((res, rej) => { const r = indexedDB.open('feather-voice-booth', 1); r.onupgradeneeded = () => r.result.createObjectStore('takes', { keyPath: 'id' }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+} catch (e) { console.warn('IndexedDB unavailable, takes will not persist', e); }
+const store = mode => db.transaction('takes', mode).objectStore('takes');
+const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+let takes = [];
+if (db) takes = (await req(store('readonly').getAll())).sort((a, b) => a.created - b.created);
+const saveTake = t => db && req(store('readwrite').put(t)).catch(e => console.warn(e));
+const dropTake = t => db && req(store('readwrite').delete(t.id)).catch(e => console.warn(e));
+const prefs = (() => { try { return JSON.parse(localStorage.getItem('feather-voice-prefs') || '{}'); } catch { return {}; } })();
+const savePrefs = () => { try { localStorage.setItem('feather-voice-prefs', JSON.stringify(prefs)); } catch {} };
+
+// ───────────────────────── state + dom ─────────────────────────
+const $ = id => document.getElementById(id);
+let cur = slotById[prefs.slot] ? prefs.slot : SLOTS[0].id;
+let rate = prefs.rate || 1.3;
+$('rate').value = rate; $('rateV').textContent = rate.toFixed(2) + '×';
+$('procChk').checked = !!prefs.proc; $('bakeChk').checked = !!prefs.bake;
+const slotTakes = id => takes.filter(t => t.slot === id);
+
+// ───────────────────────── audio engine ─────────────────────────
+let ctx = null, stream = null, srcNode = null, capNode = null, analyser = null, micReady = false;
+const PREROLL = 0.25;
+let pre = [], preLen = 0, recChunks = null, recStart = 0;
+function ensureCtx() { if (!ctx) ctx = new AudioContext(); if (ctx.state === 'suspended') ctx.resume(); return ctx; }
+const workletSrc = `class Cap extends AudioWorkletProcessor { process(i) { const c = i[0] && i[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } } registerProcessor('cap', Cap);`;
+async function enableMic(deviceId) {
+  ensureCtx();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const proc = $('procChk').checked;
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: proc, noiseSuppression: proc, autoGainControl: proc, channelCount: 1 } });
+  if (!capNode) {
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSrc], { type: 'application/javascript' })));
+    capNode = new AudioWorkletNode(ctx, 'cap');
+    const sink = ctx.createGain(); sink.gain.value = 0; capNode.connect(sink); sink.connect(ctx.destination);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+    capNode.port.onmessage = e => onChunk(e.data);
+  }
+  if (srcNode) srcNode.disconnect();
+  srcNode = ctx.createMediaStreamSource(stream);
+  srcNode.connect(capNode); srcNode.connect(analyser);
+  micReady = true;
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+  const active = stream.getAudioTracks()[0]?.getSettings().deviceId;
+  $('micSel').innerHTML = devs.map(d => `<option value="${d.deviceId}" ${d.deviceId === active ? 'selected' : ''}>${esc(d.label || 'Microphone')}</option>`).join('');
+  prefs.mic = active; savePrefs();
+  renderMain();
+}
+function onChunk(c) {
+  if (recChunks) { recChunks.push(c); return; }
+  pre.push(c); preLen += c.length;
+  while (pre.length && preLen - pre[0].length > PREROLL * ctx.sampleRate) preLen -= pre.shift().length;
+}
+function startRec() {
+  if (!micReady || recChunks) return;
+  ensureCtx(); stopPlay();
+  recChunks = pre.slice(); pre = []; preLen = 0; recStart = performance.now();
+  renderBooth();
+}
+function stopRec() {
+  if (!recChunks) return;
+  const chunks = recChunks; recChunks = null;
+  let n = 0; for (const c of chunks) n += c.length;
+  const raw = new Float32Array(n); let o = 0; for (const c of chunks) { raw.set(c, o); o += c.length; }
+  const data = cleanUp(raw, ctx.sampleRate);
+  renderBooth();
+  if (!data) { toast('Nothing heard. Try again a bit louder or closer.'); return; }
+  const t = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), slot: cur, sr: ctx.sampleRate, data, created: Date.now() };
+  takes.push(t); saveTake(t);
+  renderSlots(); renderTakes();
+  play(t);
+}
+// trim silence (keeping a little air), short fades, normalise to -1 dBFS
+function cleanUp(x, sr) {
+  const win = Math.round(sr * 0.01); let peak = 0;
+  for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+  if (peak < 0.01) return null;
+  const thr = Math.max(0.006, peak * 0.06);
+  const rms = i => { let s = 0; const e = Math.min(x.length, i + win); for (let k = i; k < e; k++) s += x[k] * x[k]; return Math.sqrt(s / Math.max(1, e - i)); };
+  let a = 0, b = x.length;
+  for (let i = 0; i < x.length; i += win) if (rms(i) > thr) { a = i; break; }
+  for (let i = x.length - win; i > 0; i -= win) if (rms(i) > thr) { b = i + win; break; }
+  a = Math.max(0, a - Math.round(sr * 0.04)); b = Math.min(x.length, b + Math.round(sr * 0.12));
+  if (b - a < sr * 0.04) return null;
+  const y = x.slice(a, b), g = 0.891 / peak, fi = Math.round(sr * 0.004), fo = Math.round(sr * 0.03);
+  for (let i = 0; i < y.length; i++) { let e = 1; if (i < fi) e = i / fi; if (i > y.length - fo) e = Math.min(e, (y.length - i) / fo); y[i] *= g * e; }
+  return y;
+}
+let playing = null;
+function stopPlay() { if (playing) { try { playing.src.stop(); } catch {} playing = null; renderTakes(); } }
+function play(t) {
+  ensureCtx(); stopPlay();
+  const buf = ctx.createBuffer(1, t.data.length, t.sr); buf.copyToChannel(t.data, 0);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate; src.connect(ctx.destination);
+  src.onended = () => { if (playing && playing.src === src) { playing = null; renderTakes(); } };
+  src.start(); playing = { src, id: t.id }; renderTakes();
+}
+
+// reference sounds (the game's current synth chicken) as an acting cue
+function voice(o) {
+  const c = ensureCtx(), t = c.currentTime + (o.at || 0) + 0.02, dur = o.dur;
+  const osc = c.createOscillator(); osc.type = o.type || 'sawtooth';
+  o.f.forEach(([dt, f], i) => i ? osc.frequency.exponentialRampToValueAtTime(f, t + dt) : osc.frequency.setValueAtTime(f, t + dt));
+  const nodes = [osc]; let src = osc;
+  if (o.vib) { const l = c.createOscillator(), g = c.createGain(); l.frequency.value = o.vib[0]; g.gain.value = o.vib[1]; l.connect(g); g.connect(osc.frequency); nodes.push(l); }
+  if (o.am) { const a = c.createGain(); a.gain.value = 0.5; const l = c.createOscillator(), g = c.createGain(); l.type = 'square'; l.frequency.value = o.am; g.gain.value = 0.5; l.connect(g); g.connect(a.gain); osc.connect(a); src = a; nodes.push(l); }
+  if (o.dist) { const ws = c.createWaveShaper(), n = 1024, cv = new Float32Array(n); for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; cv[i] = (1 + o.dist) * x / (1 + o.dist * Math.abs(x)); } ws.curve = cv; src.connect(ws); src = ws; }
+  const out = c.createGain(), v = o.vol || 0.3; out.gain.setValueAtTime(0.0001, t); out.gain.linearRampToValueAtTime(v, t + 0.01); out.gain.setValueAtTime(v, t + Math.max(0.01, dur - (o.rel || 0.05))); out.gain.linearRampToValueAtTime(0.0001, t + dur);
+  for (const [f, q, g] of o.form || [[1000, 0.5, 1]]) { const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; const gg = c.createGain(); gg.gain.value = g; src.connect(bp); bp.connect(gg); gg.connect(out); }
+  out.connect(c.destination); nodes.forEach(n => { n.start(t); n.stop(t + dur + 0.05); });
+}
+const buk = (at = 0, p = 1) => voice({ at, dur: 0.1, f: [[0, 620 * p], [0.1, 360 * p]], form: [[950 * p, 5, 4], [2300 * p, 7, 2]], vol: 0.4, dist: 3, rel: 0.07 });
+const bawk = (at = 0, p = 1, len = 0.42) => voice({ at, dur: len, f: [[0, 460 * p], [0.07, 1000 * p], [len, 640 * p]], vib: [9, 30], form: [[1200 * p, 3, 4], [2500 * p, 5, 2]], vol: 0.45, dist: 7, rel: 0.14 });
+const REF = {
+  'idle-buk': () => buk(0, 0.95),
+  'idle-chatter': () => { buk(0); buk(0.24, 1.05); buk(0.4, 0.98); },
+  'idle-purr': () => voice({ dur: 0.75, f: [[0, 270], [0.75, 215]], am: 23, form: [[650, 2, 3], [1700, 4, 1]], vol: 0.3, rel: 0.25 }),
+  'idle-question': () => voice({ dur: 0.26, f: [[0, 430], [0.26, 950]], form: [[1100, 4, 4], [2400, 6, 2]], vol: 0.4, dist: 3 }),
+  'idle-song': () => { buk(0, 1.05); buk(0.14, 1.05); buk(0.28, 1.05); bawk(0.46, 1.05, 0.5); },
+  'grab-surprise': () => bawk(0, 1.15, 0.36),
+  'grab-nervous': () => { buk(0, 1.3); buk(0.15, 1.38); },
+  'grab-squawk': () => voice({ dur: 0.3, f: [[0, 800], [0.06, 1350], [0.3, 900]], vib: [14, 90], form: [[1700, 3, 4], [2900, 5, 2]], vol: 0.4, dist: 22 }),
+  'grab-scream': () => voice({ dur: 1.4, f: [[0, 900], [0.1, 1500], [1.4, 1000]], vib: [13, 130], form: [[1600, 3, 4], [2900, 5, 2]], vol: 0.4, dist: 22, rel: 0.2 }),
+  'grab-gasp': () => voice({ dur: 0.18, type: 'sawtooth', f: [[0, 300], [0.18, 700]], form: [[2400, 1, 3]], vol: 0.2, dist: 1 }),
+};
+
+// ───────────────────────── rendering ─────────────────────────
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderSlots() {
+  $('slots').innerHTML = GROUPS.map(g => {
+    const done = g.slots.filter(s => slotTakes(s.id).length >= s.target).length;
+    return `<div class="group-title"><span>${g.title}</span><span>${done}/${g.slots.length}</span></div>` +
+      g.slots.map(s => { const n = slotTakes(s.id).length; return `<button class="slot ${s.id === cur ? 'active' : ''}" data-slot="${s.id}"><span>${s.name}</span><span class="cnt ${n >= s.target ? 'done' : ''}">${n} / ${s.target}</span></button>`; }).join('');
+  }).join('');
+}
+function renderMain() {
+  const s = slotById[cur];
+  $('main').innerHTML = `
+    <div class="slot-head">
+      <div>
+        <h2>${s.name}</h2>
+        <div class="say">${s.say}</div>
+        <p>${s.dir}</p>
+        <p class="when"><b>In game:</b> ${s.when}</p>
+      </div>
+      <button id="refBtn" title="Play the current synthesized placeholder (R)">▶ Reference</button>
+    </div>
+    <div class="booth" id="booth"></div>
+    <div class="takes-head"><h3>Takes</h3><span id="takesInfo"></span></div>
+    <div id="takes"></div>`;
+  $('refBtn').onclick = () => REF[cur]();
+  renderBooth(); renderTakes();
+}
+function renderBooth() {
+  const b = $('booth'); if (!b) return;
+  if (!micReady) {
+    b.innerHTML = `<div class="enable"><button class="primary" id="micBtn">Enable microphone</button><p>Recordings stay in this browser until you export them. Use headphones so the reference and playback don't bleed into the mic.</p></div>`;
+    $('micBtn').onclick = () => enableMic(prefs.mic).catch(e => toast('Microphone blocked: ' + e.message));
+    return;
+  }
+  const on = !!recChunks;
+  if (!b.querySelector('.rec')) {
+    b.innerHTML = `<button class="rec" id="recBtn"></button>
+      <div class="live"><canvas id="liveCv"></canvas><div class="meter"><i id="meterI"></i></div>
+      <div class="live-info"><span id="recInfo"></span><span class="clip" id="clip">CLIPPING · back off the mic</span></div></div>`;
+    $('recBtn').onclick = () => recChunks ? stopRec() : startRec();
+  }
+  $('recBtn').classList.toggle('on', on); $('recBtn').textContent = on ? 'STOP' : 'REC';
+  $('recInfo').textContent = on ? 'recording…' : `ready · take ${slotTakes(cur).length + 1}`;
+}
+function drawWave(cv, data, color, pad = 2) {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth * dpr, h = cv.clientHeight * dpr;
+  if (!w) return;
+  cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.clearRect(0, 0, w, h);
+  g.fillStyle = color; const step = data.length / w, mid = h / 2;
+  for (let x = 0; x < w; x++) {
+    let mn = 1, mx = -1; const a = Math.floor(x * step), e = Math.max(a + 1, Math.floor((x + 1) * step));
+    for (let i = a; i < e && i < data.length; i++) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (mx < mn) continue;
+    g.fillRect(x, mid - mx * (mid - pad), 1, Math.max(1, (mx - mn) * (mid - pad)));
+  }
+}
+function renderTakes() {
+  const el = $('takes'); if (!el) return;
+  const list = slotTakes(cur), s = slotById[cur];
+  $('takesInfo').textContent = list.length >= s.target ? `${list.length} recorded · target reached, extras are welcome` : `${list.length} of ${s.target} suggested variations`;
+  if (!list.length) { el.innerHTML = `<div class="empty">No takes yet. Press <kbd>Space</kbd> or the red button and perform it. Vary each take, since the game picks one at random.</div>`; return; }
+  el.innerHTML = list.map((t, i) => `<div class="take ${playing && playing.id === t.id ? 'playing' : ''}" data-id="${t.id}">
+      <div class="n">${i + 1}</div><canvas data-play="${t.id}"></canvas>
+      <div class="dur">${(t.data.length / t.sr / rate).toFixed(2)} s</div>
+      <div class="acts"><button data-play="${t.id}">${playing && playing.id === t.id ? '■' : '▶'}</button><button data-del="${t.id}" title="Delete">✕</button></div></div>`).join('');
+  list.forEach(t => drawWave(el.querySelector(`canvas[data-play="${t.id}"]`), t.data, playing && playing.id === t.id ? '#c8382c' : '#8a5a35'));
+}
+// live meter + waveform
+const peakBuf = new Float32Array(1024); let peakHold = 0, clipT = 0;
+function tick() {
+  requestAnimationFrame(tick);
+  if (!micReady || !$('meterI')) return;
+  analyser.getFloatTimeDomainData(peakBuf);
+  let p = 0; for (const v of peakBuf) p = Math.max(p, Math.abs(v));
+  peakHold = Math.max(p, peakHold * 0.9);
+  $('meterI').style.width = Math.min(100, Math.sqrt(peakHold) * 100) + '%';
+  if (p > 0.98) clipT = performance.now();
+  $('clip').style.visibility = performance.now() - clipT < 1200 ? 'visible' : 'hidden';
+  const cv = $('liveCv');
+  if (recChunks) {
+    $('recInfo').textContent = 'recording… ' + ((performance.now() - recStart) / 1000).toFixed(1) + ' s';
+    let n = 0; for (const c of recChunks) n += c.length;
+    const tail = Math.max(n, ctx.sampleRate * 2), all = new Float32Array(tail); let o = tail - n; for (const c of recChunks) { all.set(c, o); o += c.length; }
+    drawWave(cv, all, '#c8382c');
+  } else drawWave(cv, peakBuf, '#c9ad89');
+}
+tick();
+
+// ───────────────────────── export ─────────────────────────
+function resample(x, f) { if (Math.abs(f - 1) < 1e-3) return x; const n = Math.floor(x.length / f), y = new Float32Array(n); for (let i = 0; i < n; i++) { const p = i * f, k = Math.floor(p), a = p - k; y[i] = (x[k] || 0) * (1 - a) + (x[k + 1] || 0) * a; } return y; }
+function wav(data, sr) {
+  const b = new ArrayBuffer(44 + data.length * 2), v = new DataView(b);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + data.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, data.length * 2, true);
+  for (let i = 0; i < data.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, data[i])) * 0x7fff, true);
+  return new Uint8Array(b);
+}
+function buildExport() {
+  const bake = $('bakeChk').checked, files = [], manifest = { version: 1, rate: bake ? 1 : rate, bakedRate: bake ? rate : null, groups: {}, sounds: {} };
+  for (const g of GROUPS) manifest.groups[g.id] = g.slots.map(s => s.id);
+  for (const s of SLOTS) {
+    manifest.sounds[s.id] = slotTakes(s.id).map((t, i) => {
+      const name = `${s.id}-${String(i + 1).padStart(2, '0')}.wav`;
+      files.push({ name, bytes: wav(bake ? resample(t.data, rate) : t.data, t.sr) });
+      return name;
+    });
+  }
+  files.push({ name: 'manifest.json', bytes: new TextEncoder().encode(JSON.stringify(manifest, null, 2) + '\n') });
+  return files;
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function zip(files) {
+  const parts = [], central = []; let off = 0;
+  for (const f of files) {
+    const name = new TextEncoder().encode('sounds/' + f.name), crc = crc32(f.bytes), h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, crc, true); h.setUint32(18, f.bytes.length, true); h.setUint32(22, f.bytes.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, f.bytes);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint32(16, crc, true); c.setUint32(20, f.bytes.length, true); c.setUint32(24, f.bytes.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + f.bytes.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
+}
+$('saveZip').onclick = () => {
+  if (!takes.length) return toast('Record something first.');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(zip(buildExport())); a.download = 'feather-chicken-sounds.zip'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('saveDir').onclick = async () => {
+  if (!takes.length) return toast('Record something first.');
+  if (!window.showDirectoryPicker) return toast('This browser can’t write folders. Use Download .zip instead.');
+  try {
+    const dir = await window.showDirectoryPicker({ id: 'feather-sounds', mode: 'readwrite' });
+    const files = buildExport(), names = new Set(files.map(f => f.name));
+    for await (const [name] of dir.entries()) if (SLOTS.some(s => name.startsWith(s.id + '-')) && name.endsWith('.wav') && !names.has(name)) await dir.removeEntry(name);
+    for (const f of files) { const h = await dir.getFileHandle(f.name, { create: true }), w = await h.createWritable(); await w.write(f.bytes); await w.close(); }
+    toast(`Saved ${files.length - 1} sounds + manifest.json to “${dir.name}”.`);
+  } catch (e) { if (e.name !== 'AbortError') toast('Save failed: ' + e.message); }
+};
+
+// ───────────────────────── interactions ─────────────────────────
+let undoTake = null, toastTimer = 0;
+function toast(msg, undo) {
+  $('toastMsg').textContent = msg; $('toastUndo').style.display = undo ? '' : 'none';
+  $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), undo ? 6000 : 3500);
+}
+function deleteTake(id) {
+  const t = takes.find(t => t.id === id); if (!t) return;
+  if (playing && playing.id === id) stopPlay();
+  takes = takes.filter(x => x !== t); dropTake(t); undoTake = t;
+  renderSlots(); renderTakes(); renderBooth(); toast(`Deleted take from “${slotById[t.slot].name}”.`, true);
+}
+$('toastUndo').onclick = () => { if (!undoTake) return; takes.push(undoTake); takes.sort((a, b) => a.created - b.created); saveTake(undoTake); undoTake = null; $('toast').classList.remove('show'); renderSlots(); renderTakes(); renderBooth(); };
+function selectSlot(id) { if (recChunks) stopRec(); stopPlay(); cur = id; prefs.slot = id; savePrefs(); renderSlots(); renderMain(); }
+$('slots').onclick = e => { const b = e.target.closest('[data-slot]'); if (b) selectSlot(b.dataset.slot); };
+$('main').addEventListener('click', e => {
+  const p = e.target.closest('[data-play]'), d = e.target.closest('[data-del]');
+  if (p) { const t = takes.find(t => t.id === p.dataset.play); if (playing && playing.id === t.id) stopPlay(); else play(t); }
+  if (d) deleteTake(d.dataset.del);
+});
+$('rate').oninput = e => { rate = +e.target.value; $('rateV').textContent = rate.toFixed(2) + '×'; prefs.rate = rate; savePrefs(); if (playing) playing.src.playbackRate.value = rate; renderTakes(); };
+$('bakeChk').onchange = e => { prefs.bake = e.target.checked; savePrefs(); };
+$('procChk').onchange = e => { prefs.proc = e.target.checked; savePrefs(); if (micReady) enableMic($('micSel').value); };
+$('micSel').onchange = e => { if (micReady) enableMic(e.target.value).catch(err => toast(err.message)); };
+let spaceDown = 0;
+addEventListener('keydown', e => {
+  if (e.target.closest('input, select')) return;
+  if (e.code === 'Space') { e.preventDefault(); if (e.repeat) return; if (recChunks) { stopRec(); spaceDown = 0; } else { startRec(); spaceDown = performance.now(); } }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const i = SLOTS.findIndex(s => s.id === cur); selectSlot(SLOTS[(i + (e.key === 'ArrowDown' ? 1 : -1) + SLOTS.length) % SLOTS.length].id); }
+  else if (e.key === 'p' || e.key === 'P') { const l = slotTakes(cur); if (l.length) play(l[l.length - 1]); }
+  else if (e.key === 'r' || e.key === 'R') REF[cur]();
+  else if (e.key === 'Backspace' || e.key === 'Delete') { const l = slotTakes(cur); if (l.length) deleteTake(l[l.length - 1].id); }
+});
+addEventListener('keyup', e => { if (e.code === 'Space' && spaceDown && recChunks && performance.now() - spaceDown > 400) stopRec(); if (e.code === 'Space') spaceDown = 0; });
+addEventListener('resize', () => renderTakes());
+
+renderSlots(); renderMain();
+// re-open the mic automatically if permission was already granted
+navigator.permissions?.query({ name: 'microphone' }).then(p => { if (p.state === 'granted') enableMic(prefs.mic).catch(() => enableMic()); }).catch(() => {});
+</script>
+</body>
+</html>

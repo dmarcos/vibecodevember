@@ -21,6 +21,10 @@
   #count { position: fixed; top: 22px; right: 28px; text-align: right; pointer-events: none; font-family: Fraunces, serif; opacity: 0; transition: opacity .4s; text-shadow: 0 1px 10px rgba(255,255,255,0.7); }
   #count b { display: block; font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
   #count small { font-family: Inter, sans-serif; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; font-family: Fraunces, serif; font-style: italic; font-size: 20px; color: var(--ink-soft); background: #f3e3c3; transition: opacity .8s; pointer-events: none; }
+  .credit { position: fixed; right: 12px; bottom: 8px; font-size: 10px; color: var(--ink-soft); opacity: .8; }
+  .credit a { color: inherit; }
+  @media (max-width: 640px) { .credit { bottom: 4px; } .hint { bottom: 26px; } }
   @media (max-width: 640px) { .title { top: 16px; left: 16px; font-size: 19px; } #count { top: 16px; right: 16px; } #count b { font-size: 26px; } }
 </style>
 <script type="importmap">
@@ -33,10 +37,13 @@
 <body>
 <div class="vignette"></div>
 <div class="title">Vibecodevember - Feather<small>Nov 11th 2026</small></div>
+<div id="loading">fetching the chicken…</div>
+<div class="credit">Chicken: <a href="https://sketchfab.com/3d-models/tv-world-chicken-030273524e05435f9913c160291bdf4c" target="_blank" rel="noopener">“TV-World: Chicken”</a> by <a href="https://sketchfab.com/parelaxel" target="_blank" rel="noopener">Parelaxel</a> · <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a></div>
 <div id="count"><b id="countN">0</b><small>feathers lost</small></div>
 <div class="hint" id="hint"><b>grab</b> the chicken &nbsp;·&nbsp; <b>shake</b> it &nbsp;·&nbsp; <b>let go</b> &nbsp;·&nbsp; <b>m</b> mute</div>
 <script type="module">
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ───────────────────────── utils ─────────────────────────
 const V3 = THREE.Vector3, Q = THREE.Quaternion;
@@ -70,7 +77,7 @@ const scene = new THREE.Scene();
 }
 scene.fog = new THREE.Fog(0xf6e6c4, 20, 48);
 const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 150);
-const camLook = new V3(0, 0.75, 0);
+const camLook = new V3(0, 0.62, 0);
 
 scene.add(new THREE.HemisphereLight(0xfff4e2, 0x9a7650, 1.25));
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.5);
@@ -171,17 +178,6 @@ const ell = (rx, ry, rz, ws = 18, hs = 14) => new THREE.SphereGeometry(1, ws, hs
 const OBST = [{ x: -3.5, z: -3.1, r: 0.8 }, { x: 3.7, z: -2.8, r: 0.8 }];
 
 // ───────────────────────── textures for the bird ─────────────────────────
-const gooseTex = (() => {
-  const [c, g] = canvas(256, 256);
-  g.fillStyle = '#f4a796'; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 20; i++) { g.fillStyle = 'rgba(230,120,120,0.25)'; g.beginPath(); g.ellipse(rand(0, 256), rand(0, 256), rand(15, 40), rand(10, 30), rand(0, 3), 0, 7); g.fill(); }
-  for (let i = 0; i < 900; i++) {
-    const x = rand(0, 256), y = rand(0, 256), r = rand(1.4, 3.4);
-    g.fillStyle = 'rgba(196,96,92,0.75)'; g.beginPath(); g.arc(x, y + 0.8, r, 0, 7); g.fill();
-    g.fillStyle = 'rgba(255,214,200,0.9)'; g.beginPath(); g.arc(x - 0.5, y - 0.5, r * 0.55, 0, 7); g.fill();
-  }
-  return ctex(c, 2);
-})();
 const veinTex = (() => {
   const [c, g] = canvas(256, 128);
   g.lineCap = 'round';
@@ -212,117 +208,155 @@ const featherTex = (() => {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 })();
 
-// ───────────────────────── chicken construction ─────────────────────────
-const WHITE = 0xf7f0e3, SKIN = 0xf2a191, RED = 0xe5352a, BEAK = 0xf7a823, LEGC = 0xf2a72e;
-const cWhite = new THREE.Color(WHITE), cSkin = new THREE.Color(SKIN);
-const BODY_H = 0.6, LEG_L = 0.36, BR = 0.4, BODY_S = new V3(1, 0.88, 1.18);
-const HEAD_REST = new V3(0, 0.48, 0.4), NECK_BASE = new V3(0, 0.18, 0.3);
-const HIP = [new V3(0.15, -0.24, 0.03), new V3(-0.15, -0.24, 0.03)];
+// ───────────────────────── chicken: "TV-World: Chicken" by Parelaxel (CC BY 4.0), auto-rigged at load ─────────────────────────
+const S = 0.00105;                                    // model is in cm, faces -z → chicken space: metres-ish, faces +z
+const cs = (x, y, z) => new V3(-x * S, y * S, -z * S);
 const invisible = new THREE.MeshBasicMaterial({ visible: false });
-
-const bodyG = new THREE.Group(); scene.add(bodyG);
-const bodyIn = new THREE.Group(); bodyG.add(bodyIn);
-const skin = mk(ell(BR * 0.96 * BODY_S.x, BR * 0.96 * BODY_S.y, BR * 0.96 * BODY_S.z, 32, 24), tm(0xffffff, { map: gooseTex }));
-bodyIn.add(skin);
-const bodyHit = new THREE.Mesh(ell(0.47 * BODY_S.x, 0.47 * BODY_S.y, 0.47 * BODY_S.z, 12, 8), invisible); bodyG.add(bodyHit);
-
-// feather tufts covering the body (each one pluckable)
-const NT = 200;
-const tuftGeo = ell(0.13, 0.05, 0.17, 10, 8);
-const tufts = new THREE.InstancedMesh(tuftGeo, tm(WHITE), NT); tufts.castShadow = true;
-const tuftsOL = new THREE.InstancedMesh(tuftGeo, OL, NT); tuftsOL.instanceMatrix = tufts.instanceMatrix;
-bodyIn.add(tufts, tuftsOL);
-const TUFT = [];
-{
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < NT; i++) {
-    const y = 1 - (i + 0.5) / NT * 2, r = Math.sqrt(1 - y * y), th = golden * i;
-    const u = new V3(Math.cos(th) * r, y, Math.sin(th) * r);
-    const p = new V3(u.x * BODY_S.x, u.y * BODY_S.y, u.z * BODY_S.z).multiplyScalar(BR * 0.96);
-    const n = new V3(u.x / BODY_S.x, u.y / BODY_S.y, u.z / BODY_S.z).normalize();
-    const t = new V3(0, -0.3, -1); t.addScaledVector(n, -t.dot(n));
-    if (t.lengthSq() < 1e-3) { t.set(0, -1, 0).addScaledVector(n, -n.y); }
-    t.normalize();
-    const x = new V3().crossVectors(n, t);
-    const q = new Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, n, t));
-    p.addScaledVector(n, 0.012).addScaledVector(t, 0.05);
-    TUFT.push({ p, q, n, s: rand(0.9, 1.12), g: 1, gv: 0, alive: true });
-  }
-}
 const _tm = new THREE.Matrix4(), _ts = new V3();
-function setTuft(i) { const f = TUFT[i]; const g = Math.max(0.0001, f.g) * f.s; _tm.compose(f.p, f.q, _ts.set(g, g, g)); tufts.setMatrixAt(i, _tm); }
-for (let i = 0; i < NT; i++) setTuft(i);
-let tuftsAlive = NT;
+const gltf = await new GLTFLoader().loadAsync('model/chicken.glb');
+gltf.scene.updateMatrixWorld(true);
+let srcBody = null; const srcEyes = [];
+gltf.scene.traverse(o => { if (o.isMesh) { if (/eye/i.test(o.name)) srcEyes.push(o); else srcBody = o; } });
+const toCS = new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matrix4().makeScale(S, S, S));
+const prepGeo = m => { const g = m.geometry.clone(); g.deleteAttribute('tangent'); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toCS, m.matrixWorld)); return g; };
+const birdMap = srcBody.material.map;
+const texData = (() => { const im = birdMap.image, [c, g] = canvas(im.width, im.height); g.drawImage(im, 0, 0); return { w: im.width, h: im.height, d: g.getImageData(0, 0, im.width, im.height).data }; })();
+function texel(u, v) { const { w, h, d } = texData; const x = Math.min(w - 1, Math.floor((u - Math.floor(u)) * w)), y = Math.min(h - 1, Math.floor((v - Math.floor(v)) * h)), i = (y * w + x) * 4; return [d[i] / 255, d[i + 1] / 255, d[i + 2] / 255]; }
 
-// wings
-const WINGS = [];
-for (const s of [1, -1]) {
-  const piv = new THREE.Group(); piv.position.set(s * 0.36, 0.1, 0.06); bodyIn.add(piv);
-  const w = mk(ell(0.07, 0.2, 0.33), tm(WHITE)); w.position.set(s * 0.045, -0.09, -0.12); w.rotation.x = -0.28; piv.add(w);
-  for (let k = 0; k < 3; k++) { const f = mk(ell(0.03, 0.05, 0.16, 10, 8), tm(0xeee4d2)); f.position.set(s * 0.05, -0.21 + k * 0.045, -0.33 + k * 0.02); f.rotation.x = 0.35 - k * 0.12; piv.add(f); }
-  WINGS.push({ piv, s });
+// classify every vertex by position + texture colour and build skin weights
+const birdGeo = prepGeo(srcBody);
+const BONES = ['root', 'head', 'comb', 'wattle', 'beak', 'wingA', 'wingB', 'tail', 'thighA', 'shinA', 'footA', 'thighB', 'shinB', 'footB'];
+const BI = Object.fromEntries(BONES.map((n, i) => [n, i]));
+const featherVerts = [], tailVerts = [], beakBox = new THREE.Box3();
+let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
+{
+  const pos = birdGeo.attributes.position, uv = birdGeo.attributes.uv, N = pos.count;
+  const sIdx = new Uint16Array(N * 4), sW = new Float32Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ox = -x / S, oy = y / S, oz = -z / S, ax = Math.abs(ox), side = x >= 0 ? 'A' : 'B';
+    const [r, g, b] = texel(uv.getX(i), uv.getY(i));
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), rs = (mx - mn) / Math.max(mx, 1e-3);
+    const feathery = rs < 0.42 && g <= r + 0.03 && b <= g + 0.03 && mx > 0.2;
+    const combC = r > 0.2 && g < 0.2 && b < 0.25 && r > g * 2, redC = r > 0.55 && g < 0.35 && b < 0.5, yelC = r > 0.7 && g > 0.45 && b < 0.5 && rs > 0.35;
+    const w = {}, add = (n, v) => { if (v > 1e-4) w[n] = (w[n] || 0) + v; };
+    let isTail = false;
+    if (oz > 190 && oy > 290 && ax < 260) { const t = sstep(190, 290, oz); add('tail', t); add('root', 1 - t); isTail = t > 0.5; }
+    else if (ax > 175 && oy > 400 && oy < 640) { const t = sstep(175, 245, ax); add('wing' + side, t); add('root', 1 - t); }
+    else if (oy < 370 && ax < 225 && oz < 220) {
+      const dl = Math.hypot(ax - 87, oz - 10);
+      const a = sstep(370, 290, oy) * (oy < 200 ? 1 : sstep(135, 70, dl)), bb = sstep(215, 175, oy), c = sstep(75, 42, oy);
+      add('root', 1 - a); add('thigh' + side, a * (1 - bb)); add('shin' + side, a * bb * (1 - c)); add('foot' + side, a * bb * c);
+    } else if (oy > 620 && oz < 120) {
+      const h = sstep(640, 830, oy); let sub = null, sw = 0;
+      if (oy > 980 && combC) { sub = 'comb'; sw = sstep(985, 1045, oy); }
+      else if (redC && oy < 975 && oy > 700 && oz < -150) { sub = 'wattle'; sw = sstep(955, 905, oy); }
+      else if (yelC && oy > 840) { sub = 'beak'; sw = 1; beakBox.expandByPoint(tA.set(x, y, z)); beakCol.r += r; beakCol.g += g; beakCol.b += b; beakN++; }
+      add('root', 1 - h); add('head', h * (1 - sw)); if (sub) add(sub, h * sw);
+    } else add('root', 1);
+    if (isTail) tailVerts.push(i); else if (feathery && oy > 230) featherVerts.push(i);
+    const e = Object.entries(w).sort((p, q) => q[1] - p[1]).slice(0, 4), sum = e.reduce((s, p) => s + p[1], 0) || 1;
+    e.forEach(([n, v], k) => { sIdx[i * 4 + k] = BI[n]; sW[i * 4 + k] = v / sum; });
+  }
+  birdGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(sIdx, 4));
+  birdGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sW, 4));
 }
-// tail
-const tailG = new THREE.Group(); tailG.position.set(0, 0.12, -0.4); bodyIn.add(tailG);
-const TAIL = [];
-for (let k = 0; k < 5; k++) {
-  const piv = new THREE.Group(); piv.rotation.set(-0.55 - Math.abs(k - 2) * 0.08, 0, (k - 2) * 0.3); tailG.add(piv);
-  const f = mk(ell(0.05, 0.26, 0.1).translate(0, 0.22, 0), tm(k % 2 ? 0xefe4d0 : WHITE)); piv.add(f);
-  TAIL.push({ piv, mesh: f, alive: true, g: 1 });
+if (beakN) beakCol.setRGB(beakCol.r / beakN, beakCol.g / beakN, beakCol.b / beakN, THREE.SRGBColorSpace); else beakCol.set(0xf3c64a);
+if (beakBox.isEmpty()) beakBox.setFromCenterAndSize(cs(0, 905, -260), new V3(0.04, 0.03, 0.04));
+const beakSize = beakBox.getSize(new V3());
+const PS = {
+  root: cs(0, 430, 20), head: cs(0, 950, -170), comb: cs(0, 1035, -150), wattle: cs(0, 935, -235),
+  beak: new V3(0, (beakBox.min.y + beakBox.max.y) / 2, beakBox.min.z), tail: cs(0, 470, 230),
+  wingA: cs(-185, 520, -20), wingB: cs(185, 520, -20),
+  thighA: cs(-87, 330, 10), shinA: cs(-87, 190, 6), footA: cs(-88, 42, 0),
+  thighB: cs(87, 330, 10), shinB: cs(87, 190, 6), footB: cs(88, 42, 0),
+};
+const PARENT = { head: 'root', comb: 'head', wattle: 'head', beak: 'head', wingA: 'root', wingB: 'root', tail: 'root', thighA: 'root', shinA: 'thighA', footA: 'shinA', thighB: 'root', shinB: 'thighB', footB: 'shinB' };
+const bones = {};
+for (const n of BONES) { const b = new THREE.Bone(); b.name = n; b.position.copy(PS[n]); if (PARENT[n]) { b.position.sub(PS[PARENT[n]]); bones[PARENT[n]].add(b); } bones[n] = b; }
+
+// toon material + pluck shader: feathery texels turn to goosebumped skin, tail cards drop out
+const pluckU = { value: -1 };
+const NOISE = `
+float plkH(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float plkN(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(plkH(i), plkH(i + vec3(1,0,0)), f.x), mix(plkH(i + vec3(0,1,0)), plkH(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(plkH(i + vec3(0,0,1)), plkH(i + vec3(1,0,1)), f.x), mix(plkH(i + vec3(0,1,1)), plkH(i + vec3(1,1,1)), f.x), f.y), f.z); }
+float plkF(vec3 p){ return plkN(p * 13.0) * 0.6 + plkN(p * 41.0) * 0.4; }
+`;
+function pluckify(mat, outline) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uPluck = pluckU;
+    sh.vertexShader = 'varying vec3 vRest;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      (outline ? 'vec3 transformed = position + normal * 0.007;' : '#include <begin_vertex>') + '\nvRest = position;');
+    sh.fragmentShader = 'varying vec3 vRest;\nuniform float uPluck;\n' + NOISE + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      if (vRest.z < -0.26 && vRest.y > 0.3 && plkF(vRest * 0.6 + 3.1) < uPluck * 1.1 - 0.08) discard;
+      ${outline ? '' : `
+      vec3 sc = pow(max(diffuseColor.rgb, vec3(1e-4)), vec3(0.4545));
+      float mx = max(sc.r, max(sc.g, sc.b)), mn = min(sc.r, min(sc.g, sc.b));
+      bool feathery = (mx - mn) / max(mx, 1e-3) < 0.42 && sc.g <= sc.r + 0.03 && sc.b <= sc.g + 0.03 && mx > 0.2;
+      if (feathery && plkF(vRest) < uPluck) {
+        float bmp = smoothstep(0.5, 0.85, plkN(vRest * 330.0));
+        diffuseColor.rgb = mix(vec3(0.87, 0.37, 0.31), vec3(0.5, 0.15, 0.13), bmp * 0.75);
+      }`}`);
+  };
+  mat.customProgramCacheKey = () => outline ? 'plkO' : 'plkM';
 }
-// thighs (drumsticks!)
-const thighMat = tm(WHITE);
-for (const s of [1, -1]) { const t = mk(ell(0.12, 0.15, 0.13), thighMat); t.position.set(s * 0.16, -0.19, 0.02); bodyIn.add(t); }
+const birdMat = new THREE.MeshToonMaterial({ map: birdMap, gradientMap: gm, alphaTest: 0.5, side: THREE.DoubleSide }); pluckify(birdMat, false);
+const birdOLMat = new THREE.MeshBasicMaterial({ color: 0x24150c, map: birdMap, alphaTest: 0.5, side: THREE.BackSide }); pluckify(birdOLMat, true);
+const bird = new THREE.SkinnedMesh(birdGeo, birdMat);
+bird.castShadow = true; bird.frustumCulled = false;
+bird.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: birdMap, alphaTest: 0.5 });
+bird.add(bones.root); scene.add(bird); bird.updateMatrixWorld(true);
+const skeleton = new THREE.Skeleton(BONES.map(n => bones[n]));
+bird.bind(skeleton);
+const birdOL = new THREE.SkinnedMesh(birdGeo, birdOLMat); birdOL.frustumCulled = false; scene.add(birdOL); birdOL.bind(skeleton, bird.bindMatrix);
 
-// neck
-const neckMat = tm(WHITE);
-const neck = mk(new THREE.CylinderGeometry(0.1, 0.135, 1, 16, 1, true).translate(0, 0.5, 0), neckMat); scene.add(neck);
+// rig-derived constants for the simulation
+const BODY_H = PS.root.y - 0.015;
+const HEAD_REST = PS.head.clone().sub(PS.root), NECK_BASE = cs(0, 650, -110).sub(PS.root);
+const HIP = [PS.thighA.clone().sub(PS.root), PS.thighB.clone().sub(PS.root)];
+const LEG_A = PS.thighA.distanceTo(PS.shinA), LEG_B = PS.shinA.distanceTo(PS.footA), LEG_L = (LEG_A + LEG_B) * 0.95;
+const ANK_H = PS.footA.y, FOOT_SIDE = PS.footA.x, BODY_MINY = 0.27;
+const REST_T = [PS.shinA.clone().sub(PS.thighA).normalize(), PS.shinB.clone().sub(PS.thighB).normalize()];
+const REST_S = [PS.footA.clone().sub(PS.shinA).normalize(), PS.footB.clone().sub(PS.shinB).normalize()];
+// folded wing pose (rest model has them spread in a T)
+const WING_FOLD = {};
+for (const [n, sg] of [['wingA', 1], ['wingB', -1]]) {
+  WING_FOLD[n] = new Q().setFromEuler(new THREE.Euler(0, sg * 1.38, 0))
+    .multiply(new Q().setFromEuler(new THREE.Euler(0, 0, -sg * 0.32)))
+    .multiply(new Q().setFromEuler(new THREE.Euler(sg * 1.45, 0, 0)));
+}
+const bodyHit = new THREE.Mesh(ell(0.23, 0.23, 0.29, 12, 8), invisible); bones.root.add(bodyHit);
+const headHit = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), invisible); bones.head.add(headHit);
 
-// head
-const headG = new THREE.Group(); scene.add(headG);
-const headIn = new THREE.Group(); headG.add(headIn);
-headIn.add(mk(new THREE.SphereGeometry(0.2, 28, 20), tm(WHITE)));
-const headHit = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), invisible); headG.add(headHit);
-const combG = new THREE.Group(); combG.position.set(0, 0.16, 0.0); headIn.add(combG);
-for (const [y, z, r] of [[0.04, 0.08, 0.065], [0.08, 0.01, 0.085], [0.07, -0.08, 0.075], [0.03, -0.15, 0.055]]) { const m = mk(ell(r * 0.42, r, r), tm(RED)); m.position.set(0, y, z); combG.add(m); }
-const wattleG = new THREE.Group(); wattleG.position.set(0, -0.08, 0.15); headIn.add(wattleG);
-for (const s of [1, -1]) { const m = mk(ell(0.03, 0.065, 0.04).translate(0, -0.05, 0), tm(RED)); m.position.x = s * 0.022; m.rotation.z = s * 0.15; wattleG.add(m); }
-const beakG = new THREE.Group(); beakG.position.set(0, -0.01, 0.15); headIn.add(beakG);
-const upperPiv = new THREE.Group(); upperPiv.position.set(0, 0.012, 0); beakG.add(upperPiv);
-upperPiv.add(mk(new THREE.ConeGeometry(0.065, 0.17, 16).rotateX(Math.PI / 2).scale(1, 0.6, 1).translate(0, 0.008, 0.08), tm(BEAK)));
-const lowerPiv = new THREE.Group(); lowerPiv.position.set(0, -0.02, -0.005); beakG.add(lowerPiv);
-lowerPiv.add(mk(new THREE.ConeGeometry(0.05, 0.13, 16).rotateX(Math.PI / 2).scale(1, 0.5, 1).translate(0, -0.006, 0.065), tm(0xe8961a)));
-const tongue = mk(ell(0.032, 0.013, 0.06, 12, 8).translate(0, 0, 0.04), tm(0xff7f8f), OLT); tongue.position.set(0, 0.008, 0.0); lowerPiv.add(tongue);
-const mouth = new THREE.Mesh(ell(0.05, 0.042, 0.04), new THREE.MeshBasicMaterial({ color: 0x4a0b10 })); mouth.position.set(0, -0.008, 0.035); beakG.add(mouth);
-// eyes
+// eyes: the model's own eyeballs, rigged to the head with pop-out stalks + pupils + veins
 const EYES = [];
 const veinMat = new THREE.MeshBasicMaterial({ map: veinTex, transparent: true, opacity: 0, depthWrite: false });
 const stalkMat = tm(0xd9564f);
-for (const s of [1, -1]) {
-  const socket = new V3(s * 0.095, 0.055, 0.15);
-  const out = new V3(s * 0.5, 0.15, 1).normalize();
-  const eyeG = new THREE.Group(); eyeG.position.copy(socket); eyeG.quaternion.setFromUnitVectors(ZAX, out); headIn.add(eyeG);
-  const ball = mk(new THREE.SphereGeometry(0.068, 24, 16), tm(0xfffdf8), OLT); eyeG.add(ball);
-  const veins = new THREE.Mesh(new THREE.SphereGeometry(0.0685, 24, 16), veinMat); eyeG.add(veins);
-  const pupil = new THREE.Mesh(ell(0.03, 0.03, 0.012, 14, 10), new THREE.MeshBasicMaterial({ color: 0x120a06 })); eyeG.add(pupil);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); pupil.add(glint); glint.position.set(0.012, 0.012, 0.01);
-  const lid = mk(new THREE.SphereGeometry(0.075, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2), tm(WHITE, { side: THREE.DoubleSide }), OLT); eyeG.add(lid);
-  const stalk = mk(new THREE.CylinderGeometry(0.02, 0.028, 1, 10, 1, true).translate(0, 0.5, 0), stalkMat, OLT); stalk.visible = false; headIn.add(stalk);
-  EYES.push({ s, socket, out, eyeG, pupil, lid, stalk, look: new V3(0, 0, 1) });
+const eyeMat = new THREE.MeshToonMaterial({ map: birdMap, gradientMap: gm, alphaTest: 0.5, side: THREE.DoubleSide });
+for (const em of srcEyes) {
+  const g = prepGeo(em); g.computeBoundingBox();
+  const c = g.boundingBox.getCenter(new V3()), R = g.boundingBox.getSize(new V3()).y / 2, s = Math.sign(c.x) || 1;
+  g.translate(-c.x, -c.y, -c.z);
+  const socket = c.clone().sub(PS.head);
+  const eyeG = new THREE.Group(); eyeG.position.copy(socket); bones.head.add(eyeG);
+  const ball = mk(g, eyeMat, OLT); eyeG.add(ball);
+  const out = new V3(s, 0.03, 0.42).normalize();
+  const veins = new THREE.Mesh(new THREE.SphereGeometry(R * 1.02, 24, 16), veinMat); veins.quaternion.setFromUnitVectors(ZAX, out); eyeG.add(veins);
+  const pupil = new THREE.Mesh(ell(R * 0.36, R * 0.36, R * 0.12, 16, 10), new THREE.MeshBasicMaterial({ color: 0x120a06 })); eyeG.add(pupil);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(R * 0.1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); glint.position.set(R * 0.13, R * 0.13, R * 0.12); pupil.add(glint);
+  const stalk = mk(new THREE.CylinderGeometry(R * 0.25, R * 0.35, 1, 10, 1, true).translate(0, 0.5, 0), stalkMat, OLT); stalk.visible = false; bones.head.add(stalk);
+  EYES.push({ s, R, socket, out, eyeG, pupil, stalk, look: out.clone() });
 }
-// legs
-const LEGS = [];
-const shinGeo = new THREE.CylinderGeometry(0.026, 0.02, 1, 8).translate(0, 0.5, 0);
-const toeGeo = new THREE.CylinderGeometry(0.016, 0.009, 0.13, 6).translate(0, 0.065, 0).rotateX(Math.PI / 2);
-const legMat = tm(LEGC);
-for (let i = 0; i < 2; i++) {
-  const shin = mk(shinGeo, legMat, OLT); scene.add(shin);
-  const foot = new THREE.Group(); scene.add(foot);
-  const toes = new THREE.Group(); toes.position.y = 0.015; foot.add(toes);
-  for (const a of [-0.5, 0, 0.5, Math.PI]) { const t = mk(toeGeo, legMat, OLT); t.rotation.y = a; if (a === Math.PI) t.scale.setScalar(0.6); toes.add(t); }
-  const ankle = mk(new THREE.SphereGeometry(0.03, 10, 8), legMat, OLT); ankle.position.y = 0.035; foot.add(ankle);
-  LEGS.push({ shin, foot, toes });
-}
+// cartoon scream mouth that unfolds under the model's beak
+const jawG = new THREE.Group(); jawG.position.copy(PS.beak).sub(PS.head); bones.head.add(jawG);
+const lowerPiv = new THREE.Group(); lowerPiv.position.y = -beakSize.y * 0.25; jawG.add(lowerPiv);
+const bl = Math.max(0.035, beakSize.z * 1.1), br = Math.max(0.018, beakSize.x * 0.45);
+lowerPiv.add(mk(new THREE.ConeGeometry(br, bl, 14).rotateX(Math.PI / 2).scale(1, 0.55, 1).translate(0, -br * 0.3, bl * 0.5), tm(beakCol.clone().multiplyScalar(0.92)), OLT));
+const tongue = mk(ell(br * 0.65, br * 0.25, bl * 0.45, 12, 8).translate(0, 0, bl * 0.35), tm(0xff7f8f), OLT); tongue.position.y = br * 0.1; lowerPiv.add(tongue);
+const mouth = new THREE.Mesh(ell(br * 1.1, br * 0.95, br * 0.8), new THREE.MeshBasicMaterial({ color: 0x4a0b10 })); mouth.position.set(0, -br * 0.2, br * 0.3); jawG.add(mouth);
+document.getElementById('loading').style.opacity = 0;
+
 // dizzy stars
 const starsG = new THREE.Group(); scene.add(starsG); starsG.visible = false;
 {
@@ -400,6 +434,7 @@ function initAudio() {
   const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200; const g3 = AC.createGain(); g3.gain.value = 0.25; ws.connect(lp); lp.connect(g3); g3.connect(sg);
   const ns = AC.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true; const nbp = AC.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = 3300; nbp.Q.value = 0.7; const ng = AC.createGain(); ng.gain.value = 0.3; ns.connect(nbp); nbp.connect(ng); ng.connect(sg);
   [o1, o2, lfo, ns].forEach(n => n.start());
+  decodeVoices();
   scr = { o1, o2, lfo, lg, bp1, sg };
 }
 const hold = (p, t) => p.cancelAndHoldAtTime ? p.cancelAndHoldAtTime(t) : p.cancelScheduledValues(t);
@@ -461,12 +496,58 @@ function squawk(d, f0, vol) {
 }
 function screamOff() { if (!scr) return; const t = AC.currentTime; hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(0, t, 0.04); }
 const rl = {}; function limit(k, s) { if ((rl[k] || -9) + s > T) return false; rl[k] = T; return true; }
+
+// ───────────────────────── recorded voice (sounds/ from the voice booth) — synth is the fallback ─────────────────────────
+const VOX = { rate: 1, buf: {}, last: {} };
+VOX.raw = (async () => {
+  try {
+    const man = await (await fetch('sounds/manifest.json')).json();
+    VOX.rate = (man.rate || 1);
+    const out = {};
+    await Promise.all(Object.entries(man.sounds || {}).map(async ([slot, files]) => {
+      out[slot] = (await Promise.all(files.map(f => fetch('sounds/' + f).then(r => r.ok ? r.arrayBuffer() : null).catch(() => null)))).filter(Boolean);
+    }));
+    return out;
+  } catch (e) { console.warn('No recorded chicken voice found, using synth', e); return {}; }
+})();
+function envelope(b) {
+  const d = b.getChannelData(0), w = Math.round(b.sampleRate * 0.015), n = Math.ceil(d.length / w), e = new Float32Array(n); let mx = 1e-4;
+  for (let i = 0; i < n; i++) { let s = 0; const end = Math.min(d.length, (i + 1) * w); for (let k = i * w; k < end; k++) s += d[k] * d[k]; e[i] = Math.sqrt(s / w); mx = Math.max(mx, e[i]); }
+  for (let i = 0; i < n; i++) e[i] = Math.min(1, e[i] / mx * 1.3);
+  return { e, dt: w / b.sampleRate };
+}
+function decodeVoices() {
+  VOX.raw.then(raw => { for (const [slot, list] of Object.entries(raw)) { VOX.buf[slot] = []; for (const ab of list) AC.decodeAudioData(ab.slice(0)).then(b => VOX.buf[slot].push({ b, env: envelope(b) })).catch(() => {}); } });
+}
+const hasVox = slot => !!(AC && VOX.buf[slot] && VOX.buf[slot].length);
+// play a random take of a slot (never the same one twice in a row); the beak lip-syncs to its loudness.
+// returns seconds until it ends (incl. delay), or 0 if no recording is available
+function vox(slot, { at = 0, vol = 1, pitch = 1, mouth = 0.6 } = {}) {
+  if (!hasVox(slot)) return 0;
+  const list = VOX.buf[slot]; let i = randInt(0, list.length - 1);
+  if (list.length > 1 && i === VOX.last[slot]) i = (i + 1) % list.length;
+  VOX.last[slot] = i;
+  const { b, env } = list[i], r = VOX.rate * pitch * rand(0.95, 1.05);
+  const src = AC.createBufferSource(), g = AC.createGain();
+  src.buffer = b; src.playbackRate.value = r; g.gain.value = vol; src.connect(g); g.connect(master); src.start(AC.currentTime + at);
+  const dur = b.duration / r;
+  C.clips.push({ t0: T + at, dur, env, r, a: mouth });
+  return at + dur;
+}
 function idleSound() {
+  if (hasVox('idle-buk')) {
+    const r = Math.random();
+    if (r < 0.3) { let t = 0; for (let k = 0, n = randInt(1, 2); k < n; k++) t = vox('idle-buk', { at: t, mouth: 0.5 }) + rand(0.15, 0.35); return t; }
+    if (r < 0.6) return vox('idle-chatter', { mouth: 0.5 });
+    if (r < 0.82) return vox('idle-purr', { mouth: 0.15 });
+    return vox('idle-song', { mouth: 0.95 });
+  }
   const r = Math.random();
   if (r < 0.42) { const n = randInt(1, 3); let t = 0; for (let k = 0; k < n; k++) { SFX.buk(t, rand(0.92, 1.1)); t += rand(0.16, 0.28); } }
   else if (r < 0.66) SFX.purr();
   else if (r < 0.84) { for (let k = 0; k < 3; k++) SFX.buk(k * 0.14, 1.05); SFX.bawk(0.46, 1.05, 0.5, 0.5); }
   else { SFX.buk(0, 0.86); SFX.buk(0.55, 0.84); }
+  return 1;
 }
 
 // ───────────────────────── chicken state ─────────────────────────
@@ -481,11 +562,11 @@ const C = {
   gLocal: new V3(), grabL: 0.4, grabPart: 'body', quat0: new Q(), twist: 0, twistV: 0,
   panic: 0, pop: 0, popV: 0, mouth: 0, sq: 0, sqV: 0, flapPh: 0, flapAmp: 0, flapFreq: 10,
   combA: 0, combV: 0, watA: 0, watV: 0, lid: 0.45, blinkT: 2, pluckAcc: 0, fluffAcc: 0, regrowAcc: 0,
-  sqEnd: 0, sqNext: 0, soundT: 1.2, beaks: [], angVel: new V3(), restT: 0, impactMax: 0, dazed: false, rT: 0, rPhase: '',
+  sqEnd: 0, sqNext: 0, soundT: 1.2, beaks: [], clips: [], angVel: new V3(), restT: 0, impactMax: 0, dazed: false, rT: 0, rPhase: '',
   peck: { left: 0, start: 0, e: 0, hit: false }, lookRoll: 0, scream: 0,
 };
 function b2w(v, out) { return out.copy(v).applyQuaternion(C.quat).add(C.pos); }
-function footRest(i, out) { const s = i ? -1 : 1; return out.set(C.pos.x + Math.cos(C.yaw) * 0.13 * s, 0, C.pos.z - Math.sin(C.yaw) * 0.13 * s); }
+function footRest(i, out) { const s = i ? -1 : 1; return out.set(C.pos.x + Math.cos(C.yaw) * FOOT_SIDE * s, 0, C.pos.z - Math.sin(C.yaw) * FOOT_SIDE * s); }
 function initWanderPose() {
   C.quat.setFromEuler(tE.set(0, C.yaw, 0, 'YXZ'));
   b2w(HEAD_REST, C.head); C.headHold.copy(C.head); C.headPrev.copy(C.head); C.headQuat.copy(C.quat);
@@ -506,7 +587,7 @@ function nextAct() {
   C.actT = 0; const r = Math.random(), prev = C.act;
   if ((prev !== 'walk' && r < 0.5) || r < 0.12) { C.act = 'walk'; pickTarget(); }
   else if (r < 0.76) { C.act = 'peck'; C.peck.left = randInt(2, 5); C.peck.start = 0.15; C.peck.e = 0; C.actDur = 99; }
-  else if (r < 0.9) { C.act = 'look'; C.actDur = rand(1.3, 2.3); C.lookRoll = rand(-0.55, 0.55); SFX.question(0.15); }
+  else if (r < 0.9) { C.act = 'look'; C.actDur = rand(1.3, 2.3); C.lookRoll = rand(-0.55, 0.55); if (!vox('idle-question', { at: 0.15, mouth: 0.6 })) SFX.question(0.15); }
   else { C.act = 'idle'; C.actDur = rand(0.8, 1.8); }
 }
 function peckHit() {
@@ -544,14 +625,15 @@ function startGrab(h) {
   if (wasMode === 'wander') { C.vel.set(0, 0, 0); C.headVel.set(0, 0, 0); }
   C.quat0.copy(C.quat);
   if (C.grabPart === 'head') C.gLocal.copy(HEAD_REST);
-  else { C.gLocal.subVectors(h.point, C.pos).applyQuaternion(qT.copy(C.quat).invert()); if (C.gLocal.length() < 0.25) C.gLocal.setLength(0.25); }
+  else { C.gLocal.subVectors(h.point, C.pos).applyQuaternion(qT.copy(C.quat).invert()); if (C.gLocal.length() < 0.15) C.gLocal.setLength(0.15); }
   C.grabL = C.gLocal.length();
   camera.getWorldDirection(tA); tA.y = 0; tA.normalize().negate();
   dragPlane.setFromNormalAndCoplanarPoint(tA, h.point);
   C.hand.copy(h.point); C.handPrev.copy(h.point); C.handVel.set(0, 0, 0); C.handVelPrev.set(0, 0, 0); C.shakeE = 0;
   C.twist = 0; C.twistV = 0; C.feet.forEach(f => { f.step = false; f.v.set(0, 0, 0); });
-  SFX.whistleUp(); SFX.bawk(0.08, 1.15, 0.5, 0.36);
-  C.soundT = 0.7;
+  SFX.whistleUp();
+  const d = vox('grab-surprise', { at: 0.04, mouth: 1 }); if (!d) SFX.bawk(0.08, 1.15, 0.5, 0.36);
+  C.soundT = Math.max(0.7, d + 0.15);
 }
 function release() {
   C.mode = 'fall'; cvs.style.cursor = hovering ? 'grab' : 'default';
@@ -560,7 +642,7 @@ function release() {
   const sp = C.vel.length();
   C.angVel.crossVectors(UP, C.vel).multiplyScalar(0.9).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(1 + sp * 0.3));
   C.impactMax = 0; C.restT = 0;
-  if (C.pos.y > 1.3 || sp > 5) SFX.whistleDown();
+  if (C.pos.y > 1.2 || sp > 5) SFX.whistleDown();
 }
 
 // ───────────────────────── simulation ─────────────────────────
@@ -568,7 +650,7 @@ const GRAV = 12;
 function updateHand(dt) {
   ray.setFromCamera(ndc, camera);
   if (ray.ray.intersectPlane(dragPlane, tA)) {
-    tA.y = clamp(tA.y, 0.35, 2.5);
+    tA.y = clamp(tA.y, 0.3, 2.4);
     const r = Math.hypot(tA.x, tA.z); if (r > 6.4) { tA.x *= 6.4 / r; tA.z *= 6.4 / r; }
     C.hand.copy(tA);
   }
@@ -590,14 +672,14 @@ function physics(dt) {
     } else C.vel.y -= GRAV * h;
     C.pos.addScaledVector(C.vel, h);
     if (C.mode === 'held') {
-      tA.subVectors(C.pos, C.hand); const d = tA.length(), maxL = C.grabL + (C.grabPart === 'head' ? 0.85 : 0.3);
+      tA.subVectors(C.pos, C.hand); const d = tA.length(), maxL = C.grabL + (C.grabPart === 'head' ? 0.6 : 0.2);
       if (d > maxL) { tA.multiplyScalar(1 / d); C.pos.copy(C.hand).addScaledVector(tA, maxL); const vr = C.vel.dot(tA); if (vr > 0) C.vel.addScaledVector(tA, -vr); }
     }
     collideBody(h);
   }
 }
 function collideBody(h) {
-  const minY = 0.36;
+  const minY = BODY_MINY;
   if (C.pos.y < minY) {
     C.pos.y = minY;
     if (C.vel.y < 0) { const vy = -C.vel.y; if (C.mode === 'fall') { onImpact(vy); C.vel.y = vy > 2.2 ? vy * 0.42 : 0; } else C.vel.y = 0; }
@@ -606,7 +688,7 @@ function collideBody(h) {
   const r = Math.hypot(C.pos.x, C.pos.z), RW = 7.0;
   if (r > RW) { const nx = C.pos.x / r, nz = C.pos.z / r; C.pos.x = nx * RW; C.pos.z = nz * RW; const vn = C.vel.x * nx + C.vel.z * nz; if (vn > 0) { C.vel.x -= 1.5 * vn * nx; C.vel.z -= 1.5 * vn * nz; if (vn > 2.5 && C.mode === 'fall') onImpact(vn * 0.8); } }
   for (const o of OBST) {
-    const dx = C.pos.x - o.x, dz = C.pos.z - o.z, d = Math.hypot(dx, dz), m = o.r + 0.35;
+    const dx = C.pos.x - o.x, dz = C.pos.z - o.z, d = Math.hypot(dx, dz), m = o.r + 0.3;
     if (d < m && C.pos.y < 1.5) { const nx = dx / d, nz = dz / d; C.pos.x = o.x + nx * m; C.pos.z = o.z + nz * m; const vn = C.vel.x * nx + C.vel.z * nz; if (vn < 0) { C.vel.x -= 1.5 * vn * nx; C.vel.z -= 1.5 * vn * nz; if (vn < -2.5 && C.mode === 'fall') onImpact(-vn * 0.8); } if (C.mode === 'wander' && C.act === 'walk') pickTarget(); }
   }
 }
@@ -626,9 +708,9 @@ function headPhysics(dt) {
     if (j) tB.add(tC.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(j));
     C.headVel.addScaledVector(tB, h); C.head.addScaledVector(C.headVel, h);
   }
-  b2w(NECK_BASE, tC); tB.subVectors(C.head, tC); const d = tB.length(), maxN = 0.7 + 0.4 * C.panic;
+  b2w(NECK_BASE, tC); tB.subVectors(C.head, tC); const d = tB.length(), maxN = 0.45 + 0.4 * C.panic;
   if (d > maxN) C.head.copy(tC).addScaledVector(tB, maxN / d);
-  if (C.head.y < 0.18) { C.head.y = 0.18; if (C.headVel.y < 0) C.headVel.y *= -0.3; }
+  if (C.head.y < 0.12) { C.head.y = 0.12; if (C.headVel.y < 0) C.headVel.y *= -0.3; }
 }
 function feetPhysics(dt, legsUp) {
   const runB = clamp((C.panic - 0.15) * 1.6, 0, 1) * (C.mode === 'recover' ? 0 : 1);
@@ -637,7 +719,7 @@ function feetPhysics(dt, legsUp) {
     if (legsUp) { tB.set(0, -1, 0).applyQuaternion(C.quat).multiplyScalar(LEG_L).add(tC.set(Math.sin(T * 30 + i) * 0.03, Math.max(0, Math.sin(T * 7 + i * 2)) * 0.05, 0)); }
     else {
       tB.set(0, -LEG_L, 0);
-      tC.set(0, -LEG_L * 0.75 + 0.13 * Math.cos(ph), 0.17 * Math.sin(ph)).applyQuaternion(C.quat);
+      tC.set(0, -LEG_L * 0.75 + 0.08 * Math.cos(ph), 0.11 * Math.sin(ph)).applyQuaternion(C.quat);
       tB.lerp(tC, runB);
     }
     tB.add(hip);
@@ -659,7 +741,7 @@ function updateWander(dt) {
     tA.subVectors(C.target, C.pos); tA.y = 0; const dist = tA.length();
     const dy = wrap(Math.atan2(tA.x, tA.z) - C.yaw);
     C.yaw += clamp(dy, -3.2 * dt, 3.2 * dt);
-    if (Math.abs(dy) < 0.8 && dist > 0.2) { const sp = 0.62 * (1 - Math.abs(dy) / 0.8 * 0.7); C.pos.addScaledVector(fwd, sp * dt); moving = true; }
+    if (Math.abs(dy) < 0.8 && dist > 0.2) { const sp = 0.5 * (1 - Math.abs(dy) / 0.8 * 0.7); C.pos.addScaledVector(fwd, sp * dt); moving = true; }
     if (dist < 0.3 || C.actT > 9) nextAct();
     yawOff *= 0.5;
   } else if (C.act === 'peck') {
@@ -673,7 +755,7 @@ function updateWander(dt) {
     } else { P.e = 0; if (C.actT > C.actDur) nextAct(); }
     if (P.left) yawOff = 0;
     C.quat.setFromEuler(tE.set(C.lean, C.yaw, C.roll, 'YXZ'));
-    const up = b2w(HEAD_REST, tB), gp = tC.copy(C.pos).addScaledVector(fwd, 0.58); gp.y = 0.27;
+    const up = b2w(HEAD_REST, tB), gp = tC.copy(C.pos).addScaledVector(fwd, 0.36); gp.y = 0.15;
     hd = tD.lerpVectors(up, gp, P.e); headPitch = 0.25 + 1.15 * P.e;
   } else if (C.act === 'look') {
     tA.subVectors(camera.position, C.pos); const yy = wrap(Math.atan2(tA.x, tA.z) - C.yaw);
@@ -687,18 +769,18 @@ function updateWander(dt) {
   let lift = 0, roll = 0;
   for (let i = 0; i < 2; i++) {
     const f = C.feet[i], s = i ? -1 : 1, rest = footRest(i, tR);
-    if (moving) rest.addScaledVector(fwd, 0.1);
+    if (moving) rest.addScaledVector(fwd, 0.07);
     if (f.step) {
       f.t += dt / f.dur; const e = Math.min(1, f.t), se = Math.sin(Math.PI * e);
-      f.p.lerpVectors(f.from, f.to, smooth(e)); f.p.y = se * 0.13; lift = Math.max(lift, se); roll -= s * se * 0.1;
+      f.p.lerpVectors(f.from, f.to, smooth(e)); f.p.y = se * 0.09; lift = Math.max(lift, se); roll -= s * se * 0.1;
       if (e >= 1) { f.step = false; f.p.y = 0; if (Math.random() < 0.3) kickFeathers(f.p, 0.12, 0.8); }
     } else {
       const o = C.feet[1 - i];
-      if (!o.step && f.p.distanceTo(rest) > (moving ? 0.18 : 0.045)) { f.step = true; f.t = 0; f.dur = moving ? 0.15 : 0.12; f.from.copy(f.p); f.to.copy(rest); if (moving) f.to.addScaledVector(fwd, 0.08); }
+      if (!o.step && f.p.distanceTo(rest) > (moving ? 0.13 : 0.035)) { f.step = true; f.t = 0; f.dur = moving ? 0.15 : 0.12; f.from.copy(f.p); f.to.copy(rest); if (moving) f.to.addScaledVector(fwd, 0.06); }
     }
   }
   C.roll += (roll - C.roll) * dk(14, dt);
-  C.pos.y = BODY_H + lift * 0.035 + Math.sin(T * 2.2) * 0.006;
+  C.pos.y = BODY_H + lift * 0.025 + Math.sin(T * 2.2) * 0.005;
   C.quat.setFromEuler(tE.set(C.lean, C.yaw, C.roll, 'YXZ'));
   if (!hd) {
     const base = b2w(HEAD_REST, tB);
@@ -712,7 +794,7 @@ function updateWander(dt) {
   // regrow plumage
   C.regrowAcc += dt * 2.2;
   while (C.regrowAcc >= 1) { C.regrowAcc--; regrow(); }
-  C.soundT -= dt; if (C.soundT <= 0) { C.soundT = rand(1.4, 3.6); idleSound(); }
+  C.soundT -= dt; if (C.soundT <= 0) C.soundT = idleSound() + rand(1.2, 3.2);
 }
 function updateHeldOrFall(dt) {
   physics(dt);
@@ -727,19 +809,19 @@ function updateHeldOrFall(dt) {
     const w = C.angVel.length();
     if (w > 1e-4) { qT.setFromAxisAngle(tA.copy(C.angVel).divideScalar(w), w * dt); C.quat.premultiply(qT).normalize(); }
     C.angVel.multiplyScalar(Math.exp(-0.4 * dt));
-    if (C.pos.y < 0.38 && C.vel.length() < 0.5) C.restT += dt; else C.restT = 0;
+    if (C.pos.y < BODY_MINY + 0.02 && C.vel.length() < 0.5) C.restT += dt; else C.restT = 0;
     if (C.restT > 0.2) enterRecover();
   }
   headPhysics(dt); feetPhysics(dt, false);
   // head orientation
   tA.set(0, 0, 1).applyQuaternion(C.quat);
   tB.subVectors(camera.position, C.head).normalize();
-  tA.lerp(tB, clamp(C.panic * 1.6, 0, 0.88) + (C.mode === 'held' ? 0.15 : 0)).normalize();
+  tA.lerp(tB, clamp(C.panic * 1.2, 0, 0.65) + (C.mode === 'held' ? 0.1 : 0)).normalize();
   tC.set(0, 1, 0).applyQuaternion(C.quat).lerp(UP, 0.6).normalize();
   headLookQuat(tA, tC, qT);
   if (C.scream > 0.05) { qT2.setFromEuler(tE.set(rand(-1, 1) * 0.25 * C.scream, rand(-1, 1) * 0.3 * C.scream, rand(-1, 1) * 0.3 * C.scream)); qT.multiply(qT2); }
   C.headQuat.slerp(qT, dk(14, dt));
-  if (C.mode === 'held' && C.scream < 0.05) { C.soundT -= dt; if (C.soundT <= 0) { C.soundT = rand(0.35, 0.8); SFX.buk(0, rand(1.15, 1.4), 0.4); if (Math.random() < 0.4) SFX.buk(0.13, rand(1.2, 1.45), 0.4); } }
+  if (C.mode === 'held' && C.scream < 0.05) { C.soundT -= dt; if (C.soundT <= 0) { const d = vox('grab-nervous', { mouth: 0.55 }); if (d) { C.soundT = d + rand(0.15, 0.5); return; } C.soundT = rand(0.35, 0.8); SFX.buk(0, rand(1.15, 1.4), 0.4); if (Math.random() < 0.4) SFX.buk(0.13, rand(1.2, 1.45), 0.4); } }
 }
 function enterRecover() {
   C.mode = 'recover'; C.rT = 0;
@@ -754,20 +836,20 @@ function updateRecover(dt) {
   C.vel.multiplyScalar(Math.exp(-6 * dt)); C.pos.addScaledVector(C.vel, dt); collideBody(dt);
   if (C.rPhase === 'daze') {
     qT.setFromEuler(tE.set(0, C.yaw, 2.55, 'YXZ')); C.quat.slerp(qT, dk(6, dt));
-    C.pos.y += (0.38 - C.pos.y) * dk(8, dt);
+    C.pos.y += (BODY_MINY + 0.01 - C.pos.y) * dk(8, dt);
     headPhysics(dt); feetPhysics(dt, true);
     tA.set(0, 0, 1).applyQuaternion(C.quat); tC.set(0, 1, 0).applyQuaternion(C.quat);
     headLookQuat(tA, tC, qT); qT2.setFromEuler(tE.set(0, 0, Math.sin(T * 5) * 0.25)); qT.multiply(qT2); C.headQuat.slerp(qT, dk(8, dt));
     if (limit('tweet', 0.7)) SFX.tweet();
-    if (C.rT > 2.8) { C.rPhase = 'up'; C.rT = 0; SFX.buk(0, 0.8); }
+    if (C.rT > 2.8) { C.rPhase = 'up'; C.rT = 0; if (!vox('idle-buk', { pitch: 0.85, mouth: 0.5 })) SFX.buk(0, 0.8); }
   } else if (C.rPhase === 'up') {
     qT.setFromEuler(tE.set(0, C.yaw, 0, 'YXZ')); C.quat.slerp(qT, dk(11, dt));
-    const hop = C.rT < 0.42 ? Math.sin(C.rT / 0.42 * Math.PI) * 0.22 : 0;
+    const hop = C.rT < 0.42 ? Math.sin(C.rT / 0.42 * Math.PI) * 0.18 : 0;
     C.pos.y += (BODY_H + hop - C.pos.y) * dk(14, dt);
     b2w(HEAD_REST, tA); C.head.lerp(tA, dk(12, dt));
     qT.setFromEuler(tE.set(0.1, C.yaw, 0, 'YXZ')); C.headQuat.slerp(qT, dk(12, dt));
     C.feet.forEach((f, i) => { footRest(i, tA); f.p.lerp(tA, dk(14, dt)); f.p.y = Math.max(0, f.p.y); });
-    if (C.rT > 0.5) { C.rPhase = 'ruffle'; C.rT = 0; SFX.bawk(0, 0.92, 0.55, 0.5); SFX.buk(0.6, 0.85); SFX.buk(0.8, 0.82); }
+    if (C.rT > 0.5) { C.rPhase = 'ruffle'; C.rT = 0; const d = vox('grab-surprise', { pitch: 0.82, mouth: 1 }); if (d) vox('idle-chatter', { at: d + 0.1, pitch: 0.88, mouth: 0.5 }); else { SFX.bawk(0, 0.92, 0.55, 0.5); SFX.buk(0.6, 0.85); SFX.buk(0.8, 0.82); } }
   } else {
     const k = 1 - C.rT / 0.7;
     C.quat.setFromEuler(tE.set(0, C.yaw, Math.sin(C.rT * 44) * 0.3 * Math.max(0, k), 'YXZ'));
@@ -781,50 +863,28 @@ function updateRecover(dt) {
 }
 
 // plucking / regrowth
+const NT = 200; let plucked = 0;
+const _pv = new V3();
+function featherFrom(list, speed, big) {
+  if (!list.length) return;
+  const i = list[randInt(0, list.length - 1)];
+  _pv.fromBufferAttribute(birdGeo.attributes.position, i); bird.applyBoneTransform(i, _pv);
+  tB.subVectors(_pv, C.pos).normalize(); tB.y += 0.35; tB.normalize();
+  spawnFeather(_pv, tB, speed, big);
+}
 function pluck(n) {
   let any = false;
   for (let k = 0; k < n; k++) {
-    if (tuftsAlive <= 0) { looseFeather(); continue; }
-    let i = -1;
-    for (let tries = 0; tries < 30; tries++) { const j = randInt(0, NT - 1); if (TUFT[j].alive) { i = j; break; } }
-    if (i < 0) break;
-    const t = TUFT[i]; t.alive = false; t.g = 0; t.gv = 0; setTuft(i); tuftsAlive--; any = true;
-    b2w(t.p, tA); tB.copy(t.n).applyQuaternion(C.quat);
-    spawnFeather(tA, tB, rand(1.5, 4.5));
-    if (Math.random() < 0.5) spawnFeather(tA, tB, rand(1, 3), 0.8);
+    if (plucked >= NT) { looseFeather(); continue; }
+    plucked++; any = true;
+    featherFrom(featherVerts, rand(1.5, 4.5), 1);
+    if (Math.random() < 0.5) featherFrom(featherVerts, rand(1, 3), 0.8);
+    const pf = plucked / NT; if (pf > 0.12 && Math.random() < 0.1 + pf * 0.25) featherFrom(tailVerts, rand(2, 4), 2.2);
   }
-  tufts.instanceMatrix.needsUpdate = true;
-  const pf = 1 - tuftsAlive / NT;
-  TAIL.forEach((tl, i) => {
-    if (tl.alive && pf > 0.25 + i * 0.12 && Math.random() < 0.25) {
-      tl.alive = false; tl.mesh.getWorldPosition(tA); tB.set(0, 1, -0.5).applyQuaternion(C.quat);
-      spawnFeather(tA, tB, rand(2, 4), 2.1);
-    }
-  });
   if (any && limit('poof', 0.18)) SFX.poof(Math.min(1, 0.4 + n * 0.2));
 }
-function looseFeather() {
-  const s = Math.random() < 0.5 ? 1 : -1;
-  const lp = Math.random() < 0.6 ? tC.set(s * 0.42, rand(-0.1, 0.1), rand(-0.3, 0.1)) : tC.set(rand(-0.08, 0.08), 0.3, 0.3);
-  b2w(lp, tA); tB.set(s, rand(0, 1), rand(-1, 0.5)).normalize().applyQuaternion(C.quat);
-  spawnFeather(tA, tB, rand(1.5, 3.5), rand(0.8, 1.2));
-}
-function regrow() {
-  if (tuftsAlive >= NT) { TAIL.forEach(t => t.alive = true); return; }
-  for (let tries = 0; tries < 40; tries++) { const j = randInt(0, NT - 1); if (!TUFT[j].alive) { TUFT[j].alive = true; tuftsAlive++; break; } }
-  const pf = 1 - tuftsAlive / NT;
-  TAIL.forEach((tl, i) => { if (!tl.alive && pf < 0.2 + i * 0.12) tl.alive = true; });
-}
-function updateTufts(dt) {
-  let dirty = false;
-  for (let i = 0; i < NT; i++) {
-    const t = TUFT[i], tgt = t.alive ? 1 : 0;
-    if (Math.abs(t.g - tgt) < 0.002 && Math.abs(t.gv) < 0.01) { if (t.g !== tgt) { t.g = tgt; setTuft(i); dirty = true; } continue; }
-    t.gv += ((tgt - t.g) * 160 - t.gv * 12) * dt; t.g = Math.max(0, t.g + t.gv * dt); setTuft(i); dirty = true;
-  }
-  if (dirty) tufts.instanceMatrix.needsUpdate = true;
-  TAIL.forEach(tl => { tl.g += ((tl.alive ? 1 : 0) - tl.g) * dk(tl.alive ? 6 : 40, dt); tl.piv.scale.setScalar(Math.max(0.0001, tl.g)); });
-}
+function looseFeather() { featherFrom(Math.random() < 0.75 ? featherVerts : tailVerts, rand(1.5, 3.5), rand(0.8, 1.3)); }
+function regrow() { plucked = Math.max(0, plucked - 1); }
 
 // ───────────────────────── frame ─────────────────────────
 let T = 0;
@@ -854,12 +914,18 @@ function update(dt) {
 
   // scream voice + mouth
   if (C.scream > 0.05) {
-    if (T >= C.sqNext) { const d = rand(0.16, 0.5) * (1.15 - 0.35 * C.scream); C.sqEnd = T + d; C.sqNext = T + d + rand(0.04, 0.13); squawk(d, rand(760, 1150) * (0.85 + 0.45 * C.scream), 0.22 + 0.4 * C.scream); }
+    if (T >= C.sqNext && hasVox('grab-squawk')) {
+      const r = Math.random(), slot = C.panic > 0.85 && r < 0.3 ? 'grab-scream' : r > 0.9 ? 'grab-gasp' : 'grab-squawk';
+      const d = vox(slot, { vol: 0.6 + 0.5 * C.scream, pitch: 1 + 0.12 * C.scream, mouth: slot === 'grab-gasp' ? 0.4 : 1 });
+      C.sqEnd = T + d; C.sqNext = T + d * rand(0.6, 0.95) * (1.1 - 0.3 * C.scream);
+    } else if (T >= C.sqNext) { const d = rand(0.16, 0.5) * (1.15 - 0.35 * C.scream); C.sqEnd = T + d; C.sqNext = T + d + rand(0.04, 0.13); squawk(d, rand(760, 1150) * (0.85 + 0.45 * C.scream), 0.22 + 0.4 * C.scream); }
   } else if (C.sqEnd > T) { C.sqEnd = T; screamOff(); }
   let mo = 0;
   C.beaks = C.beaks.filter(b => b.t1 > T);
   for (const b of C.beaks) if (T >= b.t0) mo = Math.max(mo, b.a * Math.sin(Math.PI * (T - b.t0) / (b.t1 - b.t0)));
-  if (C.scream > 0.05) mo = Math.max(mo, T < C.sqEnd ? C.scream : 0.3 * C.scream);
+  C.clips = C.clips.filter(c => T < c.t0 + c.dur);
+  for (const c of C.clips) if (T >= c.t0) mo = Math.max(mo, c.a * (c.env.e[Math.floor((T - c.t0) * c.r / c.env.dt)] || 0));
+  if (C.scream > 0.05) mo = Math.max(mo, hasVox('grab-squawk') ? 0.3 * C.scream : T < C.sqEnd ? C.scream : 0.3 * C.scream);
   C.mouth += (mo - C.mouth) * dk(30, dt);
 
   // eye pop spring + awooga
@@ -868,7 +934,6 @@ function update(dt) {
   C.popV += ((popT - C.pop) * 190 - C.popV * 8) * dt; C.pop += C.popV * dt;
   if (prevPop < 0.55 && C.pop >= 0.55 && popT > 0.5 && limit('awooga', 3)) { SFX.pop(); SFX.awooga(); }
 
-  updateTufts(dt);
   updateFeathers(dt);
   updateDirt(dt);
   applyVisuals(dt);
@@ -878,91 +943,103 @@ function update(dt) {
 }
 let shownLost = 0; const countN = document.getElementById('countN'), countEl = document.getElementById('count');
 
-const _ov = new V3();
+const _ov = new V3(), qRootInv = new Q(), qW = new Q(), qL = new Q();
 function orient(mesh, a, b) { _ov.subVectors(b, a); const l = _ov.length() || 1e-4; mesh.position.copy(a); mesh.quaternion.setFromUnitVectors(UP, _ov.divideScalar(l)); return l; }
+// analytic two-bone IK in root space; hock bends backwards like a real chicken
+function legIK(i, F) {
+  const side = i ? 'B' : 'A', th = bones['thigh' + side], sh = bones['shin' + side], hip = th.position;
+  _ov.subVectors(F, hip);
+  const d = clamp(_ov.length(), Math.abs(LEG_A - LEG_B) + 1e-3, LEG_A + LEG_B - 1e-4); _ov.normalize();
+  const cosA = clamp((LEG_A * LEG_A + d * d - LEG_B * LEG_B) / (2 * LEG_A * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  tC.set(0, 0, -1).addScaledVector(_ov, _ov.z); if (tC.lengthSq() < 1e-6) tC.set(0, 1, 0); tC.normalize();
+  tD.copy(_ov).multiplyScalar(cosA).addScaledVector(tC, sinA);
+  th.quaternion.setFromUnitVectors(REST_T[i], tD);
+  tC.copy(hip).addScaledVector(_ov, d).sub(tR.copy(hip).addScaledVector(tD, LEG_A)).normalize();
+  tC.applyQuaternion(qL.copy(th.quaternion).invert());
+  sh.quaternion.setFromUnitVectors(REST_S[i], tC);
+}
 function applyVisuals(dt) {
-  const s = C.scream, P = C.panic;
-  // body
-  bodyG.position.copy(C.pos); bodyG.quaternion.copy(C.quat);
+  const s = C.scream, P = C.panic, R = bones.root;
+  // body (root bone)
   C.sqV += (-C.sq * 260 - C.sqV * 11) * dt; C.sq += C.sqV * dt;
   const sq = clamp(C.sq, -0.45, 0.6), tr = s * 0.04 * Math.sin(T * 70);
-  bodyIn.scale.set(1 - sq * 0.45 + tr, 1 + sq - tr, 1 - sq * 0.45 + tr);
-  bodyIn.position.set(rand(-1, 1) * 0.015 * s, rand(-1, 1) * 0.015 * s, 0);
-  // plumage colour
-  const pf = 1 - tuftsAlive / NT;
-  thighMat.color.copy(cWhite).lerp(cSkin, Math.pow(pf, 0.7));
-  neckMat.color.copy(cWhite).lerp(cSkin, clamp(pf * 1.3, 0, 1));
+  R.position.copy(C.pos).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.008 * s));
+  R.quaternion.copy(C.quat); R.scale.set(1 - sq * 0.45 + tr, 1 + sq - tr, 1 - sq * 0.45 + tr);
+  R.updateMatrixWorld(true);
+  qRootInv.copy(C.quat).invert();
+  const pf = plucked / NT;
+  pluckU.value += ((pf > 0.002 ? 0.17 + pf * 0.75 : -0.05) - pluckU.value) * dk(10, dt);
   // wings
   let amp = 0, freq = 4;
-  if (C.mode === 'held') { amp = 0.35 + 1.0 * Math.min(P, 1); freq = 5 + 7 * Math.min(P, 1); }
-  else if (C.mode === 'fall') { amp = 1.15; freq = 8; }
-  else if (C.mode === 'recover') { amp = C.rPhase === 'daze' ? 0.12 : C.rPhase === 'ruffle' ? 0.5 : 0.3; freq = C.rPhase === 'daze' ? 1.5 : 7; }
-  else if (C.beaks.some(b => b.a > 0.9 && T >= b.t0)) { amp = 0.5; freq = 6; }
+  if (C.mode === 'held') { amp = 0.35 + 0.8 * Math.min(P, 1); freq = 5 + 7 * Math.min(P, 1); }
+  else if (C.mode === 'fall') { amp = 1; freq = 8; }
+  else if (C.mode === 'recover') { amp = C.rPhase === 'daze' ? 0.15 : C.rPhase === 'ruffle' ? 0.45 : 0.3; freq = C.rPhase === 'daze' ? 1.5 : 7; }
+  else if (C.beaks.some(b => b.a > 0.9 && T >= b.t0) || C.clips.some(c => c.a > 0.9 && T >= c.t0)) { amp = 0.4; freq = 6; }
   C.flapAmp += (amp - C.flapAmp) * dk(8, dt); C.flapPh += freq * dt;
-  for (const w of WINGS) { const a = C.flapAmp * (0.5 + 0.5 * Math.sin(C.flapPh * 6.283)); w.piv.rotation.z = w.s * a * 1.25; w.piv.rotation.y = -w.s * 0.25 * C.flapAmp * Math.cos(C.flapPh * 6.283); }
-  tailG.rotation.set(Math.sin(T * 9) * 0.05 * (C.mode === 'wander' ? 1 : 0) + rand(-1, 1) * 0.15 * s, Math.sin(T * 6) * 0.12 + rand(-1, 1) * 0.2 * s, 0);
-  // head kinematics for jiggles
+  const fs = Math.sin(C.flapPh * 6.283);
+  for (const [n, sg] of [['wingA', 1], ['wingB', -1]]) {
+    qT2.setFromEuler(tE.set(0, sg * 0.3 * (1 - fs) * C.flapAmp, sg * (0.2 + 0.7 * fs) * Math.min(1.1, C.flapAmp + 0.2), 'XYZ'));
+    bones[n].quaternion.copy(WING_FOLD[n]).slerp(qT2, clamp(C.flapAmp * 1.15, 0, 1));
+  }
+  bones.tail.rotation.set(Math.sin(T * 9) * 0.04 * (C.mode === 'wander' ? 1 : 0) + rand(-1, 1) * 0.12 * s, Math.sin(T * 6) * 0.1 + rand(-1, 1) * 0.18 * s, 0);
+  // head kinematics for comb / wattle jiggle
   C.headVelVis.copy(C.head).sub(C.headPrev).divideScalar(dt); C.headPrev.copy(C.head);
   tA.copy(C.headVelVis).sub(C.headAcc).divideScalar(dt); C.headAcc.copy(C.headVelVis);
   tB.set(1, 0, 0).applyQuaternion(C.headQuat); tC.set(0, 1, 0).applyQuaternion(C.headQuat);
   const ax = clamp(tA.dot(tB), -400, 400), ay = clamp(tA.dot(tC), -400, 400);
-  C.combV += (-C.combA * 150 - C.combV * 7 + ax * 0.03 + rand(-1, 1) * 60 * s) * dt; C.combA = clamp(C.combA + C.combV * dt, -0.9, 0.9);
+  C.combV += (-C.combA * 150 - C.combV * 7 + ax * 0.03 + rand(-1, 1) * 60 * s) * dt; C.combA = clamp(C.combA + C.combV * dt, -0.7, 0.7);
   C.watV += (-C.watA * 120 - C.watV * 6 - ay * 0.02 + ax * 0.01) * dt; C.watA = clamp(C.watA + C.watV * dt, -1, 1);
-  combG.rotation.z = C.combA; wattleG.rotation.x = C.watA; wattleG.rotation.z = C.combA * 0.6;
-  // head
-  headG.position.copy(C.head); headG.quaternion.copy(C.headQuat);
-  headIn.scale.setScalar(1 + 0.22 * s + C.mouth * 0.04);
-  // neck
-  const nb = b2w(NECK_BASE, tD), nt = tR.set(0, -0.07, -0.08).applyQuaternion(C.headQuat).add(C.head);
-  const nl = orient(neck, nb, nt); const nr = clamp(Math.sqrt(0.36 / Math.max(nl, 0.05)), 0.55, 1.15); neck.scale.set(nr, nl, nr);
-  // beak / mouth
-  beakG.scale.setScalar(1 + 0.55 * s);
-  upperPiv.rotation.x = -0.4 * C.mouth;
-  lowerPiv.rotation.x = 1.05 * C.mouth + Math.sin(T * 55) * 0.08 * s;
-  tongue.rotation.set(Math.sin(T * 23) * 0.35 * s, Math.sin(T * 37) * 0.6 * s, 0); tongue.scale.set(1, 1, 1 + 0.9 * s * C.mouth);
+  bones.comb.rotation.z = C.combA; bones.wattle.rotation.set(C.watA, 0, C.combA * 0.6);
+  // head bone
+  const H = bones.head;
+  tA.copy(C.head); R.worldToLocal(tA); H.position.copy(tA);
+  H.quaternion.copy(qRootInv).multiply(C.headQuat);
+  H.scale.setScalar(1 + 0.22 * s + C.mouth * 0.04);
+  // beak + scream mouth
+  bones.beak.rotation.x = -0.5 * C.mouth; bones.beak.scale.setScalar(1 + 1.1 * s);
+  jawG.scale.setScalar(1 + 1.1 * s);
+  const mv = Math.max(1e-4, sstep(0.03, 0.22, C.mouth));
+  lowerPiv.rotation.x = 1.05 * C.mouth + Math.sin(T * 55) * 0.08 * s; lowerPiv.scale.setScalar(mv);
+  mouth.scale.setScalar(mv * (0.6 + 0.6 * C.mouth));
+  tongue.rotation.set(Math.sin(T * 23) * 0.35 * s, Math.sin(T * 37) * 0.6 * s, 0); tongue.scale.set(1, 1, 1 + 1.2 * s * C.mouth);
   // eyes
   C.blinkT -= dt; if (C.blinkT < -0.12) C.blinkT = rand(1.6, 4.5);
   const daze = C.mode === 'recover' && C.rPhase === 'daze';
-  let lidT = C.mode === 'wander' ? (C.act === 'look' ? 0.62 : 0.42) : C.mode === 'held' ? 0.85 : C.mode === 'fall' ? 0.9 : daze ? 0.3 : 0.55;
-  lidT = Math.max(lidT, s);
-  if (C.blinkT < 0 && C.pop < 0.1) lidT = 0;
-  C.lid += (lidT - C.lid) * dk(C.blinkT < 0 ? 40 : 14, dt);
+  const openT = C.blinkT < 0 && C.pop < 0.1 ? 0.1 : daze ? 0.6 : 1;
+  C.lid += (openT - C.lid) * dk(C.blinkT < 0 ? 45 : 16, dt);
   veinMat.opacity = clamp(C.pop * 1.3, 0, 1);
   const lookCam = (C.mode === 'wander' && C.act === 'look') || C.mode === 'held';
   for (const e of EYES) {
     const pop = Math.max(-0.1, C.pop);
-    e.eyeG.position.copy(e.socket).addScaledVector(e.out, 0.2 * Math.max(0, pop));
-    const sc = 1 + 0.8 * pop + C.popV * 0.012; e.eyeG.scale.setScalar(Math.max(0.6, sc));
+    e.eyeG.position.copy(e.socket).addScaledVector(e.out, 0.15 * Math.max(0, pop));
+    const sc = Math.max(0.6, 1 + 0.75 * pop + C.popV * 0.012); e.eyeG.scale.set(sc, sc * C.lid, sc);
     e.stalk.visible = pop > 0.04;
     if (e.stalk.visible) { const l = orient(e.stalk, e.socket, e.eyeG.position); e.stalk.scale.set(1, l, 1); }
-    e.lid.rotation.x = 1.5 + (-1.35 - 1.5) * clamp(C.lid + Math.max(0, pop) * 0.3, 0, 1.15);
-    // pupil
-    if (daze) { const a = T * 9 * e.s; e.look.set(Math.cos(a) * 0.5, Math.sin(a) * 0.5, 1); }
-    else if (s > 0.1) { e.look.set(rand(-1, 1) * 0.25 * s, rand(-1, 1) * 0.25 * s, 1); }
-    else if (lookCam) { e.eyeG.getWorldQuaternion(qT).invert(); e.eyeG.getWorldPosition(tA); e.look.subVectors(camera.position, tA).applyQuaternion(qT); e.look.z = Math.max(0.4, e.look.z); }
-    else e.look.lerp(tA.set(-e.s * 0.25, -0.05, 1), dk(10, dt));
+    if (daze) { const a = T * 9 * e.s; tB.crossVectors(e.out, UP).normalize(); tC.crossVectors(tB, e.out); e.look.copy(e.out).addScaledVector(tB, Math.cos(a) * 0.55).addScaledVector(tC, Math.sin(a) * 0.55); }
+    else if (s > 0.1) e.look.copy(e.out).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.3 * s));
+    else if (lookCam) { e.eyeG.getWorldQuaternion(qT).invert(); e.eyeG.getWorldPosition(tA); e.look.subVectors(camera.position, tA).normalize().applyQuaternion(qT); if (e.look.dot(e.out) < 0.4) e.look.lerp(e.out, 0.6); }
+    else e.look.lerp(e.out, dk(10, dt));
     e.look.normalize();
-    e.pupil.position.copy(e.look).multiplyScalar(0.064); e.pupil.quaternion.setFromUnitVectors(ZAX, e.look);
-    const ps = (1 - 0.6 * s * (e.s > 0 ? 1 : 0.6)) * (daze ? 1.1 : 1);
-    e.pupil.scale.setScalar(ps);
+    e.pupil.position.copy(e.look).multiplyScalar(e.R * 0.97); e.pupil.quaternion.setFromUnitVectors(ZAX, e.look);
+    e.pupil.scale.setScalar((1 - 0.6 * s * (e.s > 0 ? 1 : 0.55)) * (daze ? 1.1 : 1));
   }
-  // legs
+  // legs: IK to the simulated feet, toes kept flat on the ground (or curled in the air)
   const air = C.mode === 'held' || C.mode === 'fall' || daze;
   for (let i = 0; i < 2; i++) {
-    const L = LEGS[i], f = C.feet[i];
-    const hip = b2w(HIP[i], tA), ank = tB.copy(f.p); ank.y += 0.035;
-    const l = orient(L.shin, hip, ank); L.shin.scale.set(1, l, 1);
-    L.foot.position.copy(f.p);
-    if (air) { qT.copy(C.quat).multiply(qT2.setFromEuler(tE.set(1.1 + Math.sin(T * 25 + i * 3) * 0.4 * (P + 0.2), 0, 0))); L.foot.quaternion.slerp(qT, dk(20, dt)); L.toes.scale.setScalar(1 - 0.2 * Math.sin(T * 30 + i)); }
-    else { qT.setFromEuler(tE.set(f.step ? -0.35 * Math.sin(Math.PI * Math.min(1, f.t)) : 0, C.yaw, 0, 'YXZ')); L.foot.quaternion.slerp(qT, dk(25, dt)); L.toes.scale.setScalar(1); }
+    const f = C.feet[i], side = i ? 'B' : 'A';
+    tA.copy(f.p); tA.y += ANK_H; R.worldToLocal(tA); legIK(i, tA);
+    if (air) qW.copy(C.quat).multiply(qT2.setFromEuler(tE.set(0.9 + Math.sin(T * 25 + i * 3) * 0.4 * (P + 0.2), 0, 0)));
+    else qW.setFromEuler(tE.set(f.step ? -0.35 * Math.sin(Math.PI * Math.min(1, f.t)) : 0, C.yaw, 0, 'YXZ'));
+    qL.copy(C.quat).multiply(bones['thigh' + side].quaternion).multiply(bones['shin' + side].quaternion).invert().multiply(qW);
+    bones['foot' + side].quaternion.slerp(qL, dk(25, dt));
   }
-  // stars
+  // dizzy stars
   starsG.visible = daze && C.rT > 0.2;
   if (starsG.visible) {
-    starsG.position.copy(C.head).add(tA.set(0, 0.32, 0));
-    starsG.children.forEach((st, k) => { const a = T * 4 + k / 5 * Math.PI * 2; st.position.set(Math.cos(a) * 0.3, Math.sin(a * 2) * 0.04, Math.sin(a) * 0.3); st.rotation.set(0, -a, 0); st.scale.setScalar(Math.min(1, (C.rT - 0.2) * 4)); });
+    starsG.position.copy(C.head).add(tA.set(0, 0.24, 0));
+    starsG.children.forEach((st, k) => { const a = T * 4 + k / 5 * Math.PI * 2; st.position.set(Math.cos(a) * 0.22, Math.sin(a * 2) * 0.03, Math.sin(a) * 0.22); st.rotation.set(0, -a, 0); st.scale.setScalar(Math.min(1, (C.rT - 0.2) * 4) * 0.75); });
   }
-  camShake.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(0.035 * s);
+  camShake.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(0.03 * s);
 }
 function updateCamera(dt) {
   const asp = innerWidth / innerHeight, k = asp < 1 ? Math.pow(1 / asp, 0.75) : 1;
@@ -970,7 +1047,7 @@ function updateCamera(dt) {
     camLook.x += (C.pos.x * 0.55 - camLook.x) * dk(1.6, dt);
     camLook.z += (C.pos.z * 0.35 - camLook.z) * dk(1.6, dt);
   }
-  camera.position.set(camLook.x, camLook.y + 1.9 * k, camLook.z + 6.4 * k);
+  camera.position.set(camLook.x, camLook.y + 1.4 * k, camLook.z + 4.9 * k);
   camera.lookAt(camLook);
 }
 function frame() {

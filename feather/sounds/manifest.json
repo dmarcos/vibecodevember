@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "rate": 1.3,
+  "bakedRate": null,
+  "groups": {
+    "idle": [
+      "idle-buk",
+      "idle-chatter",
+      "idle-purr",
+      "idle-question",
+      "idle-song"
+    ],
+    "grab": [
+      "grab-surprise",
+      "grab-nervous",
+      "grab-squawk",
+      "grab-scream",
+      "grab-gasp"
+    ]
+  },
+  "sounds": {
+    "idle-buk": [
+      "idle-buk-01.wav",
+      "idle-buk-02.wav",
+      "idle-buk-03.wav",
+      "idle-buk-04.wav",
+      "idle-buk-05.wav",
+      "idle-buk-06.wav"
+    ],
+    "idle-chatter": [
+      "idle-chatter-01.wav",
+      "idle-chatter-02.wav",
+      "idle-chatter-03.wav",
+      "idle-chatter-04.wav",
+      "idle-chatter-05.wav"
+    ],
+    "idle-purr": [
+      "idle-purr-01.wav",
+      "idle-purr-02.wav",
+      "idle-purr-03.wav",
+      "idle-purr-04.wav"
+    ],
+    "idle-question": [
+      "idle-question-01.wav",
+      "idle-question-02.wav",
+      "idle-question-03.wav",
+      "idle-question-04.wav"
+    ],
+    "idle-song": [
+      "idle-song-01.wav",
+      "idle-song-02.wav",
+      "idle-song-03.wav"
+    ],
+    "grab-surprise": [
+      "grab-surprise-01.wav",
+      "grab-surprise-02.wav",
+      "grab-surprise-03.wav",
+      "grab-surprise-04.wav"
+    ],
+    "grab-nervous": [
+      "grab-nervous-01.wav",
+      "grab-nervous-02.wav",
+      "grab-nervous-03.wav",
+      "grab-nervous-04.wav",
+      "grab-nervous-05.wav",
+      "grab-nervous-06.wav"
+    ],
+    "grab-squawk": [
+      "grab-squawk-01.wav",
+      "grab-squawk-02.wav",
+      "grab-squawk-03.wav",
+      "grab-squawk-04.wav",
+      "grab-squawk-05.wav",
+      "grab-squawk-06.wav",
+      "grab-squawk-07.wav",
+      "grab-squawk-08.wav",
+      "grab-squawk-09.wav",
+      "grab-squawk-10.wav"
+    ],
+    "grab-scream": [
+      "grab-scream-01.wav",
+      "grab-scream-02.wav",
+      "grab-scream-03.wav",
+      "grab-scream-04.wav"
+    ],
+    "grab-gasp": [
+      "grab-gasp-01.wav",
+      "grab-gasp-02.wav",
+      "grab-gasp-03.wav"
+    ]
+  }
+}
