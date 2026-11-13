@@ -221,13 +221,38 @@ const toCS = new THREE.Matrix4().makeRotationY(Math.PI).multiply(new THREE.Matri
 const prepGeo = m => { const g = m.geometry.clone(); g.deleteAttribute('tangent'); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toCS, m.matrixWorld)); return g; };
 const birdMap = srcBody.material.map;
 const texData = (() => { const im = birdMap.image, [c, g] = canvas(im.width, im.height); g.drawImage(im, 0, 0); return { w: im.width, h: im.height, d: g.getImageData(0, 0, im.width, im.height).data }; })();
-function texel(u, v) { const { w, h, d } = texData; const x = Math.min(w - 1, Math.floor((u - Math.floor(u)) * w)), y = Math.min(h - 1, Math.floor((v - Math.floor(v)) * h)), i = (y * w + x) * 4; return [d[i] / 255, d[i + 1] / 255, d[i + 2] / 255]; }
+function texel(u, v) { const { w, h, d } = texData; const x = Math.min(w - 1, Math.floor((u - Math.floor(u)) * w)), y = Math.min(h - 1, Math.floor((v - Math.floor(v)) * h)), i = (y * w + x) * 4; return [d[i] / 255, d[i + 1] / 255, d[i + 2] / 255, d[i + 3] / 255]; }
+
+// feather mask in texture space: judged per 4×4-texel cell by its neighbourhood, so pale patches of the
+// tie-dye shirt stay shirt and the dark spots inside the feather pattern still count as feathers
+const MASK_N = 256;
+const featherMask = (() => {
+  const { w, h, d } = texData, cw = w / MASK_N, ch = h / MASK_N, frac = new Float32Array(MASK_N * MASK_N);
+  for (let cy = 0; cy < MASK_N; cy++) for (let cx = 0; cx < MASK_N; cx++) {
+    let f = 0, o = 0;
+    for (let y = Math.floor(cy * ch); y < (cy + 1) * ch; y += 2) for (let x = Math.floor(cx * cw); x < (cx + 1) * cw; x += 2) {
+      const i = (y * w + x) * 4; if (d[i + 3] < 128) continue; o++;
+      const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if ((mx - mn) / Math.max(mx, 1e-3) < 0.45 && g <= r + 0.04 && b <= g + 0.04 && mx > 0.15) f++;
+    }
+    frac[cy * MASK_N + cx] = o ? f / o : 0;
+  }
+  const out = new Uint8Array(MASK_N * MASK_N * 4), R = 3;
+  for (let cy = 0; cy < MASK_N; cy++) for (let cx = 0; cx < MASK_N; cx++) {
+    let sum = 0, n = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const y = cy + dy, x = cx + dx; if (x < 0 || y < 0 || x >= MASK_N || y >= MASK_N) continue; sum += frac[y * MASK_N + x]; n++; }
+    const v = sstep(0.55, 0.75, sum / n) * 255, j = (cy * MASK_N + cx) * 4; out[j] = out[j + 1] = out[j + 2] = v; out[j + 3] = 255;
+  }
+  const t = new THREE.DataTexture(out, MASK_N, MASK_N, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.LinearFilter; t.needsUpdate = true;
+  t.sample = (u, v) => out[(Math.min(MASK_N - 1, Math.floor((v - Math.floor(v)) * MASK_N)) * MASK_N + Math.min(MASK_N - 1, Math.floor((u - Math.floor(u)) * MASK_N))) * 4] / 255;
+  return t;
+})();
 
 // classify every vertex by position + texture colour and build skin weights
 const birdGeo = prepGeo(srcBody);
 const BONES = ['root', 'head', 'comb', 'wattle', 'beak', 'wingA', 'wingB', 'tail', 'thighA', 'shinA', 'footA', 'thighB', 'shinB', 'footB'];
 const BI = Object.fromEntries(BONES.map((n, i) => [n, i]));
-const featherVerts = [], tailVerts = [], beakBox = new THREE.Box3();
+const featherVerts = [], tailVerts = [], CARDS = [], beakBox = new THREE.Box3();
 let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
 {
   const pos = birdGeo.attributes.position, uv = birdGeo.attributes.uv, N = pos.count;
@@ -236,7 +261,7 @@ let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ox = -x / S, oy = y / S, oz = -z / S, ax = Math.abs(ox), side = x >= 0 ? 'A' : 'B';
     const [r, g, b] = texel(uv.getX(i), uv.getY(i));
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), rs = (mx - mn) / Math.max(mx, 1e-3);
-    const feathery = rs < 0.42 && g <= r + 0.03 && b <= g + 0.03 && mx > 0.2;
+    const feathery = featherMask.sample(uv.getX(i), uv.getY(i)) > 0.5;
     const combC = r > 0.2 && g < 0.2 && b < 0.25 && r > g * 2, redC = r > 0.55 && g < 0.35 && b < 0.5, yelC = r > 0.7 && g > 0.45 && b < 0.5 && rs > 0.35;
     const w = {}, add = (n, v) => { if (v > 1e-4) w[n] = (w[n] || 0) + v; };
     let isTail = false;
@@ -253,12 +278,39 @@ let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
       else if (yelC && oy > 840) { sub = 'beak'; sw = 1; beakBox.expandByPoint(tA.set(x, y, z)); beakCol.r += r; beakCol.g += g; beakCol.b += b; beakN++; }
       add('root', 1 - h); add('head', h * (1 - sw)); if (sub) add(sub, h * sw);
     } else add('root', 1);
-    if (isTail) tailVerts.push(i); else if (feathery && oy > 230) featherVerts.push(i);
+    if (!isTail && feathery && oy > 230) featherVerts.push(i);
     const e = Object.entries(w).sort((p, q) => q[1] - p[1]).slice(0, 4), sum = e.reduce((s, p) => s + p[1], 0) || 1;
     e.forEach(([n, v], k) => { sIdx[i * 4 + k] = BI[n]; sW[i * 4 + k] = v / sum; });
   }
   birdGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(sIdx, 4));
   birdGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sW, 4));
+  // split the mesh into islands (shared indices + coincident positions)
+  const par = new Int32Array(N).map((_, i) => i);
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  const unite = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+  const idx = birdGeo.index;
+  if (idx) for (let t = 0; t < idx.count; t += 3) { unite(idx.getX(t), idx.getX(t + 1)); unite(idx.getX(t + 1), idx.getX(t + 2)); }
+  else for (let t = 0; t < N; t += 3) { unite(t, t + 1); unite(t + 1, t + 2); }
+  const seen = new Map();
+  for (let i = 0; i < N; i++) { const k = Math.round(pos.getX(i) * 1e4) + ',' + Math.round(pos.getY(i) * 1e4) + ',' + Math.round(pos.getZ(i) * 1e4); if (seen.has(k)) unite(i, seen.get(k)); else seen.set(k, i); }
+  const isl = new Map();
+  for (let i = 0; i < N; i++) { const r = find(i); let o = isl.get(r); if (!o) isl.set(r, o = { v: [], transp: 0, zMax: -1e9, axMax: 0 }); o.v.push(i); if (texel(uv.getX(i), uv.getY(i))[3] < 0.5) o.transp++; o.zMax = Math.max(o.zMax, -pos.getZ(i) / S); o.axMax = Math.max(o.axMax, Math.abs(pos.getX(i)) / S); }
+  const kind = new Float32Array(N), rnd = new Float32Array(N);
+  for (const o of isl.values()) {
+    if (!o.transp) continue;
+    let k = 0;
+    if (o.v.length < 80 && o.zMax > 300) k = 1; else if (o.v.length > 150 && o.axMax > 400) k = 2;
+    if (!k) continue;
+    const r = k === 1 ? rand(0.3, 0.92) : 0;
+    for (const i of o.v) { kind[i] = k; rnd[i] = r; }
+    if (k === 1) {
+      let far = o.v[0]; for (const i of o.v) if (pos.getZ(i) < pos.getZ(far)) far = i;   // card tip
+      CARDS.push({ r, v: o.v, tip: far, gone: false });
+      tailVerts.push(...o.v);
+    }
+  }
+  birdGeo.setAttribute('aKind', new THREE.Float32BufferAttribute(kind, 1));
+  birdGeo.setAttribute('aRnd', new THREE.Float32BufferAttribute(rnd, 1));
 }
 if (beakN) beakCol.setRGB(beakCol.r / beakN, beakCol.g / beakN, beakCol.b / beakN, THREE.SRGBColorSpace); else beakCol.set(0xf3c64a);
 if (beakBox.isEmpty()) beakBox.setFromCenterAndSize(cs(0, 905, -260), new V3(0.04, 0.03, 0.04));
@@ -285,18 +337,18 @@ float plkF(vec3 p){ return plkN(p * 13.0) * 0.6 + plkN(p * 41.0) * 0.4; }
 `;
 function pluckify(mat, outline) {
   mat.onBeforeCompile = sh => {
-    sh.uniforms.uPluck = pluckU;
-    sh.vertexShader = 'varying vec3 vRest;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-      (outline ? 'vec3 transformed = position + normal * 0.007;' : '#include <begin_vertex>') + '\nvRest = position;');
-    sh.fragmentShader = 'varying vec3 vRest;\nuniform float uPluck;\n' + NOISE + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      if (vRest.z < -0.26 && vRest.y > 0.3 && plkF(vRest * 0.6 + 3.1) < uPluck * 1.1 - 0.08) discard;
+    sh.uniforms.uPluck = pluckU; sh.uniforms.uFeather = { value: featherMask };
+    sh.vertexShader = 'varying vec3 vRest;\nattribute float aKind;\nattribute float aRnd;\nvarying float vKind;\nvarying float vRnd;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      (outline ? 'vec3 transformed = position + normal * 0.007;' : '#include <begin_vertex>') + '\nvRest = position; vKind = aKind; vRnd = aRnd;');
+    sh.fragmentShader = 'varying vec3 vRest;\nvarying float vKind;\nvarying float vRnd;\nuniform float uPluck;\nuniform sampler2D uFeather;\n' + NOISE + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      if (vKind > 0.5 && vKind < 1.5 && uPluck > vRnd) discard;                                     // whole tail feather drops off
+      if (vKind > 1.5 && vRest.z < -0.06 && plkF(vRest * 0.8 + 7.0) < uPluck * 1.15 - 0.12) discard;    // wing loses its trailing feathers
       ${outline ? '' : `
-      vec3 sc = pow(max(diffuseColor.rgb, vec3(1e-4)), vec3(0.4545));
-      float mx = max(sc.r, max(sc.g, sc.b)), mn = min(sc.r, min(sc.g, sc.b));
-      bool feathery = (mx - mn) / max(mx, 1e-3) < 0.42 && sc.g <= sc.r + 0.03 && sc.b <= sc.g + 0.03 && mx > 0.2;
+      bool feathery = texture2D(uFeather, vMapUv).r > 0.5;
       if (feathery && plkF(vRest) < uPluck) {
-        float bmp = smoothstep(0.5, 0.85, plkN(vRest * 330.0));
-        diffuseColor.rgb = mix(vec3(0.87, 0.37, 0.31), vec3(0.5, 0.15, 0.13), bmp * 0.75);
+        vec3 flesh = mix(vec3(0.91, 0.60, 0.44), vec3(0.93, 0.50, 0.40), plkN(vRest * 22.0) * 0.6);   // raw-chicken skin
+        float bmp = smoothstep(0.6, 0.85, plkN(vRest * 420.0));
+        diffuseColor.rgb = mix(flesh, flesh * vec3(0.92, 0.82, 0.78), bmp * 0.7);
       }`}`);
   };
   mat.customProgramCacheKey = () => outline ? 'plkO' : 'plkM';
@@ -879,11 +931,10 @@ function pluck(n) {
     plucked++; any = true;
     featherFrom(featherVerts, rand(1.5, 4.5), 1);
     if (Math.random() < 0.5) featherFrom(featherVerts, rand(1, 3), 0.8);
-    const pf = plucked / NT; if (pf > 0.12 && Math.random() < 0.1 + pf * 0.25) featherFrom(tailVerts, rand(2, 4), 2.2);
   }
   if (any && limit('poof', 0.18)) SFX.poof(Math.min(1, 0.4 + n * 0.2));
 }
-function looseFeather() { featherFrom(Math.random() < 0.75 ? featherVerts : tailVerts, rand(1.5, 3.5), rand(0.8, 1.3)); }
+function looseFeather() { featherFrom(featherVerts, rand(1.5, 3.5), rand(0.8, 1.3)); }
 function regrow() { plucked = Math.max(0, plucked - 1); }
 
 // ───────────────────────── frame ─────────────────────────
@@ -969,6 +1020,11 @@ function applyVisuals(dt) {
   qRootInv.copy(C.quat).invert();
   const pf = plucked / NT;
   pluckU.value += ((pf > 0.002 ? 0.17 + pf * 0.75 : -0.05) - pluckU.value) * dk(10, dt);
+  for (const c of CARDS) {   // a tail feather that just dropped off flies away as a big loose feather
+    const gone = pluckU.value > c.r;
+    if (gone && !c.gone) { featherFrom([c.tip], rand(2, 3.5), 2.4); featherFrom(c.v, rand(1.5, 3), 1.8); }
+    c.gone = gone;
+  }
   // wings
   let amp = 0, freq = 4;
   if (C.mode === 'held') { amp = 0.35 + 0.8 * Math.min(P, 1); freq = 5 + 7 * Math.min(P, 1); }
