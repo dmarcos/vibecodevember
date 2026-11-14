@@ -6,7 +6,7 @@
 <title>Vibecodevember - Feather</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&family=Caveat:wght@600&display=swap" rel="stylesheet" />
 <style>
   :root { --ink: #3a2214; --ink-soft: #7d5a40; }
   * { box-sizing: border-box; }
@@ -25,6 +25,20 @@
   .credit { position: fixed; right: 12px; bottom: 8px; font-size: 10px; color: var(--ink-soft); opacity: .8; }
   .credit a { color: inherit; }
   @media (max-width: 640px) { .credit { bottom: 4px; } .hint { bottom: 26px; } }
+  #photos { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; pointer-events: none; z-index: 2; }
+  .photo { position: relative; background: #fffdf6; padding: 6px 6px 26px; border-radius: 2px; box-shadow: 0 8px 20px rgba(60,30,10,.28), 0 1px 2px rgba(60,30,10,.2); transform: rotate(var(--r)); transition: opacity .3s; animation: snap .45s cubic-bezier(.2,1.5,.4,1); }
+  .photo canvas { display: block; width: 108px; height: 108px; background: #ddd; }
+  .photo span { position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-family: Caveat, cursive; font-weight: 600; font-size: 18px; color: #3a2214; white-space: nowrap; }
+  .photo.gone { opacity: 0 !important; transform: rotate(var(--r)) translateY(-20px) scale(.9); transition: opacity .35s, transform .35s; }
+  @keyframes snap { 0% { opacity: 0; transform: translateY(-40px) rotate(0deg) scale(1.35); filter: brightness(3); } 60% { filter: brightness(1.4); } 100% { filter: none; } }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; }
+  #flash.on { animation: flash .35s ease-out; }
+  @keyframes flash { 0% { opacity: .75; } 100% { opacity: 0; } }
+  @media (max-width: 760px) { #photos { top: 66px; gap: 7px; } .photo { padding: 4px 4px 18px; } .photo canvas { width: 62px; height: 62px; } .photo span { font-size: 13px; } }
+  .cursor { display: none; }
+  body.capture .hint, body.capture #loading { display: none !important; }
+  body.capture .cursor { display: block; position: fixed; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2.5px solid #fff; background: rgba(255,255,255,.18); box-shadow: 0 0 0 1.5px rgba(60,30,10,.35), 0 3px 12px rgba(60,30,10,.35); z-index: 4; pointer-events: none; opacity: 0; }
+  body.capture .ring { display: block; position: fixed; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 2px solid #fff; z-index: 4; pointer-events: none; opacity: 0; }
   @media (max-width: 640px) { .title { top: 16px; left: 16px; font-size: 19px; } #count { top: 16px; right: 16px; } #count b { font-size: 26px; } }
 </style>
 <script type="importmap">
@@ -39,12 +53,23 @@
 <div class="title">Vibecodevember - Feather<small>Nov 11th 2026</small></div>
 <div id="loading">fetching the chicken…</div>
 <div class="credit">Chicken: <a href="https://sketchfab.com/3d-models/tv-world-chicken-030273524e05435f9913c160291bdf4c" target="_blank" rel="noopener">“TV-World: Chicken”</a> by <a href="https://sketchfab.com/parelaxel" target="_blank" rel="noopener">Parelaxel</a> · <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a></div>
+<div id="photos"></div>
+<div class="cursor" id="cur"></div><div class="cursor ring" id="ring"></div>
+<div id="flash"></div>
 <div id="count"><b id="countN">0</b><small>feathers lost</small></div>
 <div class="hint" id="hint"><b>grab</b> the chicken &nbsp;·&nbsp; <b>shake</b> it &nbsp;·&nbsp; <b>let go</b> &nbsp;·&nbsp; <b>m</b> mute</div>
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// ?capture renders the social video deterministically: fixed 30 fps virtual clock, a director script drives the
+// hand + camera, all audio goes to an OfflineAudioContext. Frames are pulled with window.__frame(), audio with __audio().
+const CAPTURE = /[?&]capture\b/.test(location.search), CAP_DUR = 20, CAP_FPS = 30;
+if (CAPTURE) {
+  let a = +(new URLSearchParams(location.search).get('seed') || 7);
+  Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  document.body.classList.add('capture');
+}
 // ───────────────────────── utils ─────────────────────────
 const V3 = THREE.Vector3, Q = THREE.Quaternion;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -61,8 +86,8 @@ function canvas(w, h) { const c = document.createElement('canvas'); c.width = w;
 function ctex(c, rep) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); } t.anisotropy = 4; return t; }
 
 // ───────────────────────── renderer / scene ─────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: CAPTURE });
+renderer.setPixelRatio(CAPTURE ? 2 : Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -250,7 +275,7 @@ const featherMask = (() => {
 
 // classify every vertex by position + texture colour and build skin weights
 const birdGeo = prepGeo(srcBody);
-const BONES = ['root', 'head', 'comb', 'wattle', 'beak', 'wingA', 'wingB', 'tail', 'thighA', 'shinA', 'footA', 'thighB', 'shinB', 'footB'];
+const BONES = ['root', 'head', 'comb', 'wattle', 'beak', 'wingA', 'wingB', 'tail', 'thighA', 'shinA', 'footA', 'thighB', 'shinB', 'footB', 'toesA', 'toesB'];
 const BI = Object.fromEntries(BONES.map((n, i) => [n, i]));
 const featherVerts = [], tailVerts = [], CARDS = [], beakBox = new THREE.Box3();
 let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
@@ -270,7 +295,8 @@ let beakCol = new THREE.Color(0, 0, 0), beakN = 0;
     else if (oy < 370 && ax < 225 && oz < 220) {
       const dl = Math.hypot(ax - 87, oz - 10);
       const a = sstep(370, 290, oy) * (oy < 200 ? 1 : sstep(135, 70, dl)), bb = sstep(215, 175, oy), c = sstep(75, 42, oy);
-      add('root', 1 - a); add('thigh' + side, a * (1 - bb)); add('shin' + side, a * bb * (1 - c)); add('foot' + side, a * bb * c);
+      add('root', 1 - a); add('thigh' + side, a * (1 - bb)); add('shin' + side, a * bb * (1 - c));
+      const tw = oy < 50 ? sstep(18, 60, -oz) : 0; add('foot' + side, a * bb * c * (1 - tw)); add('toes' + side, a * bb * c * tw);
     } else if (oy > 620 && oz < 120) {
       const h = sstep(640, 830, oy); let sub = null, sw = 0;
       if (oy > 980 && combC) { sub = 'comb'; sw = sstep(985, 1045, oy); }
@@ -321,8 +347,9 @@ const PS = {
   wingA: cs(-185, 520, -20), wingB: cs(185, 520, -20),
   thighA: cs(-87, 330, 10), shinA: cs(-87, 190, 6), footA: cs(-88, 42, 0),
   thighB: cs(87, 330, 10), shinB: cs(87, 190, 6), footB: cs(88, 42, 0),
+  toesA: cs(-88, 16, -20), toesB: cs(88, 16, -20),
 };
-const PARENT = { head: 'root', comb: 'head', wattle: 'head', beak: 'head', wingA: 'root', wingB: 'root', tail: 'root', thighA: 'root', shinA: 'thighA', footA: 'shinA', thighB: 'root', shinB: 'thighB', footB: 'shinB' };
+const PARENT = { head: 'root', comb: 'head', wattle: 'head', beak: 'head', wingA: 'root', wingB: 'root', tail: 'root', thighA: 'root', shinA: 'thighA', footA: 'shinA', thighB: 'root', shinB: 'thighB', footB: 'shinB', toesA: 'footA', toesB: 'footB' };
 const bones = {};
 for (const n of BONES) { const b = new THREE.Bone(); b.name = n; b.position.copy(PS[n]); if (PARENT[n]) { b.position.sub(PS[PARENT[n]]); bones[PARENT[n]].add(b); } bones[n] = b; }
 
@@ -470,7 +497,7 @@ const curves = {};
 const curve = k => curves[k] || (curves[k] = distCurve(k));
 function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
-  AC = new (window.AudioContext || window.webkitAudioContext)();
+  AC = CAPTURE ? new OfflineAudioContext(2, 48000 * CAP_DUR, 48000) : new (window.AudioContext || window.webkitAudioContext)();
   const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5; comp.knee.value = 8;
   master = AC.createGain(); master.gain.value = muted ? 0 : 0.85; master.connect(comp); comp.connect(AC.destination);
   noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -489,12 +516,13 @@ function initAudio() {
   decodeVoices();
   scr = { o1, o2, lfo, lg, bp1, sg };
 }
+const aNow = () => CAPTURE ? T : AC.currentTime;
 const hold = (p, t) => p.cancelAndHoldAtTime ? p.cancelAndHoldAtTime(t) : p.cancelScheduledValues(t);
 function env(g, t, vol, att, dur, rel) { g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + att); g.gain.setValueAtTime(vol, t + Math.max(att, dur - rel)); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
 function autom(p, t, pts, first) { pts.forEach(([dt, v], i) => i === 0 ? p.setValueAtTime(v, t + dt) : p.exponentialRampToValueAtTime(v, t + dt)); }
 function voice(o) {
   if (!AC) return;
-  const t = AC.currentTime + (o.at || 0), dur = o.dur;
+  const t = aNow() + (o.at || 0), dur = o.dur;
   const osc = AC.createOscillator(); osc.type = o.type || 'sawtooth'; autom(osc.frequency, t, o.f);
   const nodes = [osc]; let src = osc;
   if (o.vib) { const l = AC.createOscillator(), lg = AC.createGain(); l.frequency.value = o.vib[0]; lg.gain.value = o.vib[1]; l.connect(lg); lg.connect(osc.frequency); nodes.push(l); }
@@ -508,7 +536,7 @@ function voice(o) {
 }
 function noise(o) {
   if (!AC) return;
-  const t = AC.currentTime + (o.at || 0), s = AC.createBufferSource(); s.buffer = noiseBuf;
+  const t = aNow() + (o.at || 0), s = AC.createBufferSource(); s.buffer = noiseBuf;
   const f = AC.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.setValueAtTime(o.f, t); if (o.f2) f.frequency.exponentialRampToValueAtTime(o.f2, t + o.dur); f.Q.value = o.q || 1;
   const g = AC.createGain(); env(g, t, o.vol, o.att || 0.003, o.dur, o.rel || o.dur * 0.7);
   s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 1.5); s.stop(t + o.dur + 0.05);
@@ -524,7 +552,7 @@ const SFX = {
   whistleDown() { voice({ dur: 0.8, type: 'sine', f: [[0, 1800], [0.8, 300]], vib: [6, 25], vol: 0.16, att: 0.02, rel: 0.1 }); },
   thud(v) { voice({ dur: 0.24, type: 'sine', f: [[0, 150], [0.24, 40]], vol: 0.7 * v, att: 0.002, rel: 0.2 }); noise({ dur: 0.14, f: 600, f2: 120, type: 'lowpass', q: 0.7, vol: 0.55 * v }); },
   boing(v) {
-    if (!AC) return; const t = AC.currentTime, o = AC.createOscillator(), l = AC.createOscillator(), lg = AC.createGain(), g = AC.createGain();
+    if (!AC) return; const t = aNow(), o = AC.createOscillator(), l = AC.createOscillator(), lg = AC.createGain(), g = AC.createGain();
     o.type = 'sine'; o.frequency.value = 160; l.frequency.value = 15; lg.gain.setValueAtTime(110, t); lg.gain.exponentialRampToValueAtTime(2, t + 0.7);
     l.connect(lg); lg.connect(o.frequency); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.4 * v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
     o.connect(g); g.connect(master); [o, l].forEach(n => { n.start(t); n.stop(t + 0.8); });
@@ -537,16 +565,17 @@ const SFX = {
       voice({ at, dur: 0.56, type: 'square', f: [[0, 141], [0.18, 237], [0.56, 186]], form: [[[[0, 1000], [0.2, 380], [0.45, 1100]], 2, 2]], vol: 0.25, att: 0.02, rel: 0.12 });
     }
   },
+  shutter() { noise({ dur: 0.02, f: 4200, q: 1.2, vol: 0.4 }); noise({ at: 0.07, dur: 0.035, f: 2600, q: 1.5, vol: 0.32 }); voice({ at: 0.06, dur: 0.03, type: 'square', f: [[0, 900], [0.03, 500]], vol: 0.06, att: 0.001, rel: 0.02 }); },
   tweet(at = 0) { for (let k = 0; k < 2; k++) voice({ at: at + k * 0.12, dur: 0.09, type: 'sine', f: [[0, 2600], [0.09, 3900]], vol: 0.1, att: 0.005, rel: 0.04 }); },
 };
 function squawk(d, f0, vol) {
-  if (!scr) return; const t = AC.currentTime;
+  if (!scr) return; const t = aNow();
   for (const o of [scr.o1, scr.o2]) { hold(o.frequency, t); o.frequency.setTargetAtTime(f0 * 1.35, t, 0.015); o.frequency.setTargetAtTime(f0 * 0.8, t + 0.07, d * 0.6); }
   scr.lfo.frequency.setValueAtTime(rand(9, 18), t); scr.lg.gain.setValueAtTime(f0 * rand(0.05, 0.13), t);
   hold(scr.bp1.frequency, t); scr.bp1.frequency.setTargetAtTime(1900, t, 0.02); scr.bp1.frequency.setTargetAtTime(1100, t + 0.08, d * 0.5);
   hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(vol, t, 0.012); scr.sg.gain.setTargetAtTime(0, t + d, 0.03);
 }
-function screamOff() { if (!scr) return; const t = AC.currentTime; hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(0, t, 0.04); }
+function screamOff() { if (!scr) return; const t = aNow(); hold(scr.sg.gain, t); scr.sg.gain.setTargetAtTime(0, t, 0.04); }
 const rl = {}; function limit(k, s) { if ((rl[k] || -9) + s > T) return false; rl[k] = T; return true; }
 
 // ───────────────────────── recorded voice (sounds/ from the voice booth) — synth is the fallback ─────────────────────────
@@ -569,7 +598,10 @@ function envelope(b) {
   return { e, dt: w / b.sampleRate };
 }
 function decodeVoices() {
-  VOX.raw.then(raw => { for (const [slot, list] of Object.entries(raw)) { VOX.buf[slot] = []; for (const ab of list) AC.decodeAudioData(ab.slice(0)).then(b => VOX.buf[slot].push({ b, env: envelope(b) })).catch(() => {}); } });
+  VOX.ready = VOX.raw.then(raw => Promise.all(Object.entries(raw).map(async ([slot, list]) => {
+    const got = await Promise.all(list.map(ab => AC.decodeAudioData(ab.slice(0)).then(b => ({ b, env: envelope(b) })).catch(() => null)));
+    VOX.buf[slot] = got.filter(Boolean);
+  })));
 }
 const hasVox = slot => !!(AC && VOX.buf[slot] && VOX.buf[slot].length);
 // play a random take of a slot (never the same one twice in a row); the beak lip-syncs to its loudness.
@@ -581,7 +613,7 @@ function vox(slot, { at = 0, vol = 1, pitch = 1, mouth = 0.6 } = {}) {
   VOX.last[slot] = i;
   const { b, env } = list[i], r = VOX.rate * pitch * rand(0.95, 1.05);
   const src = AC.createBufferSource(), g = AC.createGain();
-  src.buffer = b; src.playbackRate.value = r; g.gain.value = vol; src.connect(g); g.connect(master); src.start(AC.currentTime + at);
+  src.buffer = b; src.playbackRate.value = r; g.gain.value = vol; src.connect(g); g.connect(master); src.start(aNow() + at);
   const dur = b.duration / r;
   C.clips.push({ t0: T + at, dur, env, r, a: mouth });
   return at + dur;
@@ -603,13 +635,14 @@ function idleSound() {
 }
 
 // ───────────────────────── chicken state ─────────────────────────
-const mkFoot = () => ({ p: new V3(), v: new V3(), from: new V3(), to: new V3(), t: 0, dur: 0.15, step: false });
+const mkFoot = () => ({ p: new V3(), v: new V3(), from: new V3(), to: new V3(), t: 0, dur: 0.15, step: false, swing: false, st: 0, pitch: 0, curl: 0 });
 const C = {
   mode: 'wander', act: 'walk', actT: 0, actDur: 2,
   pos: new V3(0, BODY_H, 0), vel: new V3(), quat: new Q(), yaw: 0.6, lean: 0, roll: 0,
   target: new V3(1.4, 0, 1.2),
   head: new V3(), headPrev: new V3(), headVel: new V3(), headVelVis: new V3(), headAcc: new V3(), headHold: new V3(), headQuat: new Q(), headYawOff: 0, glance: 0, glanceT: 1,
   feet: [mkFoot(), mkFoot()],
+  speed: 0, walkSpeed: 0.45, gaitPh: 0, gaitAmp: 0, pauseT: -2, pauseGap: 3, swayOff: new V3(), tailBob: 0,
   hand: new V3(), handPrev: new V3(), handVel: new V3(), handVelPrev: new V3(), shakeE: 0,
   gLocal: new V3(), grabL: 0.4, grabPart: 'body', quat0: new Q(), twist: 0, twistV: 0,
   panic: 0, pop: 0, popV: 0, mouth: 0, sq: 0, sqV: 0, flapPh: 0, flapAmp: 0, flapFreq: 10,
@@ -622,7 +655,7 @@ function footRest(i, out) { const s = i ? -1 : 1; return out.set(C.pos.x + Math.
 function initWanderPose() {
   C.quat.setFromEuler(tE.set(0, C.yaw, 0, 'YXZ'));
   b2w(HEAD_REST, C.head); C.headHold.copy(C.head); C.headPrev.copy(C.head); C.headQuat.copy(C.quat);
-  C.feet.forEach((f, i) => { footRest(i, f.p); f.step = false; f.v.set(0, 0, 0); });
+  C.feet.forEach((f, i) => { footRest(i, f.p); f.step = false; f.swing = false; f.v.set(0, 0, 0); });
 }
 initWanderPose();
 
@@ -637,7 +670,7 @@ function pickTarget() {
 }
 function nextAct() {
   C.actT = 0; const r = Math.random(), prev = C.act;
-  if ((prev !== 'walk' && r < 0.5) || r < 0.12) { C.act = 'walk'; pickTarget(); }
+  if ((prev !== 'walk' && r < 0.5) || r < 0.12) { C.act = 'walk'; pickTarget(); C.walkSpeed = rand(0.32, 0.55); C.pauseT = -rand(1, 3); }
   else if (r < 0.76) { C.act = 'peck'; C.peck.left = randInt(2, 5); C.peck.start = 0.15; C.peck.e = 0; C.actDur = 99; }
   else if (r < 0.9) { C.act = 'look'; C.actDur = rand(1.3, 2.3); C.lookRoll = rand(-0.55, 0.55); if (!vox('idle-question', { at: 0.15, mouth: 0.6 })) SFX.question(0.15); }
   else { C.act = 'idle'; C.actDur = rand(0.8, 1.8); }
@@ -667,7 +700,7 @@ cvs.addEventListener('pointermove', e => {
 });
 const endGrab = () => { if (C.mode === 'held') release(); };
 cvs.addEventListener('pointerup', endGrab); cvs.addEventListener('pointercancel', endGrab); addEventListener('blur', endGrab);
-addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.85, AC.currentTime, 0.05); } });
+addEventListener('keydown', e => { if (e.key === 'm' || e.key === 'M') { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.85, aNow(), 0.05); } });
 
 function startGrab(h) {
   const wasMode = C.mode;
@@ -682,7 +715,7 @@ function startGrab(h) {
   camera.getWorldDirection(tA); tA.y = 0; tA.normalize().negate();
   dragPlane.setFromNormalAndCoplanarPoint(tA, h.point);
   C.hand.copy(h.point); C.handPrev.copy(h.point); C.handVel.set(0, 0, 0); C.handVelPrev.set(0, 0, 0); C.shakeE = 0;
-  C.twist = 0; C.twistV = 0; C.feet.forEach(f => { f.step = false; f.v.set(0, 0, 0); });
+  C.twist = 0; C.twistV = 0; C.feet.forEach(f => { f.step = false; f.swing = false; f.pitch = 0; f.v.set(0, 0, 0); });
   SFX.whistleUp();
   const d = vox('grab-surprise', { at: 0.04, mouth: 1 }); if (!d) SFX.bawk(0.08, 1.15, 0.5, 0.36);
   C.soundT = Math.max(0.7, d + 0.15);
@@ -701,7 +734,7 @@ function release() {
 const GRAV = 12;
 function updateHand(dt) {
   ray.setFromCamera(ndc, camera);
-  if (ray.ray.intersectPlane(dragPlane, tA)) {
+  if (CAPTURE ? !!tA.copy(DIR.hand) : ray.ray.intersectPlane(dragPlane, tA)) {
     tA.y = clamp(tA.y, 0.3, 2.4);
     const r = Math.hypot(tA.x, tA.z); if (r > 6.4) { tA.x *= 6.4 / r; tA.z *= 6.4 / r; }
     C.hand.copy(tA);
@@ -786,15 +819,16 @@ function headLookQuat(fwd, up, out) { mT.lookAt(fwd, ORIGIN, up); return out.set
 function updateWander(dt) {
   C.actT += dt;
   const fwd = tF.set(Math.sin(C.yaw), 0, Math.cos(C.yaw));
-  let moving = false, leanT = 0, headPitch = 0.12, headRoll = 0, hd = null;
+  let leanT = 0, headPitch = 0.12, headRoll = 0, hd = null, speedT = 0, turnRate = 0;
   C.glanceT -= dt; if (C.glanceT <= 0) { C.glanceT = rand(0.25, 1.1); C.glance = Math.random() < 0.35 ? 0 : rand(-0.75, 0.75); }
   let yawOff = C.glance;
   if (C.act === 'walk') {
     tA.subVectors(C.target, C.pos); tA.y = 0; const dist = tA.length();
     const dy = wrap(Math.atan2(tA.x, tA.z) - C.yaw);
-    C.yaw += clamp(dy, -3.2 * dt, 3.2 * dt);
-    if (Math.abs(dy) < 0.8 && dist > 0.2) { const sp = 0.5 * (1 - Math.abs(dy) / 0.8 * 0.7); C.pos.addScaledVector(fwd, sp * dt); moving = true; }
-    if (dist < 0.3 || C.actT > 9) nextAct();
+    const turn = clamp(dy, -2.6 * dt, 2.6 * dt); C.yaw += turn; turnRate = Math.abs(turn) / dt;
+    C.pauseT -= dt; if (C.pauseT < -C.pauseGap) { C.pauseT = rand(0.3, 0.8); C.pauseGap = rand(1.5, 4.5); }   // chickens walk in bursts
+    speedT = C.pauseT > 0 ? 0 : C.walkSpeed * clamp(1 - Math.abs(dy) / 1.3, 0.12, 1) * clamp(dist / 0.6, 0.35, 1);
+    if (dist < 0.25 || C.actT > 10) nextAct();
     yawOff *= 0.5;
   } else if (C.act === 'peck') {
     leanT = 0.36;
@@ -816,30 +850,62 @@ function updateWander(dt) {
     if (C.actT > C.actDur) nextAct();
   } else if (C.actT > C.actDur) nextAct();
 
-  C.lean += (leanT - C.lean) * dk(10, dt);
-  // feet
-  let lift = 0, roll = 0;
+  // ── gait: phase-locked, ~60% stance per foot, feet alternate half a cycle apart ──
+  C.speed += (speedT - C.speed) * dk(speedT > C.speed ? 3 : 6, dt);
+  C.pos.addScaledVector(fwd, C.speed * dt);
+  const moving = C.speed > 0.03, drive = C.speed + turnRate * 0.1;
+  // long deliberate strides (~1 step/s per foot): stride length sets the cadence, not the other way round
+  const DUTY = 0.6, strideL = 0.12 + 0.16 * Math.min(1, C.speed / 0.5), freq = Math.max(0.9, C.speed * DUTY / strideL);
+  const active = drive > 0.04, anySwing = C.feet[0].swing || C.feet[1].swing;
+  C.gaitAmp += ((active ? sstep(0.03, 0.3, drive) : 0) - C.gaitAmp) * dk(5, dt);
+  if (active || anySwing) C.gaitPh = (C.gaitPh + freq * dt) % 1;
+  const side = tS.set(Math.cos(C.yaw), 0, -Math.sin(C.yaw));
+  const stanceHalf = C.speed * DUTY / freq / 2, lift = 0.07 + 0.07 * Math.min(1, C.speed / 0.5);
   for (let i = 0; i < 2; i++) {
-    const f = C.feet[i], s = i ? -1 : 1, rest = footRest(i, tR);
-    if (moving) rest.addScaledVector(fwd, 0.07);
-    if (f.step) {
-      f.t += dt / f.dur; const e = Math.min(1, f.t), se = Math.sin(Math.PI * e);
-      f.p.lerpVectors(f.from, f.to, smooth(e)); f.p.y = se * 0.09; lift = Math.max(lift, se); roll -= s * se * 0.1;
-      if (e >= 1) { f.step = false; f.p.y = 0; if (Math.random() < 0.3) kickFeathers(f.p, 0.12, 0.8); }
-    } else {
-      const o = C.feet[1 - i];
-      if (!o.step && f.p.distanceTo(rest) > (moving ? 0.13 : 0.035)) { f.step = true; f.t = 0; f.dur = moving ? 0.15 : 0.12; f.from.copy(f.p); f.to.copy(rest); if (moving) f.to.addScaledVector(fwd, 0.06); }
+    const f = C.feet[i], s = i ? -1 : 1, u = (C.gaitPh + i * 0.5) % 1;
+    if ((active || f.swing) && u >= DUTY) {
+      const t = (u - DUTY) / (1 - DUTY);
+      if (!f.swing) { f.swing = true; f.step = false; f.from.copy(f.p); f.from.y = 0; }
+      // landing spot: where the body will be at touchdown, half a stance ahead
+      const tRem = (1 - t) * (1 - DUTY) / freq;
+      f.to.copy(C.pos).addScaledVector(fwd, C.speed * tRem + stanceHalf).addScaledVector(side, FOOT_SIDE * s); f.to.y = 0;
+      // looping foot path: heel peels up behind, foot pulled up high, flung forward past the landing spot, then planted
+      const hs = t < 0.25 ? -0.1 * Math.sin(Math.PI * t / 0.25) : t < 0.85 ? 1.08 * smooth((t - 0.25) / 0.6) : 1.08 - 0.08 * smooth((t - 0.85) / 0.15);
+      f.p.lerpVectors(f.from, f.to, hs); f.p.y = lift * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.8)), 0.8);
+      // foot hangs toes-down as it lifts, then swings toes-forward to reach for the ground
+      f.pitch = t < 0.35 ? 1.2 * Math.sin(Math.PI * t / 0.7) : t < 0.8 ? 1.2 - 1.55 * smooth((t - 0.35) / 0.45) : -0.35 * (1 - smooth((t - 0.8) / 0.2));
+      // toes bunch up in the air, fan open just before contact
+      f.curl = t < 0.6 ? 1.2 * Math.sin(Math.PI * t / 1.2) : t < 0.85 ? 1.2 - 1.5 * smooth((t - 0.6) / 0.25) : -0.3 * (1 - smooth((t - 0.85) / 0.15));
+    } else if (f.swing) {
+      f.swing = false; f.p.copy(f.to); f.p.y = 0; f.pitch = 0; f.curl = 0;
+      if (Math.random() < 0.25) kickFeathers(f.p, 0.12, 0.8);
+      if (Math.random() < 0.3) spawnDirt(tA.set(f.p.x, 0.02, f.p.z), 1, 0.4);
+      if (!C.feet[1 - i].swing) C.headHold.copy(b2w(HEAD_REST, tB)).addScaledVector(fwd, C.speed * 0.5 / freq * 0.55);  // head thrust on touchdown, then locked in space
+    } else if (!active && !anySwing) {
+      // standing: shuffle a foot back under the body if it ended up off
+      const rest = footRest(i, tR);
+      if (f.step) {
+        f.t += dt / f.dur; const e = Math.min(1, f.t), se = Math.sin(Math.PI * e);
+        f.p.lerpVectors(f.from, f.to, smooth(e)); f.p.y = se * 0.05; f.pitch = 0.4 * se; f.curl = 0.6 * se;
+        if (e >= 1) { f.step = false; f.p.y = 0; f.pitch = f.curl = 0; }
+      } else if (!C.feet[1 - i].step && f.p.distanceTo(rest) > 0.04) { f.step = true; f.t = 0; f.dur = 0.16; f.from.copy(f.p); f.to.copy(rest); }
     }
   }
-  C.roll += (roll - C.roll) * dk(14, dt);
-  C.pos.y = BODY_H + lift * 0.025 + Math.sin(T * 2.2) * 0.005;
-  C.quat.setFromEuler(tE.set(C.lean, C.yaw, C.roll, 'YXZ'));
+  // body: shifts over the planted foot, bobs twice a cycle, leans into the walk
+  const g = C.gaitAmp, ph = C.gaitPh * Math.PI * 2;
+  // body: crouched while walking, surges forward on each push-off, sways over the planted foot, tips with every step
+  C.swayOff.copy(side).multiplyScalar(0.016 * g * Math.sin(ph)).addScaledVector(fwd, 0.014 * g * Math.sin(ph * 2 + 1));
+  C.lean += (leanT + 0.15 * g + 0.06 * g * Math.sin(ph * 2 + 0.6) - C.lean) * dk(12, dt);
+  C.roll += (-0.07 * g * Math.sin(ph) - C.roll) * dk(14, dt);
+  C.tailBob = 0.07 * g * Math.sin(ph * 2 + 1);
+  C.pos.y = BODY_H - 0.032 * g + 0.018 * g * Math.cos(ph * 2 - 0.6 * Math.PI * 2) + Math.sin(T * 2.2) * 0.005;   // low at footfall, high passing over the planted leg
+  C.quat.setFromEuler(tE.set(C.lean, C.yaw + 0.05 * g * Math.sin(ph), C.roll, 'YXZ'));
   if (!hd) {
     const base = b2w(HEAD_REST, tB);
-    if (moving) { if (C.headHold.distanceTo(base) > 0.08) C.headHold.copy(base).addScaledVector(fwd, 0.065); hd = C.headHold; }
-    else { C.headHold.copy(base); hd = base; }
+    // head-bob: the head holds still in the air while the body walks under it, then thrusts on each footfall
+    if (moving && C.headHold.distanceTo(base) < 0.3) hd = C.headHold; else { C.headHold.copy(base); hd = base; }
   }
-  C.head.lerp(hd, dk(C.act === 'peck' ? 45 : 32, dt));
+  C.head.lerp(hd, dk(C.act === 'peck' ? 45 : 38, dt));
   C.headYawOff += (yawOff - C.headYawOff) * dk(22, dt);
   qT.setFromEuler(tE.set(headPitch, C.yaw + C.headYawOff, headRoll, 'YXZ'));
   C.headQuat.slerp(qT, dk(25, dt));
@@ -879,7 +945,7 @@ function enterRecover() {
   C.mode = 'recover'; C.rT = 0;
   tA.set(0, 0, 1).applyQuaternion(C.quat); tA.y = 0;
   if (tA.lengthSq() > 0.01) C.yaw = Math.atan2(tA.x, tA.z);
-  C.dazed = C.impactMax > 6.2 || C.panic > 0.9;
+  C.dazed = C.impactMax > 6.2 || C.panic > 0.9 || DIR.forceDaze;
   C.rPhase = C.dazed ? 'daze' : 'up';
   if (C.dazed) { SFX.tweet(0.2); }
 }
@@ -910,7 +976,7 @@ function updateRecover(dt) {
     qT.setFromEuler(tE.set(0.05, C.yaw + Math.sin(C.rT * 40) * 0.35 * Math.max(0, k), 0, 'YXZ')); C.headQuat.slerp(qT, dk(25, dt));
     C.feet.forEach((f, i) => { footRest(i, tA); f.p.lerp(tA, dk(14, dt)); f.p.y = 0; });
     if (Math.random() < 6 * dt * Math.max(0, k)) looseFeather();
-    if (C.rT > 0.7) { C.mode = 'wander'; C.act = 'look'; C.actT = 0; C.actDur = 1.4; C.lookRoll = rand(-0.4, 0.4); C.headHold.copy(C.head); C.soundT = 2; }
+    if (C.rT > 0.7) { C.feet.forEach(f => { f.step = f.swing = false; f.pitch = f.curl = 0; }); C.speed = 0; C.mode = 'wander'; C.act = 'look'; C.actT = 0; C.actDur = 1.4; C.lookRoll = rand(-0.4, 0.4); C.headHold.copy(C.head); C.soundT = 2; }
   }
 }
 
@@ -1014,7 +1080,8 @@ function applyVisuals(dt) {
   // body (root bone)
   C.sqV += (-C.sq * 260 - C.sqV * 11) * dt; C.sq += C.sqV * dt;
   const sq = clamp(C.sq, -0.45, 0.6), tr = s * 0.04 * Math.sin(T * 70);
-  R.position.copy(C.pos).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.008 * s));
+  if (C.mode !== 'wander') C.swayOff.multiplyScalar(Math.exp(-8 * dt));
+  R.position.copy(C.pos).add(C.swayOff).add(tA.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.008 * s));
   R.quaternion.copy(C.quat); R.scale.set(1 - sq * 0.45 + tr, 1 + sq - tr, 1 - sq * 0.45 + tr);
   R.updateMatrixWorld(true);
   qRootInv.copy(C.quat).invert();
@@ -1037,7 +1104,7 @@ function applyVisuals(dt) {
     qT2.setFromEuler(tE.set(0, sg * 0.3 * (1 - fs) * C.flapAmp, sg * (0.2 + 0.7 * fs) * Math.min(1.1, C.flapAmp + 0.2), 'XYZ'));
     bones[n].quaternion.copy(WING_FOLD[n]).slerp(qT2, clamp(C.flapAmp * 1.15, 0, 1));
   }
-  bones.tail.rotation.set(Math.sin(T * 9) * 0.04 * (C.mode === 'wander' ? 1 : 0) + rand(-1, 1) * 0.12 * s, Math.sin(T * 6) * 0.1 + rand(-1, 1) * 0.18 * s, 0);
+  bones.tail.rotation.set((C.mode === 'wander' ? C.tailBob : 0) + rand(-1, 1) * 0.12 * s, Math.sin(T * 6) * 0.1 + rand(-1, 1) * 0.18 * s, 0);
   // head kinematics for comb / wattle jiggle
   C.headVelVis.copy(C.head).sub(C.headPrev).divideScalar(dt); C.headPrev.copy(C.head);
   tA.copy(C.headVelVis).sub(C.headAcc).divideScalar(dt); C.headAcc.copy(C.headVelVis);
@@ -1085,7 +1152,8 @@ function applyVisuals(dt) {
     const f = C.feet[i], side = i ? 'B' : 'A';
     tA.copy(f.p); tA.y += ANK_H; R.worldToLocal(tA); legIK(i, tA);
     if (air) qW.copy(C.quat).multiply(qT2.setFromEuler(tE.set(0.9 + Math.sin(T * 25 + i * 3) * 0.4 * (P + 0.2), 0, 0)));
-    else qW.setFromEuler(tE.set(f.step ? -0.35 * Math.sin(Math.PI * Math.min(1, f.t)) : 0, C.yaw, 0, 'YXZ'));
+    else qW.setFromEuler(tE.set(f.pitch, C.yaw, 0, 'YXZ'));
+    bones['toes' + side].rotation.x += ((air ? (daze ? 0.5 : 0.9 + Math.sin(T * 25 + i * 3) * 0.35 * (P + 0.2)) : f.curl) - bones['toes' + side].rotation.x) * dk(30, dt);
     qL.copy(C.quat).multiply(bones['thigh' + side].quaternion).multiply(bones['shin' + side].quaternion).invert().multiply(qW);
     bones['foot' + side].quaternion.slerp(qL, dk(25, dt));
   }
@@ -1098,6 +1166,7 @@ function applyVisuals(dt) {
   camShake.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(0.03 * s);
 }
 function updateCamera(dt) {
+  if (CAPTURE) return directCamera(dt);
   const asp = innerWidth / innerHeight, k = asp < 1 ? Math.pow(1 / asp, 0.75) : 1;
   if (C.mode !== 'held') {
     camLook.x += (C.pos.x * 0.55 - camLook.x) * dk(1.6, dt);
@@ -1106,16 +1175,179 @@ function updateCamera(dt) {
   camera.position.set(camLook.x, camLook.y + 1.4 * k, camLook.z + 4.9 * k);
   camera.lookAt(camLook);
 }
+// ───────────────────────── snapshots of the meltdown ─────────────────────────
+// while it's being shaken, a paparazzo snaps the crazy face; the polaroids pin to the top and fade once it walks again
+const SNAP = 240, snapRT = new THREE.WebGLRenderTarget(SNAP, SNAP, { samples: 4 });
+snapRT.texture.colorSpace = THREE.SRGBColorSpace;
+const snapCam = new THREE.PerspectiveCamera(34, 1, 0.05, 60), snapPx = new Uint8Array(SNAP * SNAP * 4);
+const photosEl = document.getElementById('photos'), flashEl = document.getElementById('flash');
+const CAPTIONS = ['BAWK!!', 'AAAAAAA', 'no no no', 'why me', 'send help', 'BWAAAK!', 'the horror', 'my feathers!', 'unhinged', 'pls stop', 'not again', 'I saw god'];
+const PHOTOS = []; let nextSnap = 0, walkClock = 0, lastCap = '';
+function wantSnap() {
+  if (CAPTURE) return false;
+  if (C.mode !== 'held' || C.scream < 0.55) { nextSnap = Math.max(nextSnap, T + 0.35); return false; }
+  return T >= nextSnap && C.mouth > 0.55 && C.pop > 0.35;
+}
+function takeSnap() {
+  nextSnap = T + rand(0.9, 1.6);
+  // frame the face from the viewer's side, slightly randomised
+  tA.subVectors(camera.position, C.head).normalize();
+  tA.applyAxisAngle(UP, rand(-0.45, 0.45)); tA.y += rand(-0.05, 0.2);
+  const zoom = rand(1.05, 1.35);
+  snapCam.position.copy(C.head).addScaledVector(tA.normalize(), zoom);
+  snapCam.up.set(rand(-0.15, 0.15), 1, 0);
+  snapCam.lookAt(tB.copy(C.head).add(tC.set(0, 0.03, 0)));
+  renderer.setRenderTarget(snapRT); renderer.render(scene, snapCam); renderer.setRenderTarget(null);
+  renderer.readRenderTargetPixels(snapRT, 0, 0, SNAP, SNAP, snapPx);
+  const cv = document.createElement('canvas'); cv.width = cv.height = SNAP;
+  const g = cv.getContext('2d'), img = g.createImageData(SNAP, SNAP);
+  for (let y = 0; y < SNAP; y++) img.data.set(snapPx.subarray((SNAP - 1 - y) * SNAP * 4, (SNAP - y) * SNAP * 4), y * SNAP * 4);
+  g.putImageData(img, 0, 0);
+  g.fillStyle = 'rgba(255,190,120,0.08)'; g.fillRect(0, 0, SNAP, SNAP);   // a touch of instant-film warmth
+  const card = document.createElement('div'); card.className = 'photo'; card.style.setProperty('--r', rand(-9, 9).toFixed(1) + 'deg');
+  let cap; do cap = CAPTIONS[randInt(0, CAPTIONS.length - 1)]; while (cap === lastCap); lastCap = cap;
+  const sp = document.createElement('span'); sp.textContent = cap; card.append(cv, sp);
+  photosEl.append(card);
+  PHOTOS.push({ el: card, fadeAt: 0 });
+  const max = innerWidth < 760 ? 4 : 6;
+  while (PHOTOS.length > max) dropPhoto(PHOTOS[0]);
+  flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
+  SFX.shutter();
+}
+function dropPhoto(p) { PHOTOS.splice(PHOTOS.indexOf(p), 1); p.el.classList.add('gone'); setTimeout(() => p.el.remove(), 400); }
+function updatePhotos(dt) {
+  if (C.mode === 'wander') walkClock += dt; else if (C.mode === 'held') walkClock = 0;
+  [...PHOTOS].forEach((p, i) => {
+    const k = CAPTURE ? 0.55 : 1, t = walkClock - (1.2 + i * 0.9) * k, fade = 2.5 * k;   // oldest goes first
+    p.el.style.opacity = clamp(1 - t / fade, 0, 1).toFixed(3);
+    if (t > fade) dropPhoto(p);
+  });
+}
+
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 30) || 1 / 60; T += dt;
   update(dt);
+  updatePhotos(dt);
+  if (wantSnap()) takeSnap();
   camera.position.add(camShake); renderer.render(scene, camera); camera.position.sub(camShake);
   requestAnimationFrame(frame);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+// ───────────────────────── social-video director (?capture) ─────────────────────────
+const DIR = { hand: new V3(), forceDaze: false, fired: new Set(), camPos: new V3(), camAim: new V3(), camDir: new V3(), grabT: 0, cur: null, pressed: false, lastGrab: -9 };
+const once = (k, t) => { if (DIR.fired.has(k) || T < t) return false; DIR.fired.add(k); return true; };
+const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+function director(t) {
+  const fwd = tF.set(Math.sin(C.yaw), 0, Math.cos(C.yaw));
+  // relaxed: a few steps, pecks, then a suspicious stare into the lens
+  if (once('walk', 0)) { C.act = 'walk'; C.actT = 0; C.target.copy(C.pos).addScaledVector(fwd, 0.7).setY(0); C.walkSpeed = 0.36; C.pauseT = -9; C.pauseGap = 99; C.soundT = 0.5; }
+  if (once('peck', 1.7)) { C.act = 'peck'; C.actT = 0; C.peck.left = 3; C.peck.start = 0.1; C.peck.e = 0; C.actDur = 99; }
+  if (once('look', 3.1)) { C.act = 'look'; C.actT = 0; C.actDur = 9; C.lookRoll = 0.45; vox('idle-question', { at: 0.1, mouth: 0.6 }) || SFX.question(0.1); C.soundT = 9; }
+  // the hand comes in and grabs it by the back
+  if (once('grab', 4.0)) {
+    const pt = b2w(tA.set(0, 0.2, -0.06), new V3());
+    DIR.hand.copy(pt); DIR.grab0 = pt.clone(); DIR.lastGrab = T;
+    startGrab({ object: bodyHit, point: pt });
+  }
+  if (C.mode === 'held') {
+    const k = t - 4.0, R = tS.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize();
+    const base = tR.copy(DIR.grab0).add(tC.set(0, 0.85 * ease(k / 0.6), 0));
+    if (t < 5.6) base.addScaledVector(R, 0.05 * Math.sin(k * 5));                            // dangling, nervous
+    else if (t < 10.75) {                                                                  // SHAKE
+      const s = t - 5.6, A = 0.18 + 0.4 * ease(s / 1.4), f = 4.6;
+      base.addScaledVector(R, A * Math.sin(s * f * 6.283)).add(tC.set(0, 0.12 * A * Math.sin(s * f * 12.566), 0));
+    } else {                                                                               // toss, towards the middle of the yard
+      if (!DIR.tossDir) {   // pick the sideways direction that lands it in open ground
+        let best = -1;
+        for (const sg of [1, -1]) {
+          const d = R.clone().multiplyScalar(sg), land = C.pos.clone().addScaledVector(d, 1.8);
+          const room = Math.min(6.2 - Math.hypot(land.x, land.z), ...OBST.map(o => Math.hypot(land.x - o.x, land.z - o.z) - o.r - 0.6));
+          if (room > best) { best = room; DIR.tossDir = d; }
+        }
+      }
+      base.addScaledVector(DIR.tossDir, 0.6 * ease((t - 10.75) / 0.3)).add(tC.set(0, 0.45 * ease((t - 10.75) / 0.3), 0));
+    }
+    DIR.hand.copy(base);
+    if (once('release', 11.05)) { DIR.forceDaze = true; release(); }
+  }
+  // back on its feet: glare at the camera, then storm off
+  if (once('leave', 17.0) && C.mode === 'wander') { C.act = 'walk'; C.actT = 0; C.target.copy(C.pos).addScaledVector(DIR.camDir, -3).setY(0); if (C.target.length() > 4) C.target.setLength(4); C.walkSpeed = 0.5; C.pauseT = -9; C.pauseGap = 99; }
+}
+// keep the lens inside the fence and out of the crate / hay bale
+function keepOut(p) {
+  for (let k = 0; k < 3; k++) {
+    const r = Math.hypot(p.x, p.z); if (r > 7.0) { p.x *= 7.0 / r; p.z *= 7.0 / r; }
+    for (const o of OBST) { const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz), m = o.r + 0.6; if (d < m && p.y < 1.5) { p.x = o.x + dx / d * m; p.z = o.z + dz / d * m; } }
+  }
+}
+function directCamera(dt) {
+  const t = T, fwd = tF.set(Math.sin(C.yaw), 0, Math.cos(C.yaw));
+  let dist = 2.3, h = 0.3, aim = tA.copy(C.head).lerp(C.pos, 0.5), rate = 4, dirRate = 0, want = tD.copy(fwd).applyAxisAngle(UP, 0.55);
+  if (t < 4.0) { dirRate = t < 0.1 ? 999 : 1.5; dist = 2.1 - t * 0.08; }                                     // relaxed, 3/4 front, slow push-in
+  else if (t < 5.6) { dist = 2.6; h = 0.25; aim.copy(DIR.grab0).add(tC.set(0, 0.55 * ease((t - 4) / 0.8), 0)); rate = 3; }   // grabbed + lifted
+  else if (t < 11.05) {                                                                                  // shaking: wide and steady, so the feathers read
+    dist = 3.4 - 0.2 * ease((t - 5.6) / 4); h = 0.15; aim.copy(DIR.grab0).add(tC.set(0, 0.62, 0)).lerp(C.head, 0.15); rate = 2.5;
+  }
+  else if (C.mode === 'fall') { dist = 3.3; h = 0.5; aim.copy(C.pos); aim.y = Math.min(aim.y, 1.2); rate = 4; }
+  else if (C.mode === 'recover' && C.rPhase === 'daze') {                                           // dazed: low, facing it, feathers settling around
+    dist = 1.7; h = 0.22; aim.copy(C.head); aim.y += 0.08; rate = 2.5;
+    want.set(0, 0, 1).applyQuaternion(C.headQuat).setY(0); if (want.lengthSq() < 0.01) want.copy(DIR.camDir); want.normalize().applyAxisAngle(UP, 0.35 + (t - 12) * 0.08); dirRate = 1.5;
+  } else if (t < 17.0) { dist = 2.1; h = 0.12; aim.copy(C.head).lerp(C.pos, 0.35); rate = 2.5; dirRate = 1.2; }   // glare
+  else { dist = 2.2 + (t - 17) * 0.3; h = 0.35 + (t - 17) * 0.1; aim.copy(C.pos); rate = 2.5; }            // stomps off across the feather pile
+  if (dirRate) DIR.camDir.lerp(want, dk(dirRate, dt)).setY(0).normalize();
+  // swing around props that would block the view of the chicken
+  const blocked = d => OBST.some(o => { const ax = aim.x, az = aim.z, bx = aim.x + d.x * dist, bz = aim.z + d.z * dist, vx = bx - ax, vz = bz - az;
+    const k = clamp(((o.x - ax) * vx + (o.z - az) * vz) / (vx * vx + vz * vz), 0, 1); return Math.hypot(ax + vx * k - o.x, az + vz * k - o.z) < o.r + 0.45; });
+  for (let k = 0; k < 8 && blocked(DIR.camDir); k++) DIR.camDir.applyAxisAngle(UP, dt * 2.5);
+  const pos = tB.copy(aim).addScaledVector(DIR.camDir, dist); pos.y = Math.max(0.18, aim.y + h);
+  keepOut(pos);
+  if (t < 0.1) { DIR.camPos.copy(pos); DIR.camAim.copy(aim); }
+  DIR.camPos.lerp(pos, dk(rate, dt)); DIR.camAim.lerp(aim, dk(rate * 1.6, dt)); keepOut(DIR.camPos);
+  camera.position.copy(DIR.camPos).add(tC.set(rand(-1, 1), rand(-1, 1), 0).multiplyScalar(0.012 * C.scream));
+  camera.lookAt(DIR.camAim);
+}
+const curEl = document.getElementById('cur'), ringEl = document.getElementById('ring');
+function drawCursor() {
+  const t = T; let x = null, y = null, op = 0;
+  if (t > 3.2 && t < 4.0) { tA.copy(b2w(tB.set(0, 0.2, -0.06), tA)).project(camera); const k = ease((t - 3.2) / 0.8); x = (tA.x + 1) / 2 * innerWidth + (1 - k) * innerWidth * 0.45; y = (1 - tA.y) / 2 * innerHeight - (1 - k) * innerHeight * 0.35; op = Math.min(1, (t - 3.2) * 4); }
+  else if (C.mode === 'held' || (t >= 11.05 && t < 11.5)) { tA.copy(C.mode === 'held' ? C.hand : DIR.hand).project(camera); x = (tA.x + 1) / 2 * innerWidth; y = (1 - tA.y) / 2 * innerHeight; op = C.mode === 'held' ? 1 : 1 - (t - 11.05) / 0.45; }
+  if (x == null) { curEl.style.opacity = 0; ringEl.style.opacity = 0; return; }
+  const pressed = C.mode === 'held';
+  curEl.style.opacity = op; curEl.style.transform = `translate(${x}px, ${y}px) scale(${pressed ? 0.8 : 1})`;
+  const rk = (T - DIR.lastGrab) / 0.35;
+  ringEl.style.opacity = rk >= 0 && rk < 1 ? 1 - rk : 0; ringEl.style.transform = `translate(${x}px, ${y}px) scale(${0.6 + rk * 1.6})`;
+}
+
 updateCamera(1);
 pickTarget();
-frame();
+if (!CAPTURE) frame();
+else {
+  initAudio();
+  VOX.ready.then(() => {
+    window.__ready = true;
+    window.__frame = () => {
+      const dt = 1 / CAP_FPS; T += dt;
+      director(T);
+      update(dt); updatePhotos(dt);
+      if (wantSnap()) takeSnap();
+      renderer.render(scene, camera); drawCursor();
+      return { t: T, done: T >= CAP_DUR - 1e-6, panic: C.panic, mode: C.mode };
+    };
+  });
+  window.__audio = async () => {
+    const buf = await AC.startRendering();
+    const n = Math.floor(CAP_DUR * 48000), L = buf.getChannelData(0), Rr = buf.getChannelData(1);
+    let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(Rr[i]));
+    const g = peak > 0.95 ? 0.95 / peak : 1, bytes = new Uint8Array(44 + n * 4), dv = new DataView(bytes.buffer);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) bytes[o + i] = str.charCodeAt(i); };
+    w(0, 'RIFF'); dv.setUint32(4, 36 + n * 4, true); w(8, 'WAVE'); w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 2, true);
+    dv.setUint32(24, 48000, true); dv.setUint32(28, 48000 * 4, true); dv.setUint16(32, 4, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 4, true);
+    for (let i = 0; i < n; i++) { dv.setInt16(44 + i * 4, Math.max(-1, Math.min(1, L[i] * g)) * 32767, true); dv.setInt16(46 + i * 4, Math.max(-1, Math.min(1, Rr[i] * g)) * 32767, true); }
+    let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return { b64: btoa(bin), peak };
+  };
+}
 </script>
 </body>
 </html>
