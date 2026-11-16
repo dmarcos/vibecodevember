@@ -668,72 +668,105 @@ function bodyBounds() {
 function makeAura(bb, power) {
   const h = bb.bottom - bb.top, cx = bb.cx, cy = bb.top + h * 0.47;
   const rx = bb.hw * 1.2 + h * 0.2 * power, ry = h * 0.55 + h * 0.1 * power;
-  const layers = [1, 0.84, 0.7].map((sc) => {
-    const pts = [], N = 30;
+  const lean = (Math.random() - 0.5) * 0.25;               // whole flame sways a little each drawing
+  const layers = [1, 0.82, 0.64, 0.46].map((sc, li) => {
+    const pts = [], N = 34 - li * 4;
     for (let i = 0; i < N; i++) {
       const th = -Math.PI / 2 + (i / N) * Math.PI * 2;
       let x = cx + Math.cos(th) * rx * sc, y = cy + Math.sin(th) * ry * sc;
-      const up = Math.max(0.15, -Math.sin(th) * 0.7 + 0.45);
-      if (i % 2 === 0) {                                  // flame tongue tips lick upward
-        const f = (0.06 + Math.random() * 0.13) * h * sc * (0.5 + power * 0.7) * up;
-        x += Math.cos(th) * f * 0.45 + (Math.random() - 0.5) * f * 0.3; y += Math.sin(th) * f * 0.3 - f;
-      } else { x -= Math.cos(th) * h * 0.025 * sc; y += h * 0.01; }
+      const up = Math.max(0.12, -Math.sin(th) * 0.8 + 0.4);
+      if (i % 2 === 0) {                                  // long, sharp tongues licking upward and swept with the lean
+        const big = Math.random() < 0.3 ? 1.7 : 1;
+        const f = (0.07 + Math.random() * 0.15) * big * h * sc * (0.5 + power * 0.8) * up;
+        x += Math.cos(th) * f * 0.35 + lean * f * 1.4 + (Math.random() - 0.5) * f * 0.25; y += Math.sin(th) * f * 0.25 - f * 1.15;
+      } else { x -= Math.cos(th) * h * 0.035 * sc; y += h * 0.02; }
       y = Math.min(y, bb.bottom + h * 0.015);
       pts.push([x, y]);
     }
     return pts;
   });
-  return { layers, cx, cy, h, bb, rx, ry };
+  // embers torn off the tips, floating free above the flame
+  const wisps = [];
+  const outer = layers[0];
+  for (let i = 0; i < 3 + Math.floor(power * 4); i++) {
+    const t = outer[2 * Math.floor(Math.random() * outer.length / 2)];
+    if (t[1] > cy) continue;
+    const r = h * (0.012 + Math.random() * 0.022);
+    wisps.push({ x: t[0] + (Math.random() - 0.5) * r * 3 + lean * r * 4, y: t[1] - r * (2 + Math.random() * 5), r, lean });
+  }
+  // power rays bursting from behind the body
+  const rays = Array.from({ length: 26 }, () => ({ a: Math.random() * Math.PI * 2, w: 0.01 + Math.random() * 0.035, k: 0.8 + Math.random() * 0.8 }));
+  return { layers, wisps, rays, cx, cy, h, bb, rx, ry };
 }
 function flamePath(ctx, pts) {
   ctx.beginPath();
   const n = pts.length; ctx.moveTo(pts[1][0], pts[1][1]);
-  for (let i = 1; i <= n; i += 2) {
+  for (let i = 1; i <= n; i += 2) {                       // concave sides meeting at a hard point: a cusp at every tip
     const v = pts[i % n], tip = pts[(i + 1) % n], nv = pts[(i + 2) % n];
-    ctx.quadraticCurveTo(v[0] * 0.25 + tip[0] * 0.75, v[1] * 0.85 + tip[1] * 0.15, tip[0], tip[1]);
-    ctx.quadraticCurveTo(nv[0] * 0.85 + tip[0] * 0.15, nv[1] * 0.4 + tip[1] * 0.6, nv[0], nv[1]);
+    ctx.quadraticCurveTo(v[0] * 0.15 + tip[0] * 0.85, v[1] * 0.92 + tip[1] * 0.08, tip[0], tip[1]);
+    ctx.quadraticCurveTo(nv[0] * 0.92 + tip[0] * 0.08, nv[1] * 0.3 + tip[1] * 0.7, nv[0], nv[1]);
   }
   ctx.closePath();
 }
-const AURA = { glow: '#ff7a1a', edge: '#ffe08a', fillTop: '#ff3d1f', fillMid: '#ff9a1f', fillLow: '#ffe45c', line: '#c2260c', streak: '#ff5a14' };
+function wispPath(ctx, w) {                                // teardrop ember pointing up
+  const { x, y, r, lean } = w;
+  ctx.beginPath(); ctx.moveTo(x + lean * r * 3, y - r * 2.6);
+  ctx.quadraticCurveTo(x + r * 1.3, y - r * 0.4, x, y + r);
+  ctx.quadraticCurveTo(x - r * 1.3, y - r * 0.4, x + lean * r * 3, y - r * 2.6);
+}
+const AURA = { glow: '#ff5a14', ray: '#ff6a1a', band: ['#d81e14', '#ff7a12', '#ffc72e', '#fff4cc'], dots: '#ffa53a', ink: '#0b0b0b', rim: '#fff4cc', streak: '#fffbe8' };
+let auraDots = null;
 function drawAura(dt, a) {
   if (!vrm) return;
   const power = W.aura;
   auraT -= dt;
   const bb = bodyBounds();
   if (auraT <= 0 || !auraShape) { auraT = 1 / 12; auraShape = makeAura(bb, power); }
-  const A = auraShape, P = A.layers;
-  const top = A.bb.top - A.h * 0.55, bottom = A.bb.bottom;
+  if (!auraDots) {                                         // halftone screen for the outer band
+    const c = document.createElement('canvas'); c.width = c.height = 7; const x = c.getContext('2d');
+    x.fillStyle = AURA.dots; x.beginPath(); x.arc(1.75, 1.75, 1.35, 0, 7); x.arc(5.25, 5.25, 1.35, 0, 7); x.fill();
+    auraDots = bctx.createPattern(c, 'repeat');
+  }
+  const A = auraShape, P = A.layers, R0 = Math.hypot(VW, VH);
   bctx.save();
   bctx.globalAlpha = a;
-  // fiery body: red tips fading to a hot gold core, with a glow bleeding into the black page
-  const g = bctx.createLinearGradient(0, top, 0, bottom);
-  g.addColorStop(0, AURA.fillTop); g.addColorStop(0.45, AURA.fillMid); g.addColorStop(1, AURA.fillLow);
+  // radial power rays on the black page
+  bctx.fillStyle = AURA.ray;
+  for (const r of A.rays) {
+    bctx.globalAlpha = a * 0.22 * r.k;
+    const ir = A.rx * 0.9;
+    bctx.beginPath(); bctx.moveTo(A.cx + Math.cos(r.a) * ir, A.cy + Math.sin(r.a) * ir);
+    bctx.lineTo(A.cx + Math.cos(r.a - r.w) * R0, A.cy + Math.sin(r.a - r.w) * R0);
+    bctx.lineTo(A.cx + Math.cos(r.a + r.w) * R0, A.cy + Math.sin(r.a + r.w) * R0); bctx.fill();
+  }
+  // soft heat bleeding into the black, then a heavy ink outline
   flamePath(bctx, P[0]);
-  bctx.strokeStyle = AURA.glow; bctx.lineJoin = 'round';                  // glow bleeding into the black page
-  for (const [w, al] of [[60, 0.12], [34, 0.2], [16, 0.32]]) { bctx.globalAlpha = a * al * (0.85 + 0.15 * Math.sin(performance.now() / 70)); bctx.lineWidth = w; bctx.stroke(); }
+  bctx.lineJoin = 'miter'; bctx.miterLimit = 6; bctx.strokeStyle = AURA.glow;
+  for (const [w, al] of [[48, 0.1], [24, 0.18]]) { bctx.globalAlpha = a * al * (0.85 + 0.15 * Math.sin(performance.now() / 70)); bctx.lineWidth = w; bctx.stroke(); }
   bctx.globalAlpha = a;
-  bctx.fillStyle = g; bctx.fill();
-  bctx.lineJoin = 'round'; bctx.lineWidth = 4; bctx.strokeStyle = AURA.edge; bctx.stroke();
-  // inner layers get hotter toward the body
-  const g2 = bctx.createLinearGradient(0, top, 0, bottom);
-  g2.addColorStop(0, '#ffb23a'); g2.addColorStop(1, '#fff7d6');
-  flamePath(bctx, P[2]); bctx.fillStyle = g2; bctx.globalAlpha = a * 0.85; bctx.fill(); bctx.globalAlpha = a;
-  // rising streaks inside the aura
+  bctx.lineWidth = 8; bctx.strokeStyle = AURA.rim; bctx.stroke();       // thin hot rim peeking outside the ink
+  // flat cel bands, hard edges, getting hotter toward the body
+  P.forEach((pts, i) => {
+    flamePath(bctx, pts); bctx.fillStyle = AURA.band[i]; bctx.fill();
+    if (i === 0) { bctx.fillStyle = auraDots; bctx.fill(); }
+    if (i < 3) { bctx.lineWidth = i === 0 ? 3.5 : 2; bctx.strokeStyle = AURA.ink; bctx.stroke(); }
+  });
+  // white-hot spears shooting up inside the flame
   bctx.save(); flamePath(bctx, P[0]); bctx.clip();
-  while (streaks.length < 40) streaks.push({ x: (Math.random() - 0.5) * 2, y: Math.random(), len: 0.06 + Math.random() * 0.2, w: 0.8 + Math.random() * 2.4, v: 0.6 + Math.random() * 1.2 });
-  bctx.fillStyle = AURA.streak;
+  while (streaks.length < 34) streaks.push({ x: (Math.random() - 0.5) * 2, y: Math.random(), len: 0.08 + Math.random() * 0.22, w: 1 + Math.random() * 2.6, v: 0.7 + Math.random() * 1.3 });
+  bctx.fillStyle = AURA.streak; bctx.strokeStyle = AURA.ink; bctx.lineWidth = 1.2;
   for (const q of streaks) {
     q.y -= q.v * dt * (0.6 + power);
     if (q.y < -0.3) { q.y = 1.05; q.x = (Math.random() - 0.5) * 2; }
     const x = A.cx + q.x * A.rx * 0.95, y = A.bb.bottom - (1 - q.y) * A.h * 1.25, l = q.len * A.h;
-    bctx.beginPath(); bctx.moveTo(x - q.w, y); bctx.lineTo(x + q.w, y); bctx.lineTo(x, y - l); bctx.fill();
+    bctx.beginPath(); bctx.moveTo(x - q.w, y); bctx.lineTo(x + q.w, y); bctx.lineTo(x, y - l); bctx.closePath(); bctx.fill(); bctx.stroke();
   }
   bctx.restore();
-  // inked flame contours in deep red
-  bctx.strokeStyle = AURA.line;
-  flamePath(bctx, P[1]); bctx.lineWidth = 2.6; bctx.stroke();
-  flamePath(bctx, P[2]); bctx.lineWidth = 1.6; bctx.stroke();
+  // embers breaking off the tips
+  for (const w of A.wisps) {
+    wispPath(bctx, w); bctx.fillStyle = AURA.band[2]; bctx.fill();
+    bctx.lineWidth = 2; bctx.strokeStyle = AURA.ink; bctx.stroke();
+  }
   bctx.restore();
 }
 function makeCracks() {
