@@ -52,8 +52,8 @@
   #hot { position: fixed; inset: 0; z-index: 5; pointer-events: none; transition: opacity .3s; }
   body.zoom #hot { opacity: 0; }
   .hs { position: absolute; width: 0; height: 0; pointer-events: auto; cursor: pointer; }
-  .hs i { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--ink); background: rgba(251,250,247,.55); }
-  .hs i::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--ink); }
+  .hs i { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2.5px solid var(--ink); background: var(--paper); }
+  .hs i::before { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: var(--ink); }
   .hs i::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--ink); animation: ping 1.6s ease-out infinite; }
   .hs span { position: absolute; left: 20px; top: -10px; font: 400 17px Bangers, Impact, sans-serif; letter-spacing: .08em; color: var(--ink);
     background: var(--paper); border: 2px solid var(--ink); padding: 1px 7px 0; transform: rotate(-3deg); white-space: nowrap; }
@@ -72,6 +72,19 @@
   .chip:active { transform: skew(-8deg) translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
   .chip.on { background: var(--ink); color: var(--paper); }
   .chip.ghosted { opacity: .4; pointer-events: none; }
+  .chip.locked { opacity: .28; cursor: not-allowed; box-shadow: none; }
+  .chip.on { cursor: default; pointer-events: none; }
+  .gauge { font: 400 15px Bangers, Impact, sans-serif; letter-spacing: .14em; margin-right: 2px; }
+  body.charged .gauge { color: var(--paper); }
+  .chip.next { animation: beckon 1.2s ease-in-out infinite; }
+  .chip.wiggle { animation: wiggle .4s; }
+  @keyframes beckon { 50% { transform: skew(-8deg) translateY(-3px); box-shadow: 3px 6px 0 var(--ink); } }
+  @keyframes wiggle { 25% { transform: skew(-8deg) translateX(-6px); } 75% { transform: skew(-8deg) translateX(6px); } }
+  .hs.locked { display: none; }
+  .hs.flip span { left: auto; right: 20px; transform: rotate(3deg); }
+  .bar, #hint, #credit { transition: color .4s; }
+  body.charged .bar, body.charged #hint, body.charged #credit { color: var(--paper); }
+  body.charged #snd { border-color: var(--paper); }
   #hint { font: 600 10.5px Inter, sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #555; text-align: center; min-height: 14px; }
   #snd { position: fixed; z-index: 6; right: clamp(16px, 3vw, 36px); bottom: 18px; width: 36px; height: 36px; border: 2.5px solid var(--ink); background: var(--paper); border-radius: 50%; cursor: pointer; display: grid; place-items: center; }
   #snd svg { width: 18px; height: 18px; }
@@ -96,15 +109,16 @@
 <header class="bar"><span class="brand">Vibecodevember · Day 13</span><span class="name">Tension</span></header>
 <div id="hud">
   <div id="meter">
-    <button class="chip" data-r="eyes">Eyes</button>
-    <button class="chip" data-r="hand">Fist</button>
-    <button class="chip" data-r="legs">Stance</button>
+    <span class="gauge">Tension</span>
+    <button class="chip" data-r="eyes">Lv.1</button>
+    <button class="chip" data-r="hand">Lv.2</button>
+    <button class="chip" data-r="legs">MAX</button>
     <button class="chip ghosted" id="relax">Relax</button>
   </div>
   <div id="hint">Click his eyes, his hand, his legs</div>
 </div>
 <button id="snd" aria-label="Toggle sound"><svg viewBox="0 0 24 24" fill="none" stroke="#0b0b0b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#0b0b0b"/><path class="w" d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11"/><path class="x" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg></button>
-<div id="credit">Model: VIPE Hero #170 by <a href="https://www.polygonalmind.com" target="_blank" rel="noopener">Polygonal Mind</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, restyled</div>
+<div id="credit">Model: VIPE Hero #<span id="heroNo">302</span> by <a href="https://www.polygonalmind.com" target="_blank" rel="noopener">Polygonal Mind</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, restyled</div>
 <div id="loading">Tension</div>
 
 <script type="importmap">
@@ -174,7 +188,8 @@ void main(){
   float ink = 0.0;
   if (uKind < 0.5) {                     // texture luminance + light -> white / tones / hatch / black
     float lum = pow(clamp(dot(tex.rgb * uColor, vec3(0.299, 0.587, 0.114)), 0.0, 1.0), 1.0 / 2.2);
-    float t = (1.0 - ndl) * 0.5 * 0.7 + (1.0 - lum) * 0.62 - 0.06 + uTone;
+    float shadeK = mix(0.7, 0.32, smoothstep(0.62, 0.8, lum));     // bright skin keeps clean paper
+    float t = (1.0 - ndl) * 0.5 * shadeK + (1.0 - lum) * 0.62 - 0.06 + uTone;
     float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
     if (t < 0.36) ink = 0.0;
     else if (t < 0.52) ink = dotsAt(p, uCell, 0.14);
@@ -188,19 +203,21 @@ void main(){
   gl_FragColor = vec4(vec3(1.0 - ink), 1.0);
 }`;
 const ND_FS = /* glsl */`
-uniform sampler2D uMap; uniform float uHasMap;
+uniform sampler2D uMap; uniform float uHasMap; uniform vec3 uColor; uniform float uLum;
 varying vec3 vN; varying vec3 vP; varying vec2 vUv;
 void main(){
-  if (uHasMap > 0.5 && texture2D(uMap, vUv).a < 0.5) discard;
+  vec4 tex = uHasMap > 0.5 ? texture2D(uMap, vUv) : vec4(1.0);
+  if (tex.a < 0.5) discard;
   vec3 n = normalize(vN); if (!gl_FrontFacing) n = -n;
-  gl_FragColor = vec4(n, -vP.z);
+  float lum = uLum >= 0.0 ? uLum : pow(clamp(dot(tex.rgb * uColor, vec3(0.299, 0.587, 0.114)), 0.0, 1.0), 1.0 / 2.2);
+  gl_FragColor = vec4(n.xy, lum, -vP.z);       // normal.xy, painted luminance, depth
 }`;
 const ID3 = new THREE.Matrix3();
 function makeMats(kind, { map = null, color = new THREE.Color(1, 1, 1), side = THREE.FrontSide, tone = 0 } = {}) {
   if (map) map.updateMatrix();
-  const shared = { uMap: { value: map }, uHasMap: { value: map ? 1 : 0 }, uMapT: { value: map ? map.matrix : ID3 } };
+  const shared = { uMap: { value: map }, uHasMap: { value: map ? 1 : 0 }, uMapT: { value: map ? map.matrix : ID3 }, uColor: { value: color.clone() }, uLum: { value: kind === 2 ? 1 : kind === 3 ? 0 : -1 } };
   const toonM = new THREE.ShaderMaterial({ vertexShader: TOON_VS, fragmentShader: TOON_FS, side,
-    uniforms: { ...shared, uLight: U.light, uCell: U.cell, uTone: { value: tone }, uKind: { value: kind }, uColor: { value: color.clone() } } });
+    uniforms: { ...shared, uLight: U.light, uCell: U.cell, uTone: { value: tone }, uKind: { value: kind } } });
   const ndM = new THREE.ShaderMaterial({ vertexShader: TOON_VS, fragmentShader: ND_FS, side, uniforms: shared });
   return { toon: toonM, nd: ndM };
 }
@@ -215,10 +232,14 @@ const compMat = new THREE.ShaderMaterial({
   uniform sampler2D tCol, tND; uniform vec2 uRes; uniform float uW; varying vec2 vUv;
   void main(){
     vec4 c = texture2D(tND, vUv); float e = 0.0; vec2 o = uW / uRes;
+    vec3 cn = vec3(c.xy, sqrt(max(0.0, 1.0 - dot(c.xy, c.xy))));
     for (int i = 0; i < 8; i++) {
       float a = float(i) * 0.785398;
       vec4 s = texture2D(tND, vUv + vec2(cos(a), sin(a)) * o);
-      float dn = (c.w > 0.0 && s.w > 0.0) ? 1.0 - dot(c.xyz, s.xyz) : 0.0;
+      vec3 sn = vec3(s.xy, sqrt(max(0.0, 1.0 - dot(s.xy, s.xy))));
+      float dn = (c.w > 0.0 && s.w > 0.0) ? 1.0 - dot(cn, sn) : 0.0;
+      float dl = (c.w > 0.0 && s.w > 0.0) ? abs(c.z - s.z) : 0.0;     // eyes, brows, mouth, hairline painted in the texture
+      e = max(e, smoothstep(0.2, 0.34, dl));
       float near = min(c.w > 0.0 ? c.w : 1e4, s.w > 0.0 ? s.w : 1e4);
       float dd = (c.w > 0.0 || s.w > 0.0) ? abs(c.w - s.w) / max(near, 1e-3) : 0.0;
       e = max(e, max(smoothstep(0.24, 0.46, dn), smoothstep(0.016, 0.034, dd)));
@@ -233,12 +254,12 @@ const quadScene = new THREE.Scene();
 quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat));
 const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-// ------------------------------------------------------------------ the fighter: VIPE Hero #170 (Polygonal Mind, CC-BY), retargeted procedurally
+// ------------------------------------------------------------------ the fighter: VIPE Heroes (Polygonal Mind, CC-BY), retargeted procedurally; ?hero=302|1226|1691|170
 const lerp = (a, b, t) => a + (b - a) * t;
 const SEG = (f) => f === 'Thumb' ? ['Metacarpal', 'Proximal', 'Distal'] : ['Proximal', 'Intermediate', 'Distal'];
-const S = { focus: 0, fist: 0, stance: 0, sweat: 0, sparks: 0 }; // targets
-const W = { focus: 0, fist: 0, stance: 0, sweat: 0, sparks: 0 }; // smoothed
-const RATE = { focus: 7, fist: 9, stance: 5.5, sweat: 1.2, sparks: 6 };
+const S = { focus: 0, fist: 0, stance: 0, sweat: 0, sparks: 0, aura: 0 }; // targets
+const W = { focus: 0, fist: 0, stance: 0, sweat: 0, sparks: 0, aura: 0 }; // smoothed
+const RATE = { focus: 7, fist: 9, stance: 5.5, sweat: 1.2, sparks: 6, aura: 2.2 };
 const Q = new THREE.Quaternion(), Q2 = new THREE.Quaternion(), Q3 = new THREE.Quaternion();
 const V1 = new THREE.Vector3(), V2 = new THREE.Vector3(), V3 = new THREE.Vector3();
 const UPV = new THREE.Vector3(0, 1, 0);
@@ -253,7 +274,10 @@ const shFeet = [0, 1].map(() => { const m = inked(new THREE.Mesh(disc), BLACK())
 
 const loader = new GLTFLoader();
 loader.register(p => new VRMLoaderPlugin(p));
-const ready = loader.loadAsync('models/hero.vrm').then((gltf) => {
+const HEROES = ['302', '1226', '1691', '170'];
+const heroNo = HEROES.includes(new URLSearchParams(location.search).get('hero')) ? new URLSearchParams(location.search).get('hero') : '302';
+document.getElementById('heroNo').textContent = heroNo;
+const ready = loader.loadAsync(`models/hero${heroNo}.vrm`).then((gltf) => {
   vrm = gltf.userData.vrm;
   VRMUtils.rotateVRM0(vrm);
   scene.add(vrm.scene);
@@ -306,7 +330,25 @@ const ready = loader.loadAsync('models/hero.vrm').then((gltf) => {
   // face anchors (head-local on the raw head bone), found by ray-casting the skinned face
   const headRaw = R('head'); headRaw.add(headFx);
   const hp = rest.p.head, top = 1.669 * rest.k;
+  // eyes: centroid of the vertices the model's own "blink" shape moves (works across avatars)
   rest.eyeY = hp.y + 0.02 * rest.k;
+  try {
+    const ex = vrm.expressionManager.getExpression('blink');
+    const acc = v3(), v = v3(), d = v3(); let n = 0;
+    for (const bind of ex?._binds || []) {
+      if (bind.index == null || !bind.primitives) continue;
+      for (const mesh of bind.primitives) {
+        const morph = mesh.geometry.morphAttributes.position?.[bind.index]; if (!morph) continue;
+        const pos = mesh.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          d.fromBufferAttribute(morph, i); if (d.lengthSq() < 1e-8) continue;
+          v.fromBufferAttribute(pos, i); mesh.applyBoneTransform(i, v); v.applyMatrix4(mesh.matrixWorld);
+          acc.add(v); n++;
+        }
+      }
+    }
+    if (n > 10) { acc.divideScalar(n); rest.eyeY = acc.y; }
+  } catch (e) { console.warn('eye detection failed', e); }
   const rc = new THREE.Raycaster();
   const faceAt = (x, y) => {
     rc.set(v3(x, y, 1), v3(0, 0, -1));
@@ -367,12 +409,12 @@ const ARM = {
   idle: [[0.22, -1, -0.02], [0.08, -1, 0.22], 0, 0.35],
   tense: [[0.3, -1, 0.04], [0.12, -1, 0.5], 0, 0.85],
   raise: [[0.6, -0.85, 0.3], [0.1, 0.3, 0.95], 0, 1],
-  front: [[0.45, -0.8, 0.45], [0.05, 0.05, 1], 0, 1],
-  chamber: [[0.25, -0.7, -0.65], [-0.1, -0.15, 1], 0, 1],
+  charge: [[0.55, -0.8, -0.25], [0.2, -0.3, 0.95], 0, 1],
 };
 const lerpV = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const mixArm = (a, b, t) => [lerpV(a[0], b[0], t), lerpV(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t)];
 const feetNow = { left: v3(), right: v3() };
+const springOrig = new WeakMap();
 
 function curlHand(side, c, t, trem) {
   const amp = { Index: [1.35, 1.6, 1.1], Middle: [1.45, 1.65, 1.1], Ring: [1.5, 1.6, 1.05], Little: [1.55, 1.55, 1.0], Thumb: [0.55, 0.7, 0.8] };
@@ -410,53 +452,60 @@ function pose(t, dt) {
   const hum = vrm.humanoid;
   hum.resetNormalizedPose();
 
-  // hips: drop and turn into the stance
-  const yaw = st * 0.55;
+  // hips: sink into a wide, square power-up stance facing the camera
+  const yaw = 0;
+  const roar = st * (0.75 + 0.25 * Math.sin(t * 9));          // heaving, shaking charge
   const hips = B('hips');
   hips.position.copy(rest.hipsLocal);
-  hips.position.y += (-0.12 * st + breath * 0.003) * K;
-  hips.position.x += Math.sin(t * 0.7) * 0.008 * (1 - st) * K;
+  hips.position.y += (-0.13 * st + breath * 0.003 - roar * 0.006 * Math.abs(Math.sin(t * 23))) * K;
+  hips.position.x += (Math.sin(t * 0.7) * 0.008 * (1 - st) + st * 0.004 * Math.sin(t * 41)) * K;
   hips.updateWorldMatrix(true, false);
   setWorldRot(hips, Q.setFromAxisAngle(UPV, yaw).multiply(rest.q.hips).clone());
   const fr = frame3(yaw);
 
-  // spine: lean in, counter-twist so the chest stays toward camera, breathe
-  turn(B('spine'), fr.L, 0.03 + st * 0.12 + trem * Math.sin(t * 43));
-  turn(B('spine'), UPV, -st * 0.3);
-  turn(B('chest'), fr.L, -0.02 * breath);
-  turn(B('chest'), UPV, -st * 0.12);
-  const fr2 = frame3(yaw - st * 0.42);
-  turn(B('neck'), fr2.L, fo * 0.03 + st * 0.02);
-  turn(B('head'), fr2.L, fo * 0.04 + st * 0.02 + Math.sin(t * 37) * trem * 0.4);
-  turn(B('head'), UPV, -st * 0.12 - fs * (1 - st) * 0.18);
-  for (const s of ['left', 'right']) if (B(s + 'Shoulder')) turn(B(s + 'Shoulder'), fr2.F, (s === 'left' ? 1 : -1) * (0.02 * breath + tension * 0.05));
+  // spine: chest thrown out, head back, roaring
+  turn(B('spine'), fr.L, 0.03 - st * 0.1 + trem * Math.sin(t * 43));
+  turn(B('chest'), fr.L, -0.02 * breath - st * 0.08);
+  const fr2 = fr;
+  turn(B('neck'), fr2.L, fo * 0.03 - st * 0.03);
+  turn(B('head'), fr2.L, fo * 0.04 - st * 0.04 + Math.sin(t * 37) * trem * 0.4);
+  turn(B('head'), UPV, -fs * (1 - st) * 0.18);
+  for (const s of ['left', 'right']) if (B(s + 'Shoulder')) turn(B(s + 'Shoulder'), fr2.F, (s === 'left' ? 1 : -1) * (0.02 * breath + tension * 0.05 + st * 0.08));
 
-  // arms
+  // arms: flexed, fists clenched at the hips
   for (const side of ['left', 'right']) {
     const s = side === 'left' ? 1 : -1;
     let p = mixArm(ARM.idle, ARM.tense, Math.min(1, fo * 0.6 + fs * 0.6));
-    p = mixArm(p, side === 'left' ? ARM.front : ARM.chamber, st);
-    const curl = side === 'right' ? Math.max(p[3], fs) : p[3];
+    p = mixArm(p, ARM.charge, st);
+    const curl = side === 'right' ? Math.max(p[3], fs) : Math.max(p[3], st);
     const jit = (k) => trem * Math.sin(t * (47 + k * 6) + s);
     aim(B(side + 'UpperArm'), B(side + 'LowerArm'), comb(fr2, s, p[0][0] + jit(1), p[0][1], p[0][2] + jit(2)));
     aim(B(side + 'LowerArm'), B(side + 'Hand'), comb(fr2, s, p[1][0], p[1][1] + jit(3), p[1][2]));
     curlHand(side, curl, t, trem * 0.5);
   }
 
-  // legs: planted feet via two-bone IK
+  // legs: planted wide via two-bone IK
   const hp = hips.getWorldPosition(v3());
   const base = { left: rest.p.leftFoot.clone(), right: rest.p.rightFoot.clone() };
-  const stanceL = hp.clone().addScaledVector(fr.F, 0.3 * K).addScaledVector(fr.L, 0.16 * K);
-  const stanceR = hp.clone().addScaledVector(fr.F, -0.28 * K).addScaledVector(fr.L, -0.14 * K);
+  const stanceL = hp.clone().addScaledVector(fr.L, 0.27 * K).addScaledVector(fr.F, 0.02 * K);
+  const stanceR = hp.clone().addScaledVector(fr.L, -0.27 * K).addScaledVector(fr.F, 0.02 * K);
   stanceL.y = stanceR.y = rest.p.leftFoot.y;
-  const lift = (st > 0.02 && st < 0.98) ? Math.sin(Math.PI * st) * 0.07 * K : 0;
+  const lift = (st > 0.02 && st < 0.98) ? Math.sin(Math.PI * st) * 0.06 * K : 0;
   feetNow.left.lerpVectors(base.left, stanceL, st); feetNow.left.y += lift;
-  feetNow.right.lerpVectors(base.right, stanceR, st); feetNow.right.y += lift * 0.4;
-  solveLeg('left', feetNow.left, lerp(0.1, 0.35, st), 0.3, fr);
-  solveLeg('right', feetNow.right, lerp(-0.1, 1.15, st), -0.3, fr);
-  shFeet[0].position.set(feetNow.left.x, 0.003, feetNow.left.z + 0.03); shFeet[0].scale.set(0.06 * K, 0.12 * K, 1); shFeet[0].rotation.z = lerp(0.1, 0.35, st);
-  shFeet[1].position.set(feetNow.right.x, 0.003, feetNow.right.z + 0.03); shFeet[1].scale.set(0.06 * K, 0.12 * K, 1); shFeet[1].rotation.z = lerp(-0.1, 1.15, st);
-  shBody.position.set(hp.x, 0.002, hp.z); shBody.scale.set((0.26 + st * 0.16) * K, (0.11 + st * 0.09) * K, 1);
+  feetNow.right.lerpVectors(base.right, stanceR, st); feetNow.right.y += lift;
+  solveLeg('left', feetNow.left, lerp(0.1, 0.45, st), lerp(0.3, 0.9, st), fr);
+  solveLeg('right', feetNow.right, lerp(-0.1, -0.45, st), lerp(-0.3, -0.9, st), fr);
+  shFeet[0].position.set(feetNow.left.x, 0.003, feetNow.left.z + 0.03); shFeet[0].scale.set(0.06 * K, 0.12 * K, 1); shFeet[0].rotation.z = lerp(0.1, 0.45, st);
+  shFeet[1].position.set(feetNow.right.x, 0.003, feetNow.right.z + 0.03); shFeet[1].scale.set(0.06 * K, 0.12 * K, 1); shFeet[1].rotation.z = lerp(-0.1, -0.45, st);
+  shBody.position.set(hp.x, 0.002, hp.z); shBody.scale.set((0.26 + st * 0.22) * K, (0.11 + st * 0.08) * K, 1);
+
+  // hair and earrings lift in the updraft of the aura
+  if (vrm.springBoneManager) for (const j of vrm.springBoneManager.joints) {
+    let o = springOrig.get(j); if (!o) springOrig.set(j, o = { g: j.settings.gravityPower, d: j.settings.gravityDir.clone(), drag: j.settings.dragForce, ph: Math.random() * 6 });
+    j.settings.gravityPower = lerp(o.g, 1.8 + 0.6 * Math.sin(t * 13 + o.ph), st);
+    j.settings.gravityDir.copy(o.d).lerp(UPV, st).normalize();
+    j.settings.dragForce = lerp(o.drag, 0.2, st);
+  }
 
   // face: anger + gritted mouth, idle blinks
   const em = vrm.expressionManager;
@@ -464,8 +513,8 @@ function pose(t, dt) {
   em.setValue('angry', ang);
   const blinkPhase = (t % 4.3);
   em.setValue('blink', ang > 0.5 ? 0 : (blinkPhase < 0.12 ? Math.sin(blinkPhase / 0.12 * Math.PI) : 0));
-  em.setValue('ee', Math.max(fs, st) * 0.6);
-  em.setValue('aa', st * Math.max(0, Math.sin(t * 2.2)) * 0.25);
+  em.setValue('ee', Math.max(fs, 0) * 0.6 * (1 - st));
+  em.setValue('aa', st * (0.75 + 0.25 * Math.sin(t * 7)));
 
   // sweat + vein
   sweatDrops.forEach((g, i) => {
@@ -492,7 +541,7 @@ function kneeWorld(side) { return vrm ? R(side + 'LowerLeg').getWorldPosition(v3
 // ------------------------------------------------------------------ camera shots
 const camS = { pos: new THREE.Vector3(0, 1.2, 4.6), tgt: new THREE.Vector3(0, 0.9, 0), fov: 32 };
 let shot = 'wide', shake = 0, mx = 0, my = 0;
-function fistPos() { return fistWorld(W.stance > 0.5 ? 'left' : 'right'); }
+function fistPos() { return fistWorld('right'); }
 function shotTarget() {
   const portrait = innerHeight > innerWidth, K = rest ? rest.k : 1;
   if (shot === 'eyes') {
@@ -504,11 +553,12 @@ function shotTarget() {
   }
   if (shot === 'hand') {
     const tgt = fistPos();                                     // fist only: low side angle keeps the face out of frame
-    const off = W.stance > 0.5 ? v3(0.3, -0.05, 0.5) : v3(-0.14, -0.1, 0.62);
+    const off = v3(-0.14, -0.1, 0.62);
     return { pos: tgt.clone().add(off.multiplyScalar(K * (portrait ? 1.7 : 1))), tgt, fov: 26 };
   }
-  if (shot === 'legs') return { pos: v3(0.55, 0.22, 3.1).multiplyScalar(K * (portrait ? 1.25 : 1)), tgt: v3(0.08, 0.78 * K, 0), fov: 36 };
-  return { pos: v3(mx * 0.35, 1.05 * K - my * 0.12, 4.3 * K * (portrait ? 1.12 : 1)), tgt: v3(0, 0.84 * K, 0), fov: 32 };
+  if (shot === 'legs') return { pos: v3(0.35, 0.18, 3.6).multiplyScalar(K * (portrait ? 1.3 : 1)), tgt: v3(0, 0.95 * K, 0), fov: 40 };
+  const au = W.aura;   // pull back to fit the aura
+  return { pos: v3(mx * 0.35, (1.05 + au * 0.15) * K - my * 0.12, (4.3 + au * 1.1) * K * (portrait ? 1.12 : 1)), tgt: v3(0, (0.84 + au * 0.2) * K, 0), fov: 32 };
 }
 let debugCam = null;
 function updateCamera(dt, t) {
@@ -551,10 +601,18 @@ function srand(n) { const x = Math.sin(n * 127.1 + lineSeed * 311.7) * 43758.545
 function drawBack(dt) {
   bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   bctx.fillStyle = '#fbfaf7'; bctx.fillRect(0, 0, VW, VH);
+  const dark = Math.min(1, W.aura * 1.3);
+  document.body.classList.toggle('charged', dark > 0.5 && shot === 'wide');
+  if (dark > 0.01) {
+    bctx.globalAlpha = dark; bctx.fillStyle = '#0b0b0b'; bctx.fillRect(0, 0, VW, VH); bctx.globalAlpha = 1;
+    drawAura(dt, dark);
+    drawCracks(dark);
+    if (dark > 0.5) { if (W.sparks > 0.05 && shot !== 'eyes') drawBurst(Math.min(1, W.sparks * 1.4)); return; }
+  }
   linesA += ((shot !== 'wide' ? 1 : 0) - linesA) * (1 - Math.exp(-dt * 6));
   lineT += dt; if (lineT > 0.075) { lineT = 0; lineSeed = (lineSeed + 1) % 997; }
   // wide shot: faint ground line + tone gradient so he stands on something
-  if (shot === 'wide' || linesA < 0.99) {
+  if ((shot === 'wide' || linesA < 0.99) && dark < 0.3) {
     const g = proj(new THREE.Vector3(0, 0, 0));
     bctx.globalAlpha = 1 - linesA;
     for (let i = 0; i < 9; i++) {
@@ -594,6 +652,110 @@ function drawBack(dt) {
   }
   bctx.globalAlpha = 1;
 }
+
+
+// ------------------------------------------------------------------ power-up aura: white ink flames on a black page
+let auraShape = null, auraT = 0, cracks = null;
+const streaks = [];
+function bodyBounds() {
+  const names = ['head', 'leftHand', 'rightHand', 'leftFoot', 'rightFoot', 'leftUpperArm', 'rightUpperArm', 'leftLowerLeg', 'rightLowerLeg'];
+  const pts = names.map(n => proj(R(n).getWorldPosition(v3())));
+  pts.push(proj(R('head').getWorldPosition(v3()).add(v3(0, 0.3 * rest.k, 0))));
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  return { cx: (x0 + x1) / 2, hw: (x1 - x0) / 2, top: y0, bottom: y1 };
+}
+function makeAura(bb, power) {
+  const h = bb.bottom - bb.top, cx = bb.cx, cy = bb.top + h * 0.47;
+  const rx = bb.hw * 1.2 + h * 0.2 * power, ry = h * 0.55 + h * 0.1 * power;
+  const layers = [1, 0.84, 0.7].map((sc) => {
+    const pts = [], N = 30;
+    for (let i = 0; i < N; i++) {
+      const th = -Math.PI / 2 + (i / N) * Math.PI * 2;
+      let x = cx + Math.cos(th) * rx * sc, y = cy + Math.sin(th) * ry * sc;
+      const up = Math.max(0.15, -Math.sin(th) * 0.7 + 0.45);
+      if (i % 2 === 0) {                                  // flame tongue tips lick upward
+        const f = (0.06 + Math.random() * 0.13) * h * sc * (0.5 + power * 0.7) * up;
+        x += Math.cos(th) * f * 0.45 + (Math.random() - 0.5) * f * 0.3; y += Math.sin(th) * f * 0.3 - f;
+      } else { x -= Math.cos(th) * h * 0.025 * sc; y += h * 0.01; }
+      y = Math.min(y, bb.bottom + h * 0.015);
+      pts.push([x, y]);
+    }
+    return pts;
+  });
+  return { layers, cx, cy, h, bb, rx, ry };
+}
+function flamePath(ctx, pts) {
+  ctx.beginPath();
+  const n = pts.length; ctx.moveTo(pts[1][0], pts[1][1]);
+  for (let i = 1; i <= n; i += 2) {
+    const v = pts[i % n], tip = pts[(i + 1) % n], nv = pts[(i + 2) % n];
+    ctx.quadraticCurveTo(v[0] * 0.25 + tip[0] * 0.75, v[1] * 0.85 + tip[1] * 0.15, tip[0], tip[1]);
+    ctx.quadraticCurveTo(nv[0] * 0.85 + tip[0] * 0.15, nv[1] * 0.4 + tip[1] * 0.6, nv[0], nv[1]);
+  }
+  ctx.closePath();
+}
+const AURA = { glow: '#ff7a1a', edge: '#ffe08a', fillTop: '#ff3d1f', fillMid: '#ff9a1f', fillLow: '#ffe45c', line: '#c2260c', streak: '#ff5a14' };
+function drawAura(dt, a) {
+  if (!vrm) return;
+  const power = W.aura;
+  auraT -= dt;
+  const bb = bodyBounds();
+  if (auraT <= 0 || !auraShape) { auraT = 1 / 12; auraShape = makeAura(bb, power); }
+  const A = auraShape, P = A.layers;
+  const top = A.bb.top - A.h * 0.55, bottom = A.bb.bottom;
+  bctx.save();
+  bctx.globalAlpha = a;
+  // fiery body: red tips fading to a hot gold core, with a glow bleeding into the black page
+  const g = bctx.createLinearGradient(0, top, 0, bottom);
+  g.addColorStop(0, AURA.fillTop); g.addColorStop(0.45, AURA.fillMid); g.addColorStop(1, AURA.fillLow);
+  flamePath(bctx, P[0]);
+  bctx.strokeStyle = AURA.glow; bctx.lineJoin = 'round';                  // glow bleeding into the black page
+  for (const [w, al] of [[60, 0.12], [34, 0.2], [16, 0.32]]) { bctx.globalAlpha = a * al * (0.85 + 0.15 * Math.sin(performance.now() / 70)); bctx.lineWidth = w; bctx.stroke(); }
+  bctx.globalAlpha = a;
+  bctx.fillStyle = g; bctx.fill();
+  bctx.lineJoin = 'round'; bctx.lineWidth = 4; bctx.strokeStyle = AURA.edge; bctx.stroke();
+  // inner layers get hotter toward the body
+  const g2 = bctx.createLinearGradient(0, top, 0, bottom);
+  g2.addColorStop(0, '#ffb23a'); g2.addColorStop(1, '#fff7d6');
+  flamePath(bctx, P[2]); bctx.fillStyle = g2; bctx.globalAlpha = a * 0.85; bctx.fill(); bctx.globalAlpha = a;
+  // rising streaks inside the aura
+  bctx.save(); flamePath(bctx, P[0]); bctx.clip();
+  while (streaks.length < 40) streaks.push({ x: (Math.random() - 0.5) * 2, y: Math.random(), len: 0.06 + Math.random() * 0.2, w: 0.8 + Math.random() * 2.4, v: 0.6 + Math.random() * 1.2 });
+  bctx.fillStyle = AURA.streak;
+  for (const q of streaks) {
+    q.y -= q.v * dt * (0.6 + power);
+    if (q.y < -0.3) { q.y = 1.05; q.x = (Math.random() - 0.5) * 2; }
+    const x = A.cx + q.x * A.rx * 0.95, y = A.bb.bottom - (1 - q.y) * A.h * 1.25, l = q.len * A.h;
+    bctx.beginPath(); bctx.moveTo(x - q.w, y); bctx.lineTo(x + q.w, y); bctx.lineTo(x, y - l); bctx.fill();
+  }
+  bctx.restore();
+  // inked flame contours in deep red
+  bctx.strokeStyle = AURA.line;
+  flamePath(bctx, P[1]); bctx.lineWidth = 2.6; bctx.stroke();
+  flamePath(bctx, P[2]); bctx.lineWidth = 1.6; bctx.stroke();
+  bctx.restore();
+}
+function makeCracks() {
+  const out = [];
+  for (let k = 0; k < 11; k++) {
+    let a = (k / 11) * Math.PI * 2 + Math.random() * 0.3, r = 0.08, pts = [];
+    const c = v3(feetNow.left.x * 0.5 + feetNow.right.x * 0.5, 0.004, feetNow.left.z * 0.5 + feetNow.right.z * 0.5);
+    for (let i = 0; i < 6; i++) { pts.push(c.clone().add(v3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.8))); a += (Math.random() - 0.5) * 0.7; r += (0.08 + Math.random() * 0.12) * (rest ? rest.k : 1); }
+    out.push(pts);
+  }
+  return out;
+}
+function drawCracks(a) {
+  if (!cracks) return;
+  bctx.save(); bctx.globalAlpha = a; bctx.lineJoin = 'miter';
+  for (const [col, w] of [['#fbfaf7', 5], ['#0b0b0b', 2]]) {
+    bctx.strokeStyle = col; bctx.lineWidth = w;
+    for (const c of cracks) { bctx.beginPath(); c.forEach((p, i) => { const q = proj(p); i ? bctx.lineTo(q.x, q.y) : bctx.moveTo(q.x, q.y); }); bctx.stroke(); }
+  }
+  bctx.restore();
+}
+let bodyBolts = [], bodyBoltT = 0;
 
 // lightning around clenched fists: angular zig-zag bolts as tapering ink ribbons, animated "on twos"
 let bolts = [], boltT = 0, burst = null;
@@ -643,14 +805,20 @@ function makeBolts(c, r) {
   }
   return out;
 }
+const BOLT = { body: '#2f86ff', glow: '#4fb4ff', core: '#f2fbff', ink: '#0a1f5c', shard: '#bfe6ff', burst: '#e3f3ff' };
 function poly(ctx, pts) { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); }
 function drawBolts(list) {
   fctx.lineJoin = 'miter'; fctx.miterLimit = 6;
-  for (const b of list) {                                  // ink body (thick, sharp)
-    poly(fctx, ribbon(b.pts, b.w * 2.0 + 1.5, b.taper ?? 1)); fctx.fillStyle = '#0b0b0b'; fctx.fill();
-    fctx.lineWidth = 2; fctx.strokeStyle = '#0b0b0b'; fctx.stroke();
+  fctx.save();
+  fctx.globalAlpha *= 0.3; fctx.fillStyle = BOLT.glow;      // soft glow: wider translucent ribbons underneath
+  for (const b of list) { poly(fctx, ribbon(b.pts, b.w * 4.5 + 6, (b.taper ?? 1) * 0.8)); fctx.fill(); }
+  fctx.globalAlpha /= 0.3;
+  for (const b of list) {                                  // electric-blue body with a thin navy ink edge
+    poly(fctx, ribbon(b.pts, b.w * 2.0 + 1.5, b.taper ?? 1)); fctx.fillStyle = BOLT.body; fctx.fill();
   }
-  for (const b of list) { poly(fctx, ribbon(b.pts, b.w, b.taper ?? 1)); fctx.fillStyle = '#fbfaf7'; fctx.fill(); }  // white-hot core
+  for (const b of list) { poly(fctx, ribbon(b.pts, b.w * 2.0 + 1.5, b.taper ?? 1)); fctx.lineWidth = 1.6; fctx.strokeStyle = BOLT.ink; fctx.stroke(); }
+  for (const b of list) { poly(fctx, ribbon(b.pts, b.w, b.taper ?? 1)); fctx.fillStyle = BOLT.core; fctx.fill(); }  // white-hot core
+  fctx.restore();
 }
 function drawShards(dt) {
   for (let i = shards.length - 1; i >= 0; i--) {
@@ -659,7 +827,7 @@ function drawShards(dt) {
     const k = 1 - q.life / q.max, l = q.len * (0.5 + k), w = q.w * k + 0.8;
     const sp = Math.hypot(q.vx, q.vy), dx = q.vx / sp, dy = q.vy / sp;
     const d = [[q.x + dx * l, q.y + dy * l], [q.x - dy * w, q.y + dx * w], [q.x - dx * l * 1.8, q.y - dy * l * 1.8], [q.x + dy * w, q.y - dx * w]];
-    poly(fctx, d); fctx.fillStyle = '#fbfaf7'; fctx.fill(); fctx.lineWidth = 2.2; fctx.strokeStyle = '#0b0b0b'; fctx.stroke();
+    poly(fctx, d); fctx.fillStyle = BOLT.shard; fctx.fill(); fctx.lineWidth = 1.8; fctx.strokeStyle = BOLT.body; fctx.stroke();
   }
 }
 // spiky impact flash drawn behind the body (back canvas)
@@ -676,9 +844,9 @@ function makeBurst(c, r) {
 function drawBurst(alpha) {
   if (!burst) return;
   bctx.globalAlpha = alpha;
-  poly(bctx, burst.pts); bctx.fillStyle = '#fbfaf7'; bctx.fill();
-  bctx.lineJoin = 'miter'; bctx.lineWidth = 3; bctx.strokeStyle = '#0b0b0b'; bctx.stroke();
-  bctx.fillStyle = '#0b0b0b';
+  poly(bctx, burst.pts); bctx.fillStyle = BOLT.burst; bctx.fill();
+  bctx.lineJoin = 'miter'; bctx.lineWidth = 3; bctx.strokeStyle = BOLT.body; bctx.stroke();
+  bctx.fillStyle = BOLT.ink;
   for (const q of burst.rays) {
     const { c } = burst;
     bctx.beginPath(); bctx.moveTo(c.x + Math.cos(q.a) * q.r1, c.y + Math.sin(q.a) * q.r1);
@@ -723,8 +891,21 @@ function drawFront(dt, t) {
     drawShards(dt);
     fctx.globalAlpha = 1;
   } else burst = null;
-  // debris rises while in stance
-  if (W.stance > 0.8) { debrisT -= dt; if (debrisT <= 0) { debrisT = 0.12 + Math.random() * 0.2; debris(); } }
+  // charge: lightning snaps around the body, rocks lift off the ground
+  if (W.aura > 0.3 && vrm) {
+    bodyBoltT -= dt;
+    if (bodyBoltT <= 0) {
+      bodyBoltT = 1 / 12;
+      const bb = bodyBounds(), h = bb.bottom - bb.top;
+      bodyBolts = Math.random() < 0.7 ? Array.from({ length: 1 + Math.floor(Math.random() * 2) }, () => {
+        const a = Math.random() * Math.PI * 2;
+        return makeBolts({ x: bb.cx + Math.cos(a) * bb.hw * 0.9, y: bb.top + h * (0.5 + Math.sin(a) * 0.38) }, h * 0.05);
+      }).flat() : [];
+      if (bodyBolts.length && Math.random() < 0.4) crackle();
+    }
+    drawBolts(bodyBolts);
+  }
+  if (W.stance > 0.8) { debrisT -= dt; if (debrisT <= 0) { debrisT = (W.aura > 0.5 ? 0.05 : 0.12) + Math.random() * 0.12; debris(); } }
   for (let i = parts.length - 1; i >= 0; i--) {
     const q = parts[i]; q.life += dt;
     if (q.life > q.max) { parts.splice(i, 1); continue; }
@@ -744,7 +925,7 @@ function drawFront(dt, t) {
       fctx.globalAlpha = a;
       fctx.save(); fctx.translate(c.x, c.y); fctx.rotate(q.rot);
       fctx.beginPath(); q.pts.forEach(([x, y], j) => j ? fctx.lineTo(x * r, y * r) : fctx.moveTo(x * r, y * r)); fctx.closePath();
-      fctx.fillStyle = '#0b0b0b'; fctx.fill();
+      fctx.fillStyle = '#0b0b0b'; fctx.fill(); if (W.aura > 0.3) { fctx.lineWidth = 1.5; fctx.strokeStyle = '#fbfaf7'; fctx.stroke(); }
       fctx.beginPath(); fctx.moveTo(q.pts[0][0] * r * 0.6, q.pts[0][1] * r * 0.6); fctx.lineTo(q.pts[1][0] * r * 0.6, q.pts[1][1] * r * 0.6);
       fctx.strokeStyle = '#fbfaf7'; fctx.lineWidth = Math.max(1, r * 0.2); fctx.stroke();
       fctx.restore(); fctx.globalAlpha = 1;
@@ -798,33 +979,69 @@ function initAudio() {
 }
 function noise(t0, dur) { const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true; n.start(t0, Math.random()); n.stop(t0 + dur + 0.05); return n; }
 const shaperCurve = (() => { const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; c[i] = Math.tanh(x * 3.2); } return c; })();
-// a strained vocal grunt: rough sawtooth source through vowel formants, hum -> open vowel
-function grunt({ f0 = 105, dur = 0.7, open = 1, gain = 0.5, delay = 0, rise = 0 } = {}) {
+// synthesized anime-style vocal effort: glottal sawtooth (+ detuned voices, sub-octave growl) -> drive -> vowel formants.
+// intensity parameters: drive (grit), rough (jitter/flutter), trem (shaking), voices, sub, breath, open (hum -> "aa")
+function grunt({ f0 = 105, dur = 0.7, open = 1, gain = 0.5, delay = 0, rise = 0, drive = 3, rough = 0.09, trem = 0, voices = 1, sub = 0, breath = 0.18, attack = 0.05, peak = 0.35 } = {}) {
   if (!ac) return;
-  const t = ac.currentTime + delay;
-  const src = ac.createOscillator(); src.type = 'sawtooth';
-  src.frequency.setValueAtTime(f0 * (1 - rise * 0.1), t);
-  src.frequency.linearRampToValueAtTime(f0 * (1.12 + rise * 0.25), t + dur * 0.35);
-  src.frequency.exponentialRampToValueAtTime(f0 * 0.78, t + dur);
-  const jit = ac.createOscillator(); jit.type = 'square'; jit.frequency.value = 31 + Math.random() * 8;
-  const jg = ac.createGain(); jg.gain.value = f0 * 0.09; jit.connect(jg).connect(src.frequency);
-  const rough = ac.createGain(); rough.gain.value = 1;
-  const am = ac.createOscillator(); am.frequency.value = 47; const amg = ac.createGain(); amg.gain.value = 0.35; am.connect(amg).connect(rough.gain);
-  const n = noise(t, dur); const nf = ac.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 1500; nf.Q.value = 0.8;
-  const ng = ac.createGain(); ng.gain.value = 0.18; n.connect(nf).connect(ng).connect(rough);
-  src.connect(rough);
-  const sh = ac.createWaveShaper(); sh.curve = shaperCurve; rough.connect(sh);
+  const t = ac.currentTime + delay, end = t + dur;
+  const bus = ac.createGain();
+  const oscs = [];
+  for (let v = 0; v < voices; v++) {
+    const det = voices > 1 ? (v - (voices - 1) / 2) * 0.018 : 0;
+    const o = ac.createOscillator(); o.type = 'sawtooth';
+    const f = f0 * (1 + det);
+    o.frequency.setValueAtTime(f * (1 - rise * 0.08), t);
+    o.frequency.linearRampToValueAtTime(f * (1.1 + rise * 0.35), t + dur * peak);
+    o.frequency.linearRampToValueAtTime(f * (1.05 + rise * 0.3), t + dur * 0.8);
+    o.frequency.exponentialRampToValueAtTime(f * 0.72, end);
+    const og = ac.createGain(); og.gain.value = 1 / voices; o.connect(og).connect(bus); oscs.push(o);
+    const jit = ac.createOscillator(); jit.type = 'square'; jit.frequency.value = 27 + Math.random() * 14;
+    const jg = ac.createGain(); jg.gain.value = f * rough; jit.connect(jg).connect(o.frequency); oscs.push(jit);
+  }
+  if (sub > 0) {                                     // vocal-fry growl an octave down
+    const so = ac.createOscillator(); so.type = 'square'; so.frequency.setValueAtTime(f0 * 0.5, t);
+    so.frequency.linearRampToValueAtTime(f0 * 0.5 * (1.1 + rise * 0.3), t + dur * peak); so.frequency.exponentialRampToValueAtTime(f0 * 0.36, end);
+    const sg = ac.createGain(); sg.gain.value = sub; so.connect(sg).connect(bus); oscs.push(so);
+  }
+  const rg = ac.createGain(); rg.gain.value = 1;                // flutter / shaking
+  const am = ac.createOscillator(); am.frequency.value = 40 + Math.random() * 15;
+  const amg = ac.createGain(); amg.gain.value = Math.min(0.6, rough * 3); am.connect(amg).connect(rg.gain); oscs.push(am);
+  if (trem > 0) { const tr = ac.createOscillator(); tr.frequency.value = trem; const tg = ac.createGain(); tg.gain.value = 0.35; tr.connect(tg).connect(rg.gain); oscs.push(tr); }
+  bus.connect(rg);
+  const n = noise(t, dur); const nf = ac.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 1600; nf.Q.value = 0.7;
+  const ng = ac.createGain(); ng.gain.value = breath; n.connect(nf).connect(ng).connect(rg);
+  const sh = ac.createWaveShaper();
+  const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * drive) / Math.tanh(drive); }
+  sh.curve = curve; rg.connect(sh);
   const env = ac.createGain(); env.gain.setValueAtTime(0.0001, t);
-  env.gain.exponentialRampToValueAtTime(gain, t + 0.05); env.gain.setValueAtTime(gain, t + dur * 0.55); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  const F = [[300, 650 * open + 300 * (1 - open), 9, 1], [2100, 1080, 10, 0.55], [2600, 2450, 12, 0.22]];
+  env.gain.exponentialRampToValueAtTime(gain, t + attack); env.gain.setValueAtTime(gain, t + dur * 0.72); env.gain.exponentialRampToValueAtTime(0.0001, end);
+  const F1 = 280 + 520 * open, F2 = 900 + 400 * open;
+  const F = [[300, F1, 8, 1], [1900, F2, 9, 0.6], [2600, 2500, 11, 0.25], [3300, 3200, 12, 0.12 * open]];
   for (const [fa, fb, q, g] of F) {
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
-    bp.frequency.setValueAtTime(fa, t); bp.frequency.linearRampToValueAtTime(fb, t + dur * 0.3);
-    const gg = ac.createGain(); gg.gain.value = g * 2.2; sh.connect(bp).connect(gg).connect(env);
+    bp.frequency.setValueAtTime(fa, t); bp.frequency.linearRampToValueAtTime(fb, t + Math.min(0.25, dur * 0.3));
+    const gg = ac.createGain(); gg.gain.value = g * 2.4; sh.connect(bp).connect(gg).connect(env);
   }
   env.connect(master);
-  [src, jit, am].forEach(o => { o.start(t); o.stop(t + dur + 0.05); });
+  oscs.forEach(o => { o.start(t); o.stop(end + 0.05); });
 }
+// the three escalating voices
+const VOICE = {
+  1: () => {                                         // restrained, closed-mouth "hmm..." then a held breath
+    grunt({ f0: 92, dur: 0.95, open: 0.05, gain: 0.26, delay: 0.3, drive: 1.6, rough: 0.025, breath: 0.3, attack: 0.18 });
+    grunt({ f0: 88, dur: 0.6, open: 0.0, gain: 0.16, delay: 1.45, drive: 1.3, rough: 0.02, breath: 0.45, attack: 0.1 });
+  },
+  2: () => {                                         // gritted "ngh!" on the clench, then a shaking strained "nnnngh..."
+    grunt({ f0: 128, dur: 0.38, open: 0.3, gain: 0.55, delay: 0.3, drive: 4.5, rough: 0.08, breath: 0.2, attack: 0.02, rise: 0.6 });
+    grunt({ f0: 138, dur: 1.5, open: 0.2, gain: 0.48, delay: 0.66, drive: 6, rough: 0.12, trem: 8, breath: 0.25, attack: 0.12, rise: 0.8, peak: 0.6 });
+  },
+  3: () => {                                         // full roar building to a peak as the aura ignites
+    grunt({ f0: 118, dur: 1.0, open: 0.4, gain: 0.5, delay: 0.15, drive: 5, rough: 0.1, trem: 10, attack: 0.08, rise: 0.6 });
+    grunt({ f0: 132, dur: 3.6, open: 1, gain: 0.72, delay: 0.85, drive: 9, rough: 0.16, trem: 6, voices: 3, sub: 0.45, breath: 0.32, attack: 0.25, rise: 1.4, peak: 0.55 });
+    grunt({ f0: 176, dur: 2.6, open: 1, gain: 0.35, delay: 1.25, drive: 10, rough: 0.2, voices: 2, breath: 0.4, attack: 0.3, rise: 1.2, peak: 0.6 });
+  },
+  relax: () => grunt({ f0: 84, dur: 1.1, open: 0.5, gain: 0.22, drive: 1.4, rough: 0.03, breath: 0.6, attack: 0.05 }),
+};
 function impact(delay = 0, g = 0.9) {
   if (!ac) return; const t = ac.currentTime + delay;
   const o = ac.createOscillator(); o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.4);
@@ -873,65 +1090,94 @@ function setShot(s) {
   if (s !== 'wide') document.body.classList.add('m-' + s);
   layoutGhosts();
 }
+const STEPS = ['eyes', 'hand', 'legs'];
+const stage = () => (S.focus ? 1 : 0) + (S.fist ? 1 : 0) + (S.stance ? 1 : 0);   // steps unlock in order
 function refreshUI() {
-  chips.eyes.classList.toggle('on', S.focus > 0); chips.hand.classList.toggle('on', S.fist > 0); chips.legs.classList.toggle('on', S.stance > 0);
-  relaxBtn.classList.toggle('ghosted', !(S.focus || S.fist || S.stance));
-  hots.forEach(h => h.el.classList.toggle('done', h.r === 'eyes' ? !!S.focus : h.r === 'hand' ? !!S.fist : !!S.stance));
-  hint.textContent = shot !== 'wide' ? 'Click anywhere to pull back' : (S.focus && S.fist && S.stance) ? 'Full tension. Relax to let it go' : 'Click his eyes, his hand, his legs';
+  const st = stage();
+  STEPS.forEach((r, i) => { chips[r].classList.toggle('on', i < st); chips[r].classList.toggle('locked', i > st); chips[r].disabled = i < st; chips[r].classList.toggle('next', i === st && shot === 'wide'); });
+  relaxBtn.classList.toggle('ghosted', st === 0);
+  hots.forEach((h) => { const i = STEPS.indexOf(h.r); h.el.classList.toggle('locked', i !== st); });
+  hint.textContent = shot !== 'wide' ? 'Click anywhere to pull back'
+    : ['Build the tension (space)', 'Push it further (space)', 'Max it out (space)', 'Max tension. Space to relax'][st];
+}
+function nudge(r) {
+  const want = STEPS[stage()];
+  if (chips[want]) { chips[want].classList.remove('wiggle'); void chips[want].offsetWidth; chips[want].classList.add('wiggle'); }
+  hint.textContent = want ? 'One level at a time' : hint.textContent;
 }
 function trigger(r) {
+  const i = STEPS.indexOf(r);
+  if (i > stage()) { nudge(r); return; }
+  if (i < stage()) return;                                  // finished levels are locked
   initAudio();
   timers.splice(0).forEach(clearTimeout);
   clearSfx();
   setShot(r); shake = 1;
   whoosh();
   if (r === 'eyes') {
-    later(260, () => { S.focus = 1; S.sweat = 1; shake = 0.6; });
+    later(260, () => { S.focus = 1; S.sweat = 1; shake = 0.6; refreshUI(); });
     rumble(2.6, 0.2);
-    grunt({ f0: 92, dur: 1.1, open: 0.15, gain: 0.32, delay: 0.3 });
+    VOICE[1]();
     sfx('ゴゴゴゴ', { x: '14%', y: '50%', size: 110, rot: -8, cls: 'jp shake vert', delay: 250 });
     sfx('ゴ ゴ', { x: '87%', y: '46%', size: 90, rot: 7, cls: 'jp shake vert black', delay: 380 });
     sfx('...!!', { x: '70%', y: 'calc(50% - 15vh)', size: 70, rot: -4, cls: 'en', delay: 900 });
-    sfx('HNNN...', { x: '32%', y: 'calc(50% + 16vh)', size: 54, rot: 3, cls: 'en black', delay: 500 });
+    sfx('Hm...', { x: '32%', y: 'calc(50% + 16vh)', size: 54, rot: 3, cls: 'en black', delay: 500 });
   } else if (r === 'hand') {
-    later(320, () => { S.fist = 1; shake = 1.2; impact(0, 0.5); flash(70); });
+    later(320, () => { S.fist = 1; shake = 1.2; impact(0, 0.5); flash(70); refreshUI(); });
     later(700, () => { S.sparks = 1; flash(60); later(140, () => flash(50)); });
-    grunt({ f0: 118, dur: 0.75, open: 0.45, gain: 0.5, delay: 0.28, rise: 1 });
+    VOICE[2]();
     sfx('ギュッ', { x: '24%', y: '26%', size: 120, rot: -12, cls: 'jp', delay: 330 });
-    sfx('NGH!!', { x: '28%', y: '74%', size: 80, rot: -8, cls: 'en black', delay: 420 });
+    sfx('NGH!!', { x: '28%', y: '74%', size: 90, rot: -8, cls: 'en black shake', delay: 320 });
+    sfx('NNNNGH...!!', { x: '70%', y: '18%', size: 64, rot: 6, cls: 'en', delay: 900 });
     sfx('バチ', { x: '78%', y: '74%', size: 90, rot: 10, cls: 'jp shake', delay: 760 });
     sfx('バチッ', { x: '20%', y: '50%', size: 70, rot: -6, cls: 'jp shake black', delay: 900 });
   } else if (r === 'legs') {
-    later(150, () => { S.stance = 1; });
-    later(560, () => {
-      shake = 1.6; impact(0, 1); flash(90);
-      for (const sd of ['left', 'right']) dustAt(footWorld(sd).setY(0.02));
+    // the charge: sink, stomp, then the aura ignites and keeps building
+    S.sparks = 1;
+    later(150, () => { S.stance = 1; refreshUI(); });
+    later(520, () => {
+      shake = 1.6; impact(0, 1); flash(90); cracks = makeCracks();
+      for (const sd of ['left', 'right']) dustAt(footWorld(sd).setY(0.02), 10);
     });
-    grunt({ f0: 125, dur: 0.95, open: 1, gain: 0.55, delay: 0.12, rise: 1 });
-    sfx('ザッ!!', { x: '30%', y: '80%', size: 130, rot: -10, cls: 'jp', delay: 560 });
-    sfx('HAAA!!', { x: '74%', y: '30%', size: 96, rot: 6, cls: 'en', delay: 220 });
-    sfx('ドン', { x: '80%', y: '62%', size: 80, rot: 12, cls: 'jp black', delay: 640 });
+    later(950, () => { S.aura = 1; shake = 2.2; flash(120); impact(0, 1.2); later(180, () => flash(60)); });
+    VOICE[3]();
+    rumble(4.5, 0.4);
+    whoosh(0.95);
+    sfx('ザッ!!', { x: '24%', y: '84%', size: 120, rot: -10, cls: 'jp', delay: 520 });
+    sfx('HAAAAAAA!!!', { x: '50%', y: '14%', size: 120, rot: -4, cls: 'en shake', delay: 980 });
+    sfx('ゴゴゴゴ', { x: '12%', y: '45%', size: 110, rot: -6, cls: 'jp shake vert', delay: 1100 });
+    sfx('ドドドド', { x: '88%', y: '52%', size: 100, rot: 6, cls: 'jp shake vert', delay: 1250 });
+    sfx('ズオオッ', { x: '78%', y: '84%', size: 90, rot: 8, cls: 'jp', delay: 1000 });
+    later(1300, () => { if (shot === 'legs') shake = 1.4; });
   }
   later(30, refreshUI);
 }
 function pullBack() { if (shot === 'wide') return; timers.splice(0).forEach(clearTimeout); clearSfx(); setShot('wide'); refreshUI(); }
 function relax() {
   initAudio(); pullBack();
-  S.focus = S.fist = S.stance = S.sweat = S.sparks = 0;
-  if (ac) { const t = ac.currentTime; grunt({ f0: 85, dur: 0.9, open: 0.6, gain: 0.25 }); }
+  S.focus = S.fist = S.stance = S.sweat = S.sparks = S.aura = 0; cracks = null;
+  if (ac) VOICE.relax();
   refreshUI();
 }
 relaxBtn.addEventListener('click', (e) => { e.stopPropagation(); relax(); });
 for (const r in chips) chips[r].addEventListener('click', (e) => { e.stopPropagation(); trigger(r); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') pullBack(); if (e.key === '1') trigger('eyes'); if (e.key === '2') trigger('hand'); if (e.key === '3') trigger('legs'); if (e.key === 'r') relax(); });
+addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {                       // space: next tension level (after MAX, relax and start over)
+    e.preventDefault(); if (e.repeat) return;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const next = STEPS[stage()];
+    if (next) trigger(next); else relax();
+    return;
+  }
+  if (e.key === 'Escape') pullBack(); if (e.key === '1') trigger('eyes'); if (e.key === '2') trigger('hand'); if (e.key === '3') trigger('legs'); if (e.key === 'r') relax(); });
 
 // hotspots
 const hotEl = document.getElementById('hot');
 const hots = [
-  { r: 'eyes', label: 'Eyes', at: () => eyesMid() },
-  { r: 'hand', label: 'Fist', at: () => fistWorld(W.stance > 0.5 ? 'left' : 'right') },
-  { r: 'legs', label: 'Stance', at: () => kneeWorld('left') },
-].map(h => { const el = document.createElement('div'); el.className = 'hs'; el.innerHTML = `<i></i><span>${h.label}</span>`; el.addEventListener('click', (e) => { e.stopPropagation(); trigger(h.r); }); hotEl.appendChild(el); return { ...h, el }; });
+  { r: 'eyes', label: 'Tension Lv.1', at: () => eyesMid().add(v3(0.17 * (rest ? rest.k : 1), 0.02, 0)) },
+  { r: 'hand', label: 'Tension Lv.2', at: () => fistWorld('right').add(v3(-0.1 * (rest ? rest.k : 1), 0, 0)) },
+  { r: 'legs', label: 'MAX tension', at: () => kneeWorld('left').add(v3(0.14 * (rest ? rest.k : 1), 0, 0)) },
+].map(h => { const el = document.createElement('div'); el.className = 'hs' + (h.r === 'hand' ? ' flip' : ''); el.innerHTML = `<i></i><span>${h.label}</span>`; el.addEventListener('click', (e) => { e.stopPropagation(); trigger(h.r); }); hotEl.appendChild(el); return { ...h, el }; });
 function placeHots() {
   for (const h of hots) { const p = proj(h.at()); h.el.style.transform = `translate(${p.x}px, ${p.y}px)`; }
 }
@@ -961,7 +1207,7 @@ glCanvas.addEventListener('pointerup', (e) => {
 });
 glCanvas.addEventListener('pointermove', (e) => {
   mx = (e.clientX / VW - 0.5) * 2; my = (e.clientY / VH - 0.5) * 2;
-  if (shot === 'wide' && e.pointerType === 'mouse') document.body.classList.toggle('hover-hit', !!regionAt(e.clientX, e.clientY));
+  if (shot === 'wide' && e.pointerType === 'mouse') document.body.classList.toggle('hover-hit', regionAt(e.clientX, e.clientY) === STEPS[stage()]);
   else document.body.classList.remove('hover-hit');
 });
 
