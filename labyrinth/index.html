@@ -57,6 +57,21 @@
   #stick i { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: rgba(255,255,255,.55); }
   body.look #cap, body.look #skip { display: none !important; }
   body.shot .bar, body.shot #title, body.shot #hint { display: none !important; }
+  /* variety-show broadcast layer: scanlines, channel bug, pop-up telops, freeze-frame */
+  #tv { position: fixed; inset: 0; pointer-events: none; z-index: 2; background: repeating-linear-gradient(0deg, rgba(0,0,0,.07) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; animation: tvflick 6s steps(1) infinite; }
+  @keyframes tvflick { 0%, 97% { opacity: 1; } 98% { opacity: .75; } 99% { opacity: 1; } }
+  #bug { position: fixed; left: clamp(16px, 3vw, 36px); top: calc(var(--bar) + 10px); z-index: 3; pointer-events: none; display: flex; gap: 8px; align-items: center; font: 400 15px 'Dela Gothic One', sans-serif; color: #fff; -webkit-text-stroke: 4px #111; paint-order: stroke fill; opacity: .9; }
+  #bug .rec { font: 700 10px Inter, sans-serif; -webkit-text-stroke: 0; background: var(--red); padding: 2px 6px; border-radius: 2px; letter-spacing: .14em; animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  #telops { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+  .telop { position: absolute; transform: translate(-50%, -50%) rotate(var(--r)) scale(0); font: 400 var(--sz)/1 'Dela Gothic One', sans-serif; color: var(--c); -webkit-text-stroke: calc(var(--sz) * .16) #111; paint-order: stroke fill; letter-spacing: .02em; white-space: nowrap;
+    filter: drop-shadow(0 0 0 #fff) drop-shadow(4px 4px 0 #fff) drop-shadow(-4px -4px 0 #fff) drop-shadow(4px -4px 0 #fff) drop-shadow(-4px 4px 0 #fff) drop-shadow(0 10px 18px rgba(0,0,0,.5)); animation: telop var(--d) cubic-bezier(.2, 1.6, .4, 1) forwards; }
+  @keyframes telop { 0% { transform: translate(-50%, -50%) rotate(var(--r)) scale(0); } 12% { transform: translate(-50%, -50%) rotate(var(--r)) scale(1.18); } 20%, 85% { transform: translate(-50%, -50%) rotate(var(--r)) scale(1); opacity: 1; } 100% { transform: translate(-50%, -50%) rotate(var(--r)) scale(1.06); opacity: 0; } }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 6; transition: opacity .35s; }
+  body.frozen #c { filter: saturate(1.5) contrast(1.15) sepia(.12); }
+  body.frozen #tv { background: repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 3px); }
+  #frz { position: fixed; right: clamp(16px, 3vw, 36px); bottom: 130px; z-index: 5; pointer-events: none; display: none; font: 700 13px Inter, sans-serif; letter-spacing: .2em; color: #fff; background: #111; padding: 6px 10px; border-left: 6px solid var(--gold); }
+  body.frozen #frz { display: block; }
   @media (max-width: 640px) { #hint { display: none; } #map { width: 120px; height: 120px; } #hud .v { font-size: 20px; } .name { font-size: 20px; } }
 </style>
 <script type="importmap">
@@ -74,6 +89,11 @@
 <canvas id="map" width="340" height="340"></canvas>
 <div id="hud"><div><span class="k">time</span><span class="v" id="time">0:00.0</span></div><div><span class="k">thrown out</span><span class="v" id="outs">0</span></div></div>
 <div id="hint"><b>W/S ↑↓</b> run · <b>A/D ←→</b> turn · <b>drag</b> look · <b>R</b> retry · <b>N</b> new maze</div>
+<div id="tv"></div>
+<div id="bug">鬼TV <span class="rec">LIVE</span></div>
+<div id="telops"></div>
+<div id="flash"></div>
+<div id="frz">▌▌ もう一度見てみよう · REPLAY</div>
 <div id="cap"></div>
 <div id="banner"><div class="stamp" id="stamp">失格</div><div class="sub" id="bsub"></div></div>
 <div id="skip"><b>click</b> next · <b>esc</b> skip intro</div>
@@ -637,7 +657,7 @@ const EXPR_SRC = {
   gurn: { jawSide: .9, chinOut: .8, lowLipUp: 1.25, smileL: .9, frownR: .9, squintL: 1, lidUL: .7, eyeR: 1.35, browUpR: 1.2, browAngry: .3, cross: .45, puff: .3, squash: .35 },
   horror: { stretch: 1.45, jaw: 1.5, pucker: .45, browSad: 1.3, browUp: 1, bulge: .9, pupil: .25, suck: .8, eye: 1.3, shake: .45, lidU: 0, blood: .4 },
   mie: { cross: 1, browAngry: 1.1, browUpL: .9, sneer: .7, frown: .9, lowLipUp: .45, jaw: .05, eye: 1.2, lidU: .02, shake: .25, flare: 1, noseWrinkle: .6 },
-  dizzy: { jaw: .65, jawSide: .5, tongue: .95, tongueSide: .8, lidUL: .55, lidUR: .1, eyeR: 1.25, frown: .3, browSad: .5, roll: 1 },
+  dizzy: { jaw: .7, jawSide: .2, tongue: .3, tongueSide: .3, lidUL: .55, lidUR: .1, eyeR: 1.25, frown: .3, browSad: .5, roll: 1 },
   squeeze: { squash: 1, puff: 1, squint: 1, lidU: .92, lidL: .8, frown: .6, pucker: .8, browAngry: .6, noseWrinkle: .8, shake: .3 },
   panic: { browSad: 1, browUp: 1, eye: 1.3, pupil: .4, jaw: .6, wide: .55, frown: .7, lowLipDown: .4, shake: .2, lidU: 0 },
   scream: { jaw: 1.35, stretch: .6, browSad: 1, browUp: .8, eye: 1.22, pupil: .45, wide: .45, lowLipDown: .6, upLip: .3, tongue: .2, shake: .5, lidU: 0, anim: 'tremble' },
@@ -808,8 +828,8 @@ function buildHead(J, S) {
     // tongue: lolls out, wags, flops to the side
     const to = cur.tongue + (E.anim === 'laugh' ? .1 * Math.abs(Math.sin(t * 11)) : 0);
     tongue[0].position.z = (-.12 + to * .26) * U; tongue[0].position.y = (.03 + to * .05) * U;
-    tongue[0].rotation.set(-.15 - to * .1, cur.tongueSide * .5, 0);
-    for (let i = 1; i < 4; i++) { tongue[i].rotation.x = to * (.12 + i * .1) + Math.sin(t * 6 + i) * .1 * to; tongue[i].rotation.y = cur.tongueSide * .25 + Math.sin(t * 4 + i * .7) * .25 * to; tongue[i].scale.setScalar(1 + to * .12); }
+    tongue[0].rotation.set(-.15 - to * .1, cur.tongueSide * .18, 0);
+    for (let i = 1; i < 4; i++) { tongue[i].rotation.x = to * (.12 + i * .1) + Math.sin(t * 6 + i) * .1 * to; tongue[i].rotation.y = cur.tongueSide * .08 + Math.sin(t * 4 + i * .7) * .1 * to; tongue[i].scale.setScalar(1 + to * .12); }
     // brows
     for (const b of brows) {
       const up_ = b.s > 0 ? cur.browUpL : cur.browUpR;
@@ -1177,14 +1197,25 @@ function makeOni(kind) {
     paint = canvasTex(512, 512, g => {
       g.fillStyle = '#e6b08a'; g.fillRect(0, 0, 512, 512);
       const line = (pts, w, c) => { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); };
-      g.fillStyle = '#fbf8f2'; { const [cx, cy] = P(0, -.1); g.beginPath(); g.ellipse(cx, cy, .84 / S_ * 512, 1.02 / S_ * 512, 0, 0, TAU); g.fill(); }
+      g.fillStyle = '#f4f1ea'; { const [cx, cy] = P(0, -.08); g.beginPath(); g.ellipse(cx, cy, .9 / S_ * 512, 1.08 / S_ * 512, 0, 0, TAU); g.fill(); }
+      grain(g, 512, 512, 3000, .05);
+      // unshaven shadow showing through the greasepaint around the mouth and chin
+      { const [cx, cy] = P(0, -.62), gr = g.createRadialGradient(cx, cy, 10, cx, cy, 120); gr.addColorStop(0, 'rgba(90,85,80,.45)'); gr.addColorStop(1, 'rgba(90,85,80,0)'); g.fillStyle = gr; g.fillRect(0, 0, 512, 512); }
       for (const s of [1, -1]) {
-        line([[s * .52, .02], [s * .72, .3], [s * .8, .62]], 14, '#c8241e');
-        line([[s * .22, -.2], [s * .5, -.32], [s * .66, -.56]], 9, '#c8241e');
-        line([[s * .2, .04], [s * .4, .24], [s * .6, .16], [s * .72, .3]], 6, '#141010');
-        g.fillStyle = 'rgba(40,160,140,.9)'; const [ex, ey] = P(s * .36, .25); g.beginPath(); g.ellipse(ex, ey, 34, 15, s * -.2, 0, TAU); g.fill();
+        // teal lid shadow sweeping up to the temple
+        g.fillStyle = 'rgba(40,170,150,.92)'; g.beginPath(); { const pts = [[s * .14, .16], [s * .36, .3], [s * .66, .36], [s * .72, .24], [s * .5, .18], [s * .3, .13]]; pts.forEach((q, i) => { const [x, y] = P(q[0], q[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); } g.fill();
+        // bold black liner: thick wing above, thinner line below, both flaring out to the hairline
+        line([[s * .13, .12], [s * .3, .2], [s * .52, .22], [s * .76, .34]], 11, '#141010');
+        line([[s * .18, .0], [s * .4, -.04], [s * .6, .02], [s * .78, .16]], 7, '#141010');
+        // painted brow stroke high on the forehead
+        line([[s * .12, .4], [s * .36, .52], [s * .62, .5]], 9, '#141010');
+        // nasolabial streaks from the nose wings down past the mouth corners, chin streaks
+        line([[s * .1, -.1], [s * .26, -.32], [s * .38, -.56]], 8, '#141010');
+        line([[s * .28, -.64], [s * .34, -.86]], 6, '#2a2220');
+        // red cheek flash
+        line([[s * .5, -.12], [s * .68, .0]], 7, '#c8241e');
       }
-      line([[-.08, -.05], [-.11, -.2]], 4, 'rgba(90,40,20,.5)'); line([[.08, -.05], [.11, -.2]], 4, 'rgba(90,40,20,.5)');
+      line([[0, .12], [0, -.04]], 5, 'rgba(60,40,30,.35)');
     });
   }
   const brushBrow = (U, s, w, h, n, col, up) => {
@@ -1198,7 +1229,7 @@ function makeOni(kind) {
     shape: isMC ? p => { const k = Math.max(0, -p.y); p.x *= 1 - .12 * k; if (p.y < -.6 && p.z > 0) p.z += .06; }
       : p => { const k = Math.max(0, -p.y); p.x *= 1 + .28 * k; p.z *= 1 + .1 * k; if (p.y > .6) p.y = .6 + (p.y - .6) * .55; },
     skin: isMC ? 0xffffff : C.skin, lipC: C.lip, blush: isMC ? 0xf0b0a0 : 0x701010, blushK: isMC ? .5 : 1, lid: C.lid, sclera: C.sclera, iris: C.iris, irisR: isMC ? .58 : .5, lashes: isMC,
-    teeth: isMC ? { n: 8, h: .095, gap: [3], nLow: 6, gapLow: [1, 4] } : { n: 7, h: .1, crooked: true, fangs: [1, 5], fangLen: 1.7, nLow: 6, tusks: 1 }, toothC: isMC ? 0xf3ead0 : 0xeadfb8,
+    teeth: isMC ? { n: 8, h: .1, gap: [2, 4, 5], crooked: true, nLow: 6, gapLow: [1, 2, 4] } : { n: 7, h: .1, crooked: true, fangs: [1, 5], fangLen: 1.7, nLow: 6, tusks: 1 }, toothC: isMC ? 0xf3ead0 : 0xeadfb8,
     brow: isMC ? { x: .36, y: .43, d: .05, make: (s, U) => brushBrow(U, s, .18, .13, 9, C.brow) } : { x: .4, y: .46, d: .07, make: (s, U) => brushBrow(U, s, .22, .24, 10, C.brow) },
     ears: isMC ? null : { y: .05, size: .9, pointy: true, ring: true },
   });
@@ -1215,17 +1246,29 @@ function makeOni(kind) {
     part(hairGeo(hr * .6, [1, .8, 1], { color: C.hair, count: 20, L0: .1, L1: .22, r0: .03, r1: .045, bend: .4, seed: 9, skip: u => u.y > -.1 || u.z < .2, dir: u => new THREE.Vector3(u.x * .5, -1, .3) }), hairM, beard, [0, 0, 0], { ol: .005 });
   }
   if (isMC) {
-    part(hairGeo(hr, ax, { color: C.hair, count: 120, L0: .22, L1: .66, r0: .05, r1: .088, bend: .45, seed: 6,
-      skip: u => (u.z > -.05 && u.y < .6) || u.y < -.75, dir: (u, r) => new THREE.Vector3(u.x * 1.6, u.y * .6 - .25 - r() * .4, u.z * 1.2 - .25) }), hairM, mane, [0, 0, 0], { ol: .007 });
-    part(lathe([[hr * .86, -.035], [hr * .9, 0], [hr * .88, .035]], 30, ax[2] / ax[0]), gold, hc, [0, hr * .6, -.015], { ol: .005, s: [ax[0], 1, 1] });
-    part(blob(.04, .04, .015, 10, 8), M(0xc8241e, { metalness: .3, roughness: .3 }), hc, [0, hr * .6, J.faceZ(0, hr * .6) + .006], { ol: .003 });
-    part(hairGeo(hr * .3, [1, 1, 1], { color: 0x18100c, count: 14, L0: .05, L1: .11, r0: .012, r1: .02, bend: .3, seed: 12, skip: u => u.y > -.1, dir: u => new THREE.Vector3(u.x * .3, -1, .25) }), hairM, hc, [0, -hr * .9, J.faceZ(0, -hr * .9) - .035], { ol: .003 });
+    // red cloth hood wrapped tight round the face (open oval at the front, gathered under the chin)
+    { const g = new THREE.SphereGeometry(hr * 1.08, 36, 22), pp = g.attributes.position, v = new THREE.Vector3();
+      for (let i = 0; i < pp.count; i++) { v.fromBufferAttribute(pp, i).divideScalar(hr * 1.08); const k = 1 + .03 * Math.sin(Math.atan2(v.x, v.z) * 14 + v.y * 9); pp.setXYZ(i, v.x * hr * 1.08 * ax[0] * k, v.y * hr * 1.08 * ax[1] * k - (v.y < -.5 ? (v.y + .5) * .08 : 0), v.z * hr * 1.08 * ax[2] * k); }
+      const ix = g.index.array, nx = [];
+      for (let t = 0; t < ix.length; t += 3) { const c = new THREE.Vector3(); for (let j = 0; j < 3; j++) c.add(v.fromBufferAttribute(pp, ix[t + j])); c.divideScalar(3 * hr);
+        if (!(c.z > .25 && (c.x / .74) ** 2 + ((c.y + .08) / .86) ** 2 < 1)) nx.push(ix[t], ix[t + 1], ix[t + 2]); }
+      g.setIndex(nx); g.computeVertexNormals(); part(g, M(0xc8382a, { roughness: .75, flat: false, side: THREE.DoubleSide }), hc, [0, 0, 0], { ol: .006 }); }
+    // the lion mane: a huge shaggy mop of long soft red locks hanging past the shoulders, frizzing up on top
+    part(blob(hr * 1.5, hr * 1.6, hr * 1.1, 16, 12, v => { v.x *= 1 + .08 * Math.sin(v.y * 9); }), M(0xb8301e, { roughness: .9, flat: false }), mane, [0, -hr * .45, -hr * .55], { ol: .006 });
+    part(hairGeo(hr * 1.25, ax, { color: 0xc83a24, count: 170, L0: .3, L1: .7, r0: .07, r1: .12, bend: .5, seed: 6,
+      skip: u => u.z > -.02 - Math.max(0, u.y) * .3 || u.y < -.85, dir: (u, r) => new THREE.Vector3(u.x * 1.8 + (r() - .5) * .5, -1 - r() * .3 + Math.max(0, u.y) * .6, u.z * .5 - .45) }), hairM, mane, [0, -hr * .1, -hr * .15], { ol: .006 });
+    part(hairGeo(hr * 1.1, ax, { color: 0xe0563a, count: 70, L0: .14, L1: .32, r0: .045, r1: .07, bend: .9, seed: 13,
+      skip: u => u.y < .5 || u.z > .1, dir: (u, r) => new THREE.Vector3(u.x * 1.6 + (r() - .5) * .8, .4 + r() * .5, u.z * .8 - .5) }), hairM, mane, [0, hr * .05, -hr * .15], { ol: .005 });
+    // gold lamé headband with a red stripe across the forehead
+    part(lathe([[hr * 1.0, -.05], [hr * 1.05, -.03], [hr * 1.06, .03], [hr * 1.01, .05]], 32, ax[2] / ax[0]), gold, hc, [0, hr * .62, -.01], { ol: .005, s: [ax[0] * 1.02, 1, 1.02] });
+    part(lathe([[hr * 1.065, -.014], [hr * 1.07, 0], [hr * 1.065, .014]], 32, ax[2] / ax[0]), M(0xc8241e, { roughness: .4 }), hc, [0, hr * .62, -.01], { ol: 0, s: [ax[0] * 1.02, 1, 1.02] });
+    // scraggly goatee
+    part(hairGeo(hr * .32, [1, 1, 1], { color: 0x2a2420, count: 26, L0: .06, L1: .15, r0: .012, r1: .022, bend: .5, seed: 12, skip: u => u.y > -.05, dir: (u, r) => new THREE.Vector3(u.x * .4 + (r() - .5) * .3, -1, .3) }), hairM, J.jaw, [0, -hr * .82, J.faceZ(0, -hr * .82) - .03], { ol: .003 });
   }
   J.spring(mane, isMC ? .9 : .6);
   const hornM = M(0xffffff, { vertexColors: true, flat: false, roughness: .35 });
   if (kind === 'aka') for (const s of [1, -1]) part(hornGeo(.22, .045, s * .08, .05), hornM, hc, [s * hr * .42, hr * .66, .02], { r: [-.15, 0, -s * .3], ol: .005 });
   if (kind === 'ao') part(hornGeo(.28, .058, 0, .1), hornM, hc, [0, hr * .74, .03], { r: [-.1, 0, 0], ol: .005 });
-  if (isMC) for (const s of [1, -1]) part(hornGeo(.14, .032, s * .05, .03), hornM, hc, [s * hr * .38, hr * .78, .02], { r: [-.1, 0, -s * .35], ol: .004 });
   bake(J.root);
   return J;
 }
@@ -1648,6 +1691,17 @@ const sfx = {
   fanfare() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => { osc('square', f, f, .22, .09, i * .13); osc('triangle', f / 2, f / 2, .25, .1, i * .13); }); },
   buzzer() { osc('sawtooth', 160, 150, .7, .14); osc('square', 166, 155, .7, .08); },
   laugh() { if (!AC) return; for (let i = 0; i < 6; i++) { const t = i * .17; osc('sawtooth', 210 - i * 8, 150 - i * 8, .13, .14, t, .01); noise(.12, .07, 'bandpass', 900, 600, 3, t); } },
+  // studio audience: a dozen voices of formant-filtered "ha"s, staggered, with a breathy bed
+  crowd(dur = 2.2, vol = .5) { if (!AC) return; const t0 = AC.currentTime + .05;
+    noise(dur, vol * .25, 'bandpass', 700, 500, .7, 0, .25);
+    for (let p = 0; p < 12; p++) { const base = 140 + Math.random() * 220, n = 4 + Math.floor(Math.random() * 6), off = Math.random() * .4, gap = .11 + Math.random() * .07;
+      for (let i = 0; i < n; i++) { const t = t0 + off + i * gap * (1 + i * .05); if (t - t0 > dur) break; const d = gap * .6, o = AC.createOscillator(); o.type = 'sawtooth'; const f = base * (1 - i * .03); o.frequency.setValueAtTime(f * 1.08, t); o.frequency.exponentialRampToValueAtTime(f * .9, t + d);
+        const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700 + Math.random() * 500; bp.Q.value = 2.5; const g = envGain(t, .01, vol * .09 * (1 - i / (n + 2)), d); o.connect(bp); bp.connect(g); o.start(t); o.stop(t + d + .05); } } },
+  ooh(vol = .4) { if (!AC) return; for (let p = 0; p < 9; p++) { const t = AC.currentTime + Math.random() * .1, o = AC.createOscillator(); o.type = 'sawtooth'; const f = 160 + Math.random() * 200; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.5, t + .7);
+    const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.setValueAtTime(500, t); bp.frequency.linearRampToValueAtTime(900, t + .8); bp.Q.value = 3; const g = envGain(t, .15, vol * .1, .9); o.connect(bp); bp.connect(g); o.start(t); o.stop(t + 1.2); } },
+  jan() { [196, 247, 294, 392, 494].forEach(f => { osc('sawtooth', f, f * .99, .5, .07, 0, .004); osc('square', f / 2, f / 2, .45, .05, 0, .004); }); noise(.25, .4, 'highpass', 3000, 1500, 1); osc('sine', 90, 40, .35, .5, 0, .002); },
+  scratch() { if (!AC) return; noise(.18, .4, 'bandpass', 2500, 400, 4); noise(.14, .35, 'bandpass', 500, 2600, 4, .17); },
+  pop() { osc('sine', 500, 1400, .09, .15, 0, .003); },
   voice(text, base = 150, rate = 1) {
     const n = Math.max(2, Math.round(text.replace(/[^a-zA-Z]/g, '').length / 2.4));
     if (!AC) return n * .13;
@@ -1850,6 +1904,24 @@ function caption(jp, en, who = '', dur = 0) {
 }
 function hideCaption() { capEl.style.opacity = 0; capTimer = 0; }
 function banner(text, sub, win = false) { $('stamp').textContent = text; $('bsub').innerHTML = sub; bannerEl.classList.toggle('win', win); bannerEl.classList.add('on'); }
+// ---- variety-show grammar: pop-up telops, crash zooms, freeze-frame + replay tag + laugh track
+const TELC = { y: '#ffe14a', r: '#ff4a3a', b: '#4ab4ff', p: '#ff7ad0', g: '#7dff7a', w: '#ffffff' };
+function telop(text, o = {}) {
+  const d = document.createElement('div'); d.className = 'telop'; d.textContent = text;
+  d.style.left = (o.x ?? 50) + '%'; d.style.top = (o.y ?? 32) + '%';
+  d.style.setProperty('--c', TELC[o.c || 'y'] || o.c); d.style.setProperty('--sz', `clamp(${(o.size ?? 1) * 40}px, ${(o.size ?? 1) * 9}vw, ${(o.size ?? 1) * 104}px)`);
+  d.style.setProperty('--r', (o.r ?? (Math.random() - .5) * 14) + 'deg'); d.style.setProperty('--d', (o.dur ?? 1.6) + 's');
+  $('telops').appendChild(d); sfx.pop(); setTimeout(() => d.remove(), (o.dur ?? 1.6) * 1000 + 100);
+}
+let fovKick = 0, fovHold = 0, freezeT = 0;
+function crashZoom(a = 18, hold = .5) { fovKick = a; fovHold = hold; sfx.whoosh(); }
+function flash() { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = 'opacity .35s'; f.style.opacity = 0; }); }
+function freezeFrame(label, c = 'y') {
+  if (Q.has('t')) return;   // deterministic screenshots run straight through
+  freezeT = 1.25; document.body.classList.add('frozen'); flash(); sfx.jan(); fovKick = Math.max(fovKick, 8); fovHold = 0;
+  telop(label, { size: 1.5, c, y: 40, dur: 1.5, r: -8 });
+  setTimeout(() => { sfx.scratch(); sfx.crowd(2.4, .55); }, 1150);
+}
 function genSay(jp, en) { const d = sfx.voice(en, 108, 1.2); gen.talkUntil = time + d + .3; caption(jp, en, 'General', d + 1.5); return d; }
 function mcSay(jp, en, base = 150) { const d = sfx.voice(en, base); mc.talkUntil = time + d; caption(jp, en, 'Oni-MC', d + 1.6); return d; }
 
@@ -1935,7 +2007,7 @@ function spawn() {
   [a, b].forEach((room, i) => { const o = onis[i]; o.pos.x = room.x; o.pos.z = room.z; o.yaw = Math.atan2(maze.entranceEdge.mx - room.x, maze.entranceEdge.mz - room.z); o.state = 'patrol'; o.goalRoom = null; o.prevRoom = null; o.speed = 0; o.anim = 'idle'; o.scripted = false; scene.attach(o.h.root); resetPose(o.h); o.h.root.position.set(o.pos.x, 0, o.pos.z); o.h.root.rotation.set(0, o.yaw, 0); });
   mc.pos.x = ee.mx + ee.nx * (maze.entLen + 1.4) + ee.nz * 3.4; mc.pos.z = ee.mz + ee.nz * (maze.entLen + 1.4) - ee.nx * 3.4; mc.yaw = -.5;
   plinth.position.set(mc.pos.x, .22, mc.pos.z);
-  { const b = maze.entLen + 1.4; gen.pos.x = ee.mx + ee.nx * b - ee.nz * 3.2; gen.pos.z = ee.mz + ee.nz * b + ee.nx * 3.2; gen.anim = 'rally'; gen.nagged = false; crate.position.set(gen.pos.x, .175, gen.pos.z); gen.yaw = Math.atan2(ee.mx - gen.pos.x, ee.mz - gen.pos.z); }
+  { const b = maze.entLen + 1.4; gen.pos.x = ee.mx + ee.nx * b - ee.nz * 3.2; gen.pos.z = ee.mz + ee.nz * b + ee.nx * 3.2; gen.anim = 'rally'; gen.nagged = false; crate.position.set(gen.pos.x, .175, gen.pos.z); gen.home = { x: gen.pos.x, z: gen.pos.z }; gen.yaw = Math.atan2(ee.mx - gen.pos.x, ee.mz - gen.pos.z); }
   visited.clear(); stars.visible = false; seq = null; lookOff = 0;
   camState.yaw = player.yaw;
 }
@@ -1945,15 +2017,15 @@ function start() {
   setState('intro'); introI = -1; $('skip').classList.add('on'); nextLine();
 }
 const introLines = [
-  { jp: 'ガハハハ！ようこそ、人間！', en: 'GAHAHAHA! Welcome, tiny human!', shot: 'mc' },
-  { jp: '鬼の蜂の巣へ！', en: '…to the HONEYCOMB OF THE ONI!', shot: 'crane' },
-  { jp: '出口はたくさん…本物はひとつ！', en: 'Many doors lead out… only ONE is real. The rest? SPLASH!', shot: 'exit' },
-  { jp: '中には…俺の弟たちがいるぞ！', en: 'And inside… live my little brothers!', shot: 'mc2' },
-  { jp: '赤鬼！', en: 'AKA-ONI!', shot: 'aka', oni: 0 },
-  { jp: '青鬼！', en: 'AO-ONI!', shot: 'ao', oni: 1 },
-  { jp: '捕まったら…ポイだ！', en: 'If they catch you… OUT YOU GO! Hahaha!', shot: 'mc3' },
-  { jp: '全軍、突撃ーっ！', en: 'Troops! Into the hive — CHAAARGE!', shot: 'general', gen: true },
-  { jp: 'よーい…はじめ！', en: 'Ready… BEGIN!', shot: 'player' },
+  { jp: 'ガハハハ！ようこそ、人間！', en: 'GAHAHAHA! Welcome, tiny human!', shot: 'mc', tel: ['ガハハハ!!', 'y'], zoom: 16, crowd: true },
+  { jp: '鬼の蜂の巣へ！', en: '…to the HONEYCOMB OF THE ONI!', shot: 'crane', tel: ['鬼の蜂の巣', 'r'], jan: true },
+  { jp: '出口はたくさん…本物はひとつ！', en: 'Many doors lead out… only ONE is real. The rest? SPLASH!', shot: 'exit', tel: ['ドボン!?', 'b'], ooh: true },
+  { jp: '中には…俺の弟たちがいるぞ！', en: 'And inside… live my little brothers!', shot: 'mc2', zoom: 10 },
+  { jp: '赤鬼！', en: 'AKA-ONI!', shot: 'aka', oni: 0, tel: ['赤鬼!!', 'r'], zoom: 20, ooh: true },
+  { jp: '青鬼！', en: 'AO-ONI!', shot: 'ao', oni: 1, tel: ['青鬼!!', 'b'], zoom: 20, ooh: true },
+  { jp: '捕まったら…ポイだ！', en: 'If they catch you… OUT YOU GO! Hahaha!', shot: 'mc3', tel: ['ポイ!', 'p'], zoom: 14, crowd: true },
+  { jp: '全軍、突撃ーっ！', en: 'Troops! Into the hive — CHAAARGE!', shot: 'general', gen: true, tel: ['突撃ーっ!!', 'y'], zoom: 12 },
+  { jp: 'よーい…はじめ！', en: 'Ready… BEGIN!', shot: 'player', tel: ['はじめ!', 'g'] },
 ];
 function nextLine() {
   introI++; lineT = 0;
@@ -1964,6 +2036,13 @@ function nextLine() {
   else if (L.gen) { const d = genSay(L.jp, L.en); lineDur = Math.max(2.4, d + 1.1); }
   else { const d = mcSay(L.jp, L.en, 150); lineDur = Math.max(2.3, d + 1.1); }
   if (L.shot === 'player') { sfx.gong(); lineDur = 2.2; }
+  if (L.zoom) crashZoom(L.zoom, .6);
+  if (L.tel) later(L.zoom ? .25 : .5, () => { if (state === 'intro') telop(L.tel[0], { c: L.tel[1], y: 26 + Math.random() * 8, x: 38 + Math.random() * 24 }); });
+  if (L.jan) sfx.jan();
+  if (L.ooh) later(.3, () => sfx.ooh());
+  if (L.crowd) later(lineDur - .9, () => { if (state === 'intro') sfx.crowd(1.6, .4); });
+  // the general's pratfall: charges off his crate, trips, faceplants — still pointing
+  if (L.gen) { lineDur += 3.4; later(lineDur - 3.9, () => { if (state === 'intro') { gen.anim = 'gag'; gen.gagT = 0; } }); }
 }
 function endIntro() {
   $('skip').classList.remove('on');
@@ -1972,6 +2051,7 @@ function endIntro() {
   hideCaption(); beginPlay();
 }
 function beginPlay() {
+  if (gen.home) { gen.pos.x = gen.home.x; gen.pos.z = gen.home.z; } gen.gagT = 0;
   setState('play'); runTime = 0; graceT = 2.5; mc.anim = 'talk';
   for (const o of onis) { o.anim = 'idle'; o.state = 'patrol'; }
   $('hud').classList.add('on'); $('map').classList.add('on'); $('hint').classList.toggle('on', !isTouch);
@@ -2098,6 +2178,33 @@ function animGeneral(dt) {
   let yaw = Math.atan2(ee.mx - gen.pos.x, ee.mz - gen.pos.z) + .3;
   if (state === 'out' || state === 'caught' || state === 'win') yaw = Math.atan2(player.pos.x - gen.pos.x, player.pos.z - gen.pos.z);
   gen.yaw = lerpA(gen.yaw, yaw, 1 - Math.exp(-dt * 4));
+  if (gen.anim === 'gag') {
+    // hop off the crate, sprint along the bank (in profile), toe catches, windmill, timber — still pointing
+    const g = gen.gagT += dt, ee = maze.entranceEdge, dx = -ee.nz + ee.nx * .35, dz = ee.nx + ee.nz * .35, dl = Math.hypot(dx, dz), ux = dx / dl, uz = dz / dl;
+    gen.gagDir = { x: ux, z: uz };
+    let fwd = 0, y = .35; hL.point = false; hR.point = true; hR.k = 1;
+    const run = (k, sp) => { animRun(h, g * sp, k, false); };
+    if (g < .3) { const k = g / .3; fwd = k * .6; y = .35 * (1 - k) + Math.sin(k * PI) * .3; leg(h, 'L', -.8, .05, 1); leg(h, 'R', .4, .05, .6); arm(h, 'R', -1.7, .1, 0); arm(h, 'L', -2.9, .3, -.3); h.expr('shout'); f.talk = true; }
+    else if (g < 1.0) { const k = (g - .3) / .7; fwd = .6 + k * 1.8; y = 0; run(1, 17); arm(h, 'R', -1.6, .1, 0); arm(h, 'L', Math.sin(g * 17) * 1.1, .2, -1.4); h.torso.rotation.x = .25; h.expr('shout'); f.talk = true; }
+    else if (g < 1.75) { // toe catches: hopping on one leg, leaning further and further, arms windmilling
+      const k = (g - 1.0) / .75; fwd = 2.4 + easeOut(k) * .7; y = Math.abs(Math.sin(k * PI * 3)) * .08;
+      h.hips.rotation.x = k * .55; h.torso.rotation.x = .2 + k * .2;
+      leg(h, 'L', -.3 - k * .6, .05, .3); leg(h, 'R', .6 + Math.sin(g * 20) * .2, .1, .9);
+      arm(h, 'L', -PI + g * 22, .5, -.2); arm(h, 'R', -PI + g * 22 + PI, .5, -.2); hR.point = false;
+      h.neck.rotation.x = -.3; h.expr('horror');
+    }
+    else if (g < 1.98) { const k = (g - 1.75) / .23, e = k * k; fwd = 3.1 + k * .3; y = 0; h.hips.rotation.x = lerp(.55, 1.5, e); h.hips.position.y = lerp(.93, .25, e);
+      leg(h, 'L', -.9 * (1 - k), .05, .3); leg(h, 'R', .6 * (1 - k), .1, .6 * (1 - k)); arm(h, 'R', -2.95, .15, 0); arm(h, 'L', -2.4, .4, -.2); h.expr('horror'); }
+    else {
+      if (!gen.splatted) { gen.splatted = true; const px = gen.pos.x + ux * 3.4, pz = gen.pos.z + uz * 3.4; dust(px + ux * .5, pz + uz * .5, 8, .8); sfx.thud(.9); telop('ズコーッ!', { c: 'p', y: 58, size: 1.2, r: 10 }); later(.15, () => sfx.crowd(2.6, .6)); }
+      fwd = 3.4; y = 0; h.hips.rotation.x = 1.5; h.hips.position.y = .25; const tw = Math.sin(g * 11);
+      leg(h, 'L', .1, .12, .35 + Math.max(0, tw) * .5); leg(h, 'R', .1, .12, .35 + Math.max(0, -tw) * .5);
+      arm(h, 'R', -2.95, .12, 0); arm(h, 'L', -.15, 1.2, -.2); h.neck.rotation.x = -.25; h.neck.rotation.z = .3; h.expr('squeeze');
+    }
+    if (g < .05) gen.splatted = false;
+    h.root.position.set(gen.pos.x + ux * fwd, y, gen.pos.z + uz * fwd); h.root.rotation.set(0, Math.atan2(ux, uz), 0); f.look = null;
+    return;
+  }
   if (gen.anim === 'cheer') {
     const j = Math.abs(Math.sin(t * 7)); h.hips.position.y = .95 + j * .12;
     arm(h, 'L', -2.9 + j * .3, .35, -.2); arm(h, 'R', -2.9 + j * .3, .35, -.2); hL.k = hR.k = 1; hL.point = hR.point = false;
@@ -2187,6 +2294,7 @@ function* flight(land, extraSpin = 1) {
     h.hips.rotation.x += sx * dt; h.hips.rotation.z += sz * dt; flail(h, t * 1.3, 1);
     if (root.position.y < .32 && vel.y < 0) {
       root.position.y = .32; dust(root.position.x, root.position.z, 12, 1.1); sfx.thud(.8 - bounces * .25);
+      if (bounces === 0) freezeFrame(['ドサッ!!', 'ズコーッ!!', 'グシャ!!', 'ベチャッ!!'][Math.floor(Math.random() * 4)], ['y', 'p', 'r', 'w'][Math.floor(Math.random() * 4)]);
       if (bounces < 2 && -vel.y > 2.5) { vel.y = -vel.y * .36; vel.x *= .55; vel.z *= .55; sx *= .45; sz *= .4; bounces++; }
       else break;
     }
@@ -2371,6 +2479,7 @@ function* seqSplash(e) {
   let y = 0, vy = 1.2, t = 0;
   while (y > WATER_Y - .25) { const dt = yield; t += dt; vy -= G * dt; y += vy * dt; along += dt * 1.6; place(y); resetPose(h); flail(h, t * 1.3); arm(h, 'L', -PI + .3 + Math.sin(t * 20) * .3, .5, 0); arm(h, 'R', -PI + .3 + Math.sin(t * 22) * .3, .5, 0); }
   splash(player.pos.x, player.pos.z, 1.5); sfx.splash(); h.setFace('scream');
+  later(.12, () => freezeFrame('ドボーン!!', 'b'));
   yield* during(.9, (k, t2) => { place(lerp(WATER_Y - .25, WATER_Y - 1.42, easeOut(k))); resetPose(h); arm(h, 'L', -PI + .4 + Math.sin(t2 * 18) * .4, .6, -.3); arm(h, 'R', -PI + .4 + Math.sin(t2 * 17) * .4, .6, -.3); });
   player.wet = true;
 }
@@ -2385,6 +2494,7 @@ function startCatch(o, which) {
   caption(['捕まった！', 'つかまえた！', 'ガオー！'][Math.floor(Math.random() * 3)], `${o.name} got you!`, o.name, 2);
   seq = SEQS[which](o); seq.next();
   cutTo(o.h, 1.1, .7); cutTo(player.h, .9, -.3, 1.1);
+  crashZoom(14, .8); later(.15, () => telop(['ガオーッ!!', 'つかまえた!', '逃がさん!'][Math.floor(Math.random() * 3)], { c: o === onis[0] ? 'r' : 'b', y: 30 })); later(1.1, () => sfx.ooh(.45));
   seq.catcher = o;
 }
 const outLines = [
@@ -2406,7 +2516,7 @@ function onOut() {
 }
 function win() {
   if (state !== 'play') return;
-  setState('win'); sfx.fanfare(); burstConfetti(player.pos.x, player.pos.z);
+  setState('win'); sfx.fanfare(); burstConfetti(player.pos.x, player.pos.z); sfx.ooh(.6); later(.6, () => sfx.crowd(2.5, .5)); telop('脱出成功!!', { c: 'g', size: 1.3, y: 30 });
   mc.anim = 'shock'; gen.anim = 'cheer'; for (const o of onis) { o.anim = 'sulk'; o.speed = 0; }
   later(3, () => { if (state === 'win') genSay('万歳！万歳！', 'BANZAI! Victory for the troops!'); });
   later(.7, () => mcSay('な、なにぃ？！', 'W-WHAT?! The human escaped?!', 175));
@@ -2420,7 +2530,11 @@ const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`
 const cams = {
   mc: k => ({ p: [mc.pos.x - 1.2 - k * .3, 2.65, mc.pos.z + 2.6 - k * .6], l: [mc.pos.x, 2.45, mc.pos.z] }),
   mc2: k => ({ p: [mc.pos.x + 1.6 - k * .6, 2.3, mc.pos.z + 3.4 - k * .8], l: [mc.pos.x, 2.3, mc.pos.z] }),
-  general: k => { const fx = Math.sin(gen.yaw), fz = Math.cos(gen.yaw); return { p: [gen.pos.x + fx * lerp(2.6, 2.1, k) + fz * 1.1, lerp(1.3, 1.55, k), gen.pos.z + fz * lerp(2.6, 2.1, k) - fx * 1.1], l: [gen.pos.x - fz * .25, 2.05, gen.pos.z + fx * .25] }; },
+  general: k => { const fx = Math.sin(gen.yaw), fz = Math.cos(gen.yaw), g = gen.anim === 'gag' ? 1 : 0;
+    const P = [gen.pos.x + fx * lerp(2.6, 2.1, k) + fz * 1.1, lerp(1.3, 1.55, k), gen.pos.z + fz * lerp(2.6, 2.1, k) - fx * 1.1], Lk = [gen.pos.x - fz * .25, 2.05, gen.pos.z + fx * .25];
+    const d = gen.gagDir || { x: fx, z: fz }, ee = maze.entranceEdge, mx = gen.pos.x + d.x * 2.2, mz = gen.pos.z + d.z * 2.2;
+    const P2 = [mx + ee.nx * 4.6 + d.x * .8, 1.9, mz + ee.nz * 4.6 + d.z * .8], L2 = [mx + d.x * .6, .55, mz + d.z * .6];
+    return { p: P.map((v, i) => lerp(v, P2[i], g)), l: Lk.map((v, i) => lerp(v, L2[i], g)) }; },
   mc3: k => ({ p: [mc.pos.x - .3, 2.6 - k * .2, mc.pos.z + 2.3 - k * .7], l: [mc.pos.x, 2.55, mc.pos.z] }),
   crane: k => ({ p: [lerp(16, -6, k), lerp(8, 34, ease(k)), lerp(48, 38, k)], l: [0, 0, lerp(16, 0, ease(k))] }),
   exit: k => { const e = maze.exits.find(x => x !== maze.real); return { p: [e.mx + e.nx * 8 - e.nz * lerp(-5, 5, k), 6.5, e.mz + e.nz * 8 + e.nx * lerp(-5, 5, k)], l: [e.mx + e.nx * 1.5, -.3, e.mz + e.nz * 1.5] }; },
@@ -2434,7 +2548,7 @@ function cutTo(who, dur, side = .3, delay = 0) { later(delay, () => { faceCut = 
 function updateCamera(dt) {
   let wantP, wantL, rate = 6;
   if (state === 'title') { const a = time * .06; wantP = new THREE.Vector3(Math.sin(a) * 46, 24, Math.cos(a) * 46); wantL = new THREE.Vector3(0, 0, 0); rate = 50; }
-  else if (state === 'intro') { const L = introLines[clamp(introI, 0, introLines.length - 1)]; const c = cams[L.shot](clamp(lineT / Math.max(lineDur, 1), 0, 1)); wantP = new THREE.Vector3(...c.p); wantL = new THREE.Vector3(...c.l); rate = lineT < .05 ? 1000 : 4; }
+  else if (state === 'intro') { const L = introLines[clamp(introI, 0, introLines.length - 1)]; const c = cams[L.shot](clamp(lineT / Math.max(lineDur, 1), 0, 1)); wantP = new THREE.Vector3(...c.p); wantL = new THREE.Vector3(...c.l); rate = lineT < .05 || (gen.anim === 'gag' && gen.gagT < .06) ? 1000 : 4; }
   else if (state === 'play') {
     camState.yaw = lerpA(camState.yaw, player.yaw, 1 - Math.exp(-dt * 4));
     const yaw = camState.yaw + lookOff, fx = Math.sin(yaw), fz = Math.cos(yaw);
@@ -2469,6 +2583,8 @@ function updateCamera(dt) {
   const k = 1 - Math.exp(-dt * rate);
   camState.pos.lerp(wantP, k); camLook.lerp(wantL, rate >= 1000 ? 1 : Math.min(1, k * 1.4));
   camera.position.copy(camState.pos); camera.lookAt(camLook);
+  if (fovHold > 0) fovHold -= dt; else fovKick *= Math.exp(-dt * 3);
+  camera.fov = 60 - fovKick; camera.updateProjectionMatrix();
 }
 
 // ============================================================================ loop
@@ -2506,6 +2622,7 @@ else if (AUTO || Q.has('play')) {
 let warpTo = +(Q.get('t') || 0);
 function frame() {
   if (warpTo) { clock.getDelta(); while (time < warpTo) step(1 / 30); warpTo = 0; }
+  else if (freezeT > 0) { const rd = Math.min(clock.getDelta(), .05); freezeT -= rd; fovKick += rd * 9; camera.fov = 60 - fovKick; camera.updateProjectionMatrix(); if (freezeT <= 0) document.body.classList.remove('frozen'); }
   else step(Math.min(clock.getDelta(), .05));
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
