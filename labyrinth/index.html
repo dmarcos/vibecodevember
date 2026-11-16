@@ -746,8 +746,8 @@ function buildHead(J, S) {
   const tongueM = M(0xc84a58, { flat: false, roughness: .35 }), tongue = []; let tp = jaw;
   const t0 = new THREE.Group(); t0.position.set(0, (yM - .11) * U, (fz(0, yM) - .3) * U); jaw.add(t0); tp = t0;
   for (let i = 0; i < 4; i++) {
-    const seg = new THREE.Group(); if (i) seg.position.z = .09 * U * (1 - i * .08); tp.add(seg);
-    part(blob(S.xc * (.62 - i * .1) * U, .045 * U, .07 * U, 10, 6), tongueM, seg, [0, 0, .04 * U], { ol: .0025, live: true });
+    const seg = new THREE.Group(); if (i) seg.position.z = .062 * U * (1 - i * .08); tp.add(seg);
+    part(blob(S.xc * (.6 - i * .1) * U, .04 * U, .055 * U, 10, 6), tongueM, seg, [0, 0, .03 * U], { ol: .0025, live: true });
     tongue.push(seg); tp = seg;
   }
   const R = sh.refs, MP = sh.geometry.morphAttributes.position, BP = sh.geometry.attributes.position, rA = new THREE.Vector3(), rB = new THREE.Vector3();
@@ -827,9 +827,9 @@ function buildHead(J, S) {
     morphed(R.up, rA); upper.position.copy(rA).sub(upRest);
     // tongue: lolls out, wags, flops to the side
     const to = cur.tongue + (E.anim === 'laugh' ? .1 * Math.abs(Math.sin(t * 11)) : 0);
-    tongue[0].position.z = (-.12 + to * .26) * U; tongue[0].position.y = (.03 + to * .05) * U;
-    tongue[0].rotation.set(-.15 - to * .1, cur.tongueSide * .18, 0);
-    for (let i = 1; i < 4; i++) { tongue[i].rotation.x = to * (.12 + i * .1) + Math.sin(t * 6 + i) * .1 * to; tongue[i].rotation.y = cur.tongueSide * .08 + Math.sin(t * 4 + i * .7) * .1 * to; tongue[i].scale.setScalar(1 + to * .12); }
+    tongue[0].position.z = (-.12 + to * .3) * U; tongue[0].position.y = (.035 + to * .06) * U;
+    tongue[0].rotation.set(-.1 - to * .15, cur.tongueSide * .18, 0);
+    for (let i = 1; i < 4; i++) { const out = Math.max(0, to - .45); tongue[i].rotation.x = out * (.2 + i * .15) + Math.sin(t * 6 + i) * .08 * out; tongue[i].rotation.y = cur.tongueSide * .08 + Math.sin(t * 4 + i * .7) * .1 * to; tongue[i].scale.setScalar(1 + to * .12); }
     // brows
     for (const b of brows) {
       const up_ = b.s > 0 ? cur.browUpL : cur.browUpR;
@@ -2025,6 +2025,7 @@ const introLines = [
   { jp: '青鬼！', en: 'AO-ONI!', shot: 'ao', oni: 1, tel: ['青鬼!!', 'b'], zoom: 20, ooh: true },
   { jp: '捕まったら…ポイだ！', en: 'If they catch you… OUT YOU GO! Hahaha!', shot: 'mc3', tel: ['ポイ!', 'p'], zoom: 14, crowd: true },
   { jp: '全軍、突撃ーっ！', en: 'Troops! Into the hive — CHAAARGE!', shot: 'general', gen: true, tel: ['突撃ーっ!!', 'y'], zoom: 12 },
+  { jp: 'はいっ！がんばります！', en: 'YES SIR! I will do my very best!', shot: 'salute', salute: true, tel: ['気合い十分!!', 'y'], telAt: [73, 18], zoom: 12 },
   { jp: 'よーい…はじめ！', en: 'Ready… BEGIN!', shot: 'player', tel: ['はじめ!', 'g'] },
 ];
 function nextLine() {
@@ -2034,10 +2035,11 @@ function nextLine() {
   for (const o of onis) o.anim = 'idle';
   if (L.oni != null) { const o = onis[L.oni]; o.anim = 'roar'; o.talkUntil = time + 1.4; sfx.roar(o.pitch); caption(L.jp, L.en, o.name, 0); lineDur = 2.4; }
   else if (L.gen) { const d = genSay(L.jp, L.en); lineDur = Math.max(2.4, d + 1.1); }
+  else if (L.salute) { player.saluteT = 0; sfx.stomp(.6); later(.32, () => { sfx.slap(); sfx.stomp(.5); }); const d = sfx.voice(L.en, 200, 1.1); player.talkUntil = time + .45 + d; later(.45, () => caption(L.jp, L.en, 'Contestant', d + 1.4)); lineDur = Math.max(2.6, d + 1.6); later(lineDur - .8, () => { if (state === 'intro') sfx.crowd(1.2, .3); }); }
   else { const d = mcSay(L.jp, L.en, 150); lineDur = Math.max(2.3, d + 1.1); }
   if (L.shot === 'player') { sfx.gong(); lineDur = 2.2; }
   if (L.zoom) crashZoom(L.zoom, .6);
-  if (L.tel) later(L.zoom ? .25 : .5, () => { if (state === 'intro') telop(L.tel[0], { c: L.tel[1], y: 26 + Math.random() * 8, x: 38 + Math.random() * 24 }); });
+  if (L.tel) later(L.zoom ? .25 : .5, () => { if (state === 'intro') telop(L.tel[0], { c: L.tel[1], y: L.telAt ? L.telAt[1] : 26 + Math.random() * 8, x: L.telAt ? L.telAt[0] : 38 + Math.random() * 24, size: L.telAt ? .8 : 1, r: L.telAt ? 8 : undefined }); });
   if (L.jan) sfx.jan();
   if (L.ooh) later(.3, () => sfx.ooh());
   if (L.crowd) later(lineDur - .9, () => { if (state === 'intro') sfx.crowd(1.6, .4); });
@@ -2310,6 +2312,17 @@ function* flight(land, extraSpin = 1) {
   });
   player.pos.x = root.position.x; player.pos.z = root.position.z;
 }
+// contestant snaps to attention: heel-stomp, chest out, crisp salute at the brow, shouts at the camera
+function poseSalute(h, t) {
+  const [hL, hR] = h.hands, snap = easeOut(clamp((t - .12) / .2, 0, 1)), stomp = t < .3 ? Math.sin(t / .3 * PI) : 0, quiver = Math.sin(t * 40) * .02 * snap;
+  h.hips.position.y = .95 + stomp * .06 - snap * .01;
+  leg(h, 'L', -stomp * .7, .03, stomp * 1.1); leg(h, 'R', 0, .03, 0);
+  h.torso.rotation.x = -.12 * snap; h.neck.rotation.x = -.12 * snap;
+  arm(h, 'L', 0, .06, 0); hL.k = .9;
+  // right arm: elbow out to the side at shoulder height, forearm folded back so the flat hand sits at the brow
+  arm(h, 'R', lerp(0, -1.45, snap), lerp(.12, .8, snap) + quiver, lerp(-.2, -2.4, snap)); h.handR.rotation.set(0, -.4 * snap, 0); hR.k = lerp(.35, 0, snap);
+  h.expr(t < .45 ? 'determined' : 'shout'); h.face.talk = time < (player.talkUntil || 0) && t > .45; h.face.look = camera.position;
+}
 function poseSplat(h, t) {
   arm(h, 'L', -.2, 1.35 + Math.sin(t * 7) * .08, -.3); arm(h, 'R', -.2, 1.35 + Math.sin(t * 6 + 1) * .08, -.3);
   leg(h, 'L', -.25, .38 + Math.sin(t * 11) * .06, .25); leg(h, 'R', -.1, .3, .15 + Math.max(0, Math.sin(t * 9)) * .5);
@@ -2539,6 +2552,7 @@ const cams = {
   crane: k => ({ p: [lerp(16, -6, k), lerp(8, 34, ease(k)), lerp(48, 38, k)], l: [0, 0, lerp(16, 0, ease(k))] }),
   exit: k => { const e = maze.exits.find(x => x !== maze.real); return { p: [e.mx + e.nx * 8 - e.nz * lerp(-5, 5, k), 6.5, e.mz + e.nz * 8 + e.nx * lerp(-5, 5, k)], l: [e.mx + e.nx * 1.5, -.3, e.mz + e.nz * 1.5] }; },
   aka: k => oniCam(onis[0], k), ao: k => oniCam(onis[1], k),
+  salute: k => { const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw); return { p: [player.pos.x + fx * lerp(1.9, 1.55, k) - fz * .2, 1.62, player.pos.z + fz * lerp(1.9, 1.55, k) + fx * .2], l: [player.pos.x, 1.28, player.pos.z] }; },
   player: k => ({ p: [player.pos.x + lerp(1.5, .5, k), lerp(2.0, 2.4, k), player.pos.z + lerp(4.5, 3.6, k)], l: [player.pos.x, 1.6, player.pos.z - 6] }),
 };
 function oniCam(o, k) { const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); return { p: [o.pos.x + fx * lerp(3.4, 2.7, k) + fz * .8, lerp(3.9, 3.0, k), o.pos.z + fz * lerp(3.4, 2.7, k) - fx * .8], l: [o.pos.x, 2.2, o.pos.z] }; }
@@ -2649,7 +2663,10 @@ function step(dt) {
   if (state === 'out' && player.wet) { const h = player.h; resetPose(h); h.root.position.y = WATER_Y - 1.42 + Math.sin(time * 2.2) * .05; arm(h, 'L', -.4 + Math.sin(time * 3) * .3, 1.2 + Math.sin(time * 3) * .2, -.6); arm(h, 'R', -.4 + Math.sin(time * 3 + 1) * .3, 1.2 + Math.sin(time * 3 + 1) * .2, -.6); leg(h, 'L', Math.sin(time * 4) * .4, .1, .4); leg(h, 'R', -Math.sin(time * 4) * .4, .1, .4); h.setFace(Math.sin(time * .9) > 0 ? 'sulk' : 'dizzy'); h.face.look = null; if (Math.random() < dt * 1.2) ripple(player.pos.x, player.pos.z, .6); }
   else if (state === 'out') { const h = player.h; poseSplat(h, time); h.hips.rotation.x = -PI / 2; h.setFace('dizzy'); h.face.look = null; }
   if (state === 'win') { const h = player.h; player.speed = 0; resetPose(h); const j = Math.abs(Math.sin(time * 8)); h.hips.position.y = .95 + j * .35; arm(h, 'L', -PI + .2, .3, 0); arm(h, 'R', -PI + .2, .3, 0); leg(h, 'L', 0, .1, j * .8); leg(h, 'R', 0, .1, j * .8); h.setFace('joy'); h.face.look = camHead; player.yaw = lerpA(player.yaw, Math.atan2(camera.position.x - player.pos.x, camera.position.z - player.pos.z), .05); h.root.rotation.y = player.yaw; }
-  if (state === 'intro' || state === 'title') { const h = player.h; resetPose(h); mc.h.headC.getWorldPosition(mcHead); h.face.look = mcHead; h.expr(introI >= 4 && introI <= 6 ? 'panic' : 'neutral'); h.torso.rotation.x = Math.sin(time * 2) * .02; arm(h, 'L', 0, .12, -.2); arm(h, 'R', 0, .12, -.2); leg(h, 'L', .1 * Math.sin(time * 6), .05, .2); }
+  if (state === 'intro' || state === 'title') { const h = player.h; resetPose(h); mc.h.headC.getWorldPosition(mcHead); h.face.look = mcHead; h.expr(introI >= 4 && introI <= 6 ? 'panic' : 'neutral'); h.torso.rotation.x = Math.sin(time * 2) * .02; arm(h, 'L', 0, .12, -.2); arm(h, 'R', 0, .12, -.2); leg(h, 'L', .1 * Math.sin(time * 6), .05, .2);
+    const L = introLines[introI];
+    if (state === 'intro' && L && L.salute) poseSalute(h, player.saluteT = (player.saluteT || 0) + dt);
+    else { const [hL, hR] = h.hands; hR.k = hL.k = .35; h.face.talk = false; } }
   camHead.copy(camera.position); player.h.headC.getWorldPosition(pHead);
   for (const o of onis) animOni(o, dt);
   animMC(dt); animGeneral(dt);
