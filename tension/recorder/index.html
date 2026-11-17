@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grunt Recorder</title>
+<style>
+  :root { --paper: #fbfaf7; --ink: #0b0b0b; --hot: #d81e14; --sel: #ffc72e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.4 ui-sans-serif, system-ui, sans-serif; padding: 24px 16px 60px; }
+  main { max-width: 820px; margin: 0 auto; }
+  h1 { font: 900 28px/1 ui-sans-serif, system-ui; letter-spacing: -0.02em; margin: 0 0 6px; text-transform: uppercase; }
+  .sub { margin: 0 0 22px; opacity: 0.7; }
+  .take { border: 3px solid var(--ink); padding: 14px; margin-bottom: 18px; background: #fff; box-shadow: 5px 5px 0 var(--ink); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .head h2 { margin: 0; font: 800 18px/1.2 ui-sans-serif, system-ui; }
+  .head .tgt { font: 600 12px ui-monospace, monospace; opacity: 0.6; }
+  .hint { margin: 4px 0 10px; font-size: 14px; opacity: 0.8; }
+  canvas { width: 100%; height: 110px; display: block; border: 2px solid var(--ink); background: var(--paper); cursor: crosshair; touch-action: none; }
+  .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: 700 13px ui-sans-serif, system-ui; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); padding: 7px 12px; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  button.rec { background: var(--hot); color: #fff; border-color: var(--ink); }
+  button.rec.on { animation: blink 0.8s steps(2) infinite; }
+  @keyframes blink { 50% { background: var(--ink); } }
+  .info { font: 12px ui-monospace, monospace; opacity: 0.7; margin-left: auto; }
+  label { font-size: 13px; display: inline-flex; gap: 5px; align-items: center; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
+  select { font: inherit; border: 2px solid var(--ink); background: var(--paper); padding: 5px; max-width: 100%; }
+  .note { font-size: 13px; opacity: 0.7; margin-top: 24px; }
+  code { font: 12px ui-monospace, monospace; background: #eee; padding: 1px 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Grunt recorder</h1>
+  <p class="sub">Record one take per phase, drag on the waveform to keep only the good part, then save.</p>
+  <div class="bar">
+    <label>Mic <select id="mic"><option value="">default</option></select></label>
+    <label><input type="checkbox" id="norm" checked> normalize</label>
+    <label><input type="checkbox" id="fade" checked> fade edges</label>
+    <button id="saveAll" disabled>Save all</button>
+  </div>
+  <div id="takes"></div>
+  <p class="note">Files save as <code>phase1.wav</code>, <code>phase2.wav</code>, <code>phase3.wav</code>, <code>relax.wav</code>. Chrome lets you pick a folder once (choose <code>tension/audio</code>); other browsers download them instead. Takes live only in this tab, so save before you reload. Space bar records or stops the take you last used.</p>
+</main>
+<script>
+const PHASES = [
+  { id: 'phase1', name: '1 · Focus', tgt: '~2 s', hint: 'Restrained, closed mouth: a low "hmm…", then a held breath through the nose.' },
+  { id: 'phase2', name: '2 · Clench', tgt: '~2 s', hint: 'A sharp gritted "ngh!" on the clench, then a shaking, strained "nnnnngh…" through the teeth.' },
+  { id: 'phase3', name: '3 · Power up', tgt: '~4–5 s', hint: 'A short build, then an open "HAAAAAAA!" that climbs in pitch and keeps going past the point it hurts. Back off the mic.' },
+  { id: 'relax', name: 'Relax', tgt: '~1 s', hint: 'A loose exhale or "haah" as the tension drops.' },
+];
+let ac, dirHandle = null, active = null;
+const takes = {};
+const micSel = document.getElementById('mic');
+
+async function listMics() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+    const cur = micSel.value;
+    micSel.innerHTML = '<option value="">default</option>' + devs.map(d => `<option value="${d.deviceId}">${d.label || 'mic ' + d.deviceId.slice(0, 6)}</option>`).join('');
+    micSel.value = cur;
+  } catch {}
+}
+listMics();
+
+function ui(p) {
+  const el = document.createElement('section'); el.className = 'take';
+  el.innerHTML = `<div class="head"><h2>${p.name}</h2><span class="tgt">target ${p.tgt}</span></div>
+    <p class="hint">${p.hint}</p><canvas></canvas>
+    <div class="row"><button class="rec">● Record</button><button class="play" disabled>▶ Play</button>
+    <button class="clear" disabled>Reset trim</button><button class="save" disabled>Save</button><span class="info">no take</span></div>`;
+  document.getElementById('takes').appendChild(el);
+  const T = takes[p.id] = { p, el, buf: null, a: 0, b: 1, cv: el.querySelector('canvas'), info: el.querySelector('.info'), src: null, playT: null };
+  el.querySelector('.rec').onclick = () => toggleRec(T);
+  el.querySelector('.play').onclick = () => play(T);
+  el.querySelector('.clear').onclick = () => { T.a = 0; T.b = 1; draw(T); };
+  el.querySelector('.save').onclick = () => save([T]);
+  // drag to select the region to keep
+  let down = null;
+  const pos = (e) => { const r = T.cv.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  T.cv.addEventListener('pointerdown', (e) => { if (!T.buf) return; T.cv.setPointerCapture(e.pointerId); down = pos(e); T.a = T.b = down; draw(T); });
+  T.cv.addEventListener('pointermove', (e) => { if (down === null) return; const x = pos(e); T.a = Math.min(down, x); T.b = Math.max(down, x); draw(T); });
+  T.cv.addEventListener('pointerup', () => { if (down === null) return; down = null; if (T.b - T.a < 0.01) { T.a = 0; T.b = 1; } draw(T); });
+  new ResizeObserver(() => draw(T)).observe(T.cv);
+  draw(T);
+}
+PHASES.forEach(ui);
+
+async function toggleRec(T) {
+  if (T.rec) { T.rec.stop(); return; }
+  if (Object.values(takes).some(o => o.rec)) return;
+  active = T;
+  ac = ac || new AudioContext();
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: micSel.value || undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (err) { T.info.textContent = 'mic blocked: ' + err.name; return; }
+  listMics();
+  const chunks = [], rec = new MediaRecorder(stream);
+  T.rec = rec; const btn = T.el.querySelector('.rec');
+  btn.classList.add('on'); btn.textContent = '■ Stop';
+  // live level meter while recording
+  const an = ac.createAnalyser(); an.fftSize = 2048; ac.createMediaStreamSource(stream).connect(an);
+  const data = new Float32Array(an.fftSize), live = [], t0 = performance.now();
+  const tick = () => {
+    if (!T.rec) return;
+    an.getFloatTimeDomainData(data); let m = 0; for (const v of data) m = Math.max(m, Math.abs(v));
+    live.push(m); drawLive(T, live, m);
+    T.info.textContent = `recording ${((performance.now() - t0) / 1000).toFixed(1)} s${m > 0.98 ? ' · CLIPPING' : ''}`;
+    requestAnimationFrame(tick);
+  };
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    T.rec = null; btn.classList.remove('on'); btn.textContent = '● Record';
+    try {
+      T.buf = await ac.decodeAudioData(await new Blob(chunks).arrayBuffer());
+      T.a = 0; T.b = 1; autoTrim(T);
+    } catch { T.info.textContent = 'could not decode take'; }
+    draw(T); refresh();
+  };
+  rec.start(); tick();
+}
+
+function autoTrim(T) {                       // start with silence trimmed off both ends
+  const d = mono(T.buf), thr = 0.02, pad = Math.floor(T.buf.sampleRate * 0.05);
+  let s = 0, e = d.length - 1;
+  while (s < d.length && Math.abs(d[s]) < thr) s++;
+  while (e > s && Math.abs(d[e]) < thr) e--;
+  if (e > s) { T.a = Math.max(0, s - pad) / d.length; T.b = Math.min(d.length, e + pad) / d.length; }
+}
+function mono(buf) {
+  if (buf.numberOfChannels === 1) return buf.getChannelData(0);
+  const out = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) out[i] += d[i] / buf.numberOfChannels; }
+  return out;
+}
+function sizeCanvas(cv) {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = Math.max(1, r.width * dpr); cv.height = Math.max(1, r.height * dpr);
+  const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); return [x, r.width, r.height];
+}
+function drawLive(T, live, m) {
+  const [x, w, h] = sizeCanvas(T.cv);
+  x.fillStyle = '#fbfaf7'; x.fillRect(0, 0, w, h);
+  const n = Math.max(live.length, 600), bw = w / n;
+  x.fillStyle = m > 0.98 ? '#d81e14' : '#0b0b0b';
+  live.forEach((v, i) => { const hh = v * h * 0.95; x.fillRect(i * bw, (h - hh) / 2, Math.max(1, bw), hh); });
+}
+function draw(T) {
+  const [x, w, h] = sizeCanvas(T.cv);
+  x.fillStyle = '#fbfaf7'; x.fillRect(0, 0, w, h);
+  if (!T.buf) { x.fillStyle = '#0b0b0b'; x.globalAlpha = 0.35; x.font = '13px system-ui'; x.fillText('press record', 10, h / 2 + 4); x.globalAlpha = 1; return; }
+  x.fillStyle = '#ffc72e'; x.fillRect(T.a * w, 0, (T.b - T.a) * w, h);
+  const d = mono(T.buf), step = d.length / w;
+  for (let px = 0; px < w; px++) {
+    let lo = 0, hi = 0;
+    for (let i = Math.floor(px * step); i < Math.floor((px + 1) * step); i++) { const v = d[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const inside = px / w >= T.a && px / w <= T.b;
+    x.fillStyle = inside ? '#0b0b0b' : 'rgba(11,11,11,0.25)';
+    x.fillRect(px, h / 2 - hi * h / 2, 1, Math.max(1, (hi - lo) * h / 2));
+  }
+  if (T.playT !== null) { x.fillStyle = '#d81e14'; x.fillRect(T.playT * w, 0, 2, h); }
+  const len = (T.b - T.a) * T.buf.duration;
+  T.info.textContent = `${len.toFixed(2)} s kept of ${T.buf.duration.toFixed(2)} s`;
+}
+function refresh() {
+  for (const T of Object.values(takes)) for (const s of ['.play', '.clear', '.save']) T.el.querySelector(s).disabled = !T.buf;
+  document.getElementById('saveAll').disabled = !Object.values(takes).some(T => T.buf);
+}
+
+function render(T) {                         // trimmed, faded, normalized mono samples
+  const d = mono(T.buf), s = Math.floor(T.a * d.length), e = Math.floor(T.b * d.length);
+  const out = d.slice(s, e);
+  if (document.getElementById('fade').checked) {
+    const f = Math.min(Math.floor(T.buf.sampleRate * 0.015), out.length >> 1);
+    for (let i = 0; i < f; i++) { const g = i / f; out[i] *= g; out[out.length - 1 - i] *= g; }
+  }
+  if (document.getElementById('norm').checked) {
+    let m = 0; for (const v of out) m = Math.max(m, Math.abs(v));
+    if (m > 0) { const g = 0.89 / m; for (let i = 0; i < out.length; i++) out[i] *= g; }   // peak at -1 dBFS
+  }
+  return out;
+}
+function play(T) {
+  if (T.src) { T.src.stop(); return; }
+  const out = render(T), b = ac.createBuffer(1, out.length, T.buf.sampleRate); b.copyToChannel(out, 0);
+  const src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination);
+  const btn = T.el.querySelector('.play'), t0 = ac.currentTime;
+  T.src = src; btn.textContent = '■ Stop';
+  src.onended = () => { T.src = null; T.playT = null; btn.textContent = '▶ Play'; draw(T); };
+  src.start();
+  const tick = () => { if (!T.src) return; T.playT = T.a + (T.b - T.a) * Math.min(1, (ac.currentTime - t0) / b.duration); draw(T); requestAnimationFrame(tick); };
+  tick();
+}
+function wav(samples, rate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+async function save(list) {
+  list = list.filter(T => T.buf);
+  if (window.showDirectoryPicker && !dirHandle) {
+    try { dirHandle = await showDirectoryPicker({ id: 'grunts', mode: 'readwrite' }); } catch { dirHandle = null; }
+  }
+  for (const T of list) {
+    const blob = wav(render(T), T.buf.sampleRate), name = T.p.id + '.wav';
+    if (dirHandle) {
+      const fh = await dirHandle.getFileHandle(name, { create: true }), w = await fh.createWritable();
+      await w.write(blob); await w.close();
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    T.info.textContent = `saved ${name}${dirHandle ? ' to ' + dirHandle.name + '/' : ''}`;
+  }
+}
+document.getElementById('saveAll').onclick = () => save(Object.values(takes));
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.target.tagName === 'SELECT') return;
+  e.preventDefault(); document.activeElement?.blur(); toggleRec(active || takes.phase1);
+});
+</script>
+</body>
+</html>

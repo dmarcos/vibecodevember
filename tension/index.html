@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Vibecodevember - Day 13 - Tension</title>
+<title>Vibecodevember - Day 14 - Tension</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Dela+Gothic+One&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
@@ -106,7 +106,7 @@
 <div id="panel"></div>
 <div id="sfx"></div>
 <div id="hot"></div>
-<header class="bar"><span class="brand">Vibecodevember · Day 13</span><span class="name">Tension</span></header>
+<header class="bar"><span class="brand">Vibecodevember · Day 14</span><span class="name">Tension</span></header>
 <div id="hud">
   <div id="meter">
     <span class="gauge">Tension</span>
@@ -714,7 +714,7 @@ function wispPath(ctx, w) {                                // teardrop ember poi
   ctx.quadraticCurveTo(x + r * 1.3, y - r * 0.4, x, y + r);
   ctx.quadraticCurveTo(x - r * 1.3, y - r * 0.4, x + lean * r * 3, y - r * 2.6);
 }
-const AURA = { glow: '#ff5a14', ray: '#ff6a1a', band: ['#d81e14', '#ff7a12', '#ffc72e', '#fff4cc'], dots: '#ffa53a', ink: '#0b0b0b', rim: '#fff4cc', streak: '#fffbe8' };
+const AURA = { ray: '#fbfaf7', band: ['#d81e14', '#ff7a12', '#ffc72e', '#fff4cc'], dots: '#ffa53a', ink: '#0b0b0b', rim: '#fbfaf7', streak: '#fffbe8' };
 let auraDots = null;
 function drawAura(dt, a) {
   if (!vrm) return;
@@ -733,17 +733,14 @@ function drawAura(dt, a) {
   // radial power rays on the black page
   bctx.fillStyle = AURA.ray;
   for (const r of A.rays) {
-    bctx.globalAlpha = a * 0.22 * r.k;
-    const ir = A.rx * 0.9;
+    const ir = A.rx * (0.9 + (r.k - 0.8) * 0.9), w = r.w * 0.35;   // crisp white ink wedges, no grey
     bctx.beginPath(); bctx.moveTo(A.cx + Math.cos(r.a) * ir, A.cy + Math.sin(r.a) * ir);
-    bctx.lineTo(A.cx + Math.cos(r.a - r.w) * R0, A.cy + Math.sin(r.a - r.w) * R0);
-    bctx.lineTo(A.cx + Math.cos(r.a + r.w) * R0, A.cy + Math.sin(r.a + r.w) * R0); bctx.fill();
+    bctx.lineTo(A.cx + Math.cos(r.a - w) * R0, A.cy + Math.sin(r.a - w) * R0);
+    bctx.lineTo(A.cx + Math.cos(r.a + w) * R0, A.cy + Math.sin(r.a + w) * R0); bctx.fill();
   }
-  // soft heat bleeding into the black, then a heavy ink outline
+  // white rim on the black page, then a heavy ink outline
   flamePath(bctx, P[0]);
-  bctx.lineJoin = 'miter'; bctx.miterLimit = 6; bctx.strokeStyle = AURA.glow;
-  for (const [w, al] of [[48, 0.1], [24, 0.18]]) { bctx.globalAlpha = a * al * (0.85 + 0.15 * Math.sin(performance.now() / 70)); bctx.lineWidth = w; bctx.stroke(); }
-  bctx.globalAlpha = a;
+  bctx.lineJoin = 'miter'; bctx.miterLimit = 6;
   bctx.lineWidth = 8; bctx.strokeStyle = AURA.rim; bctx.stroke();       // thin hot rim peeking outside the ink
   // flat cel bands, hard edges, getting hotter toward the body
   P.forEach((pts, i) => {
@@ -999,7 +996,7 @@ function sfx(text, { x, y, size = 80, rot = 0, cls = 'jp', delay = 0, life = 0 }
 }
 function clearSfx() { for (const d of [...sfxEl.children]) { d.classList.add('out'); setTimeout(() => d.remove(), 320); } }
 
-// ------------------------------------------------------------------ audio: synthesized grunts, rumble, impacts, crackle
+// ------------------------------------------------------------------ audio: recorded voice takes, synthesized rumble, impacts, crackle
 let ac = null, master = null, muted = false, noiseBuf = null;
 function initAudio() {
   if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
@@ -1009,6 +1006,32 @@ function initAudio() {
   master.connect(comp).connect(ac.destination);
   noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
   const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  loadTakes();
+}
+// recorded voice takes (audio/*.wav, made with recorder/); the synth grunts stand in for any that fail to load
+const TAKES = {}, TAKE_FX = { phase1: [0.3, 0.9, 0], phase2: [0.3, 1, 0.12], phase3: [0.9, 1, 0.3], relax: [0, 0.8, 0] };  // [delay s, gain, reverb]
+let voiceSrc = null, verb = null;
+function loadTakes() {
+  // short dark hall so the power-up scream rings out over the rumble
+  const n = Math.floor(ac.sampleRate * 2.2), ir = ac.createBuffer(2, n, ac.sampleRate);
+  for (let c = 0; c < 2; c++) { const x = ir.getChannelData(c); for (let i = 0; i < n; i++) x[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2); }
+  verb = ac.createConvolver(); verb.buffer = ir; verb.connect(master);
+  for (const k of Object.keys(TAKE_FX))
+    TAKES[k] = TAKE_RAW[k].then(b => ac.decodeAudioData(b)).then(buf => (TAKES[k] = buf)).catch(() => { TAKES[k] = null; });
+}
+// fetch the files right away so they are decoded by the time the first panel is clicked
+const TAKE_RAW = Object.fromEntries(Object.keys(TAKE_FX).map(k => [k, fetch(`audio/${k}.wav`).then(r => r.ok ? r.arrayBuffer() : Promise.reject())]));
+Object.values(TAKE_RAW).forEach(p => p.catch(() => {}));
+function playTake(k, t0 = ac.currentTime) {
+  const buf = TAKES[k]; if (!buf) return false;
+  if (buf instanceof Promise) { buf.then(b => b && playTake(k, t0)); return true; }   // still decoding: play once ready, same timing
+  if (voiceSrc) try { voiceSrc.stop(); } catch {}
+  const [delay, gain, wet] = TAKE_FX[k], t = Math.max(ac.currentTime, t0 + delay);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const g = ac.createGain(); g.gain.value = gain; src.connect(g).connect(master);
+  if (wet) { const w = ac.createGain(); w.gain.value = wet; g.connect(w).connect(verb); }
+  src.start(t); voiceSrc = src;
+  return true;
 }
 function noise(t0, dur) { const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true; n.start(t0, Math.random()); n.stop(t0 + dur + 0.05); return n; }
 const shaperCurve = (() => { const c = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; c[i] = Math.tanh(x * 3.2); } return c; })();
@@ -1150,7 +1173,7 @@ function trigger(r) {
   if (r === 'eyes') {
     later(260, () => { S.focus = 1; S.sweat = 1; shake = 0.6; refreshUI(); });
     rumble(2.6, 0.2);
-    VOICE[1]();
+    playTake('phase1') || VOICE[1]();
     sfx('ゴゴゴゴ', { x: '14%', y: '50%', size: 110, rot: -8, cls: 'jp shake vert', delay: 250 });
     sfx('ゴ ゴ', { x: '87%', y: '46%', size: 90, rot: 7, cls: 'jp shake vert black', delay: 380 });
     sfx('...!!', { x: '70%', y: 'calc(50% - 15vh)', size: 70, rot: -4, cls: 'en', delay: 900 });
@@ -1158,7 +1181,7 @@ function trigger(r) {
   } else if (r === 'hand') {
     later(320, () => { S.fist = 1; shake = 1.2; impact(0, 0.5); flash(70); refreshUI(); });
     later(700, () => { S.sparks = 1; flash(60); later(140, () => flash(50)); });
-    VOICE[2]();
+    playTake('phase2') || VOICE[2]();
     sfx('ギュッ', { x: '24%', y: '26%', size: 120, rot: -12, cls: 'jp', delay: 330 });
     sfx('NGH!!', { x: '28%', y: '74%', size: 90, rot: -8, cls: 'en black shake', delay: 320 });
     sfx('NNNNGH...!!', { x: '70%', y: '18%', size: 64, rot: 6, cls: 'en', delay: 900 });
@@ -1173,7 +1196,7 @@ function trigger(r) {
       for (const sd of ['left', 'right']) dustAt(footWorld(sd).setY(0.02), 10);
     });
     later(950, () => { S.aura = 1; shake = 2.2; flash(120); impact(0, 1.2); later(180, () => flash(60)); });
-    VOICE[3]();
+    playTake('phase3') || VOICE[3]();
     rumble(4.5, 0.4);
     whoosh(0.95);
     sfx('ザッ!!', { x: '24%', y: '84%', size: 120, rot: -10, cls: 'jp', delay: 520 });
@@ -1189,7 +1212,7 @@ function pullBack() { if (shot === 'wide') return; timers.splice(0).forEach(clea
 function relax() {
   initAudio(); pullBack();
   S.focus = S.fist = S.stance = S.sweat = S.sparks = S.aura = 0; cracks = null;
-  if (ac) VOICE.relax();
+  if (ac) playTake('relax') || VOICE.relax();
   refreshUI();
 }
 relaxBtn.addEventListener('click', (e) => { e.stopPropagation(); relax(); });
