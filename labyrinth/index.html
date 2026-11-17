@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Vibecodevember - Day 12 - Labyrinth</title>
+<title>Vibecodevember - Day 13 - Labyrinth</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Inter:wght@400;500;700&family=Dela+Gothic+One&display=swap" rel="stylesheet" />
@@ -63,6 +63,18 @@
   #bug { position: fixed; left: clamp(16px, 3vw, 36px); top: calc(var(--bar) + 10px); z-index: 3; pointer-events: none; display: flex; gap: 8px; align-items: center; font: 400 15px 'Dela Gothic One', sans-serif; color: #fff; -webkit-text-stroke: 4px #111; paint-order: stroke fill; opacity: .9; }
   #bug .rec { font: 700 10px Inter, sans-serif; -webkit-text-stroke: 0; background: var(--red); padding: 2px 6px; border-radius: 2px; letter-spacing: .14em; animation: blink 1.2s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .35; } }
+  .namesup { position: fixed; left: clamp(16px, 5vw, 60px); top: calc(var(--bar, 0px) + 56px); z-index: 5; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 10px; writing-mode: vertical-rl; transform: translateX(-30px) scale(.8); opacity: 0; transition: transform .22s cubic-bezier(.3,1.8,.5,1), opacity .15s; white-space: nowrap; }
+  .namesup.on { transform: none; opacity: 1; }
+  .namesup .role { font: 400 clamp(16px, 2.6vw, 26px)/1 'Dela Gothic One', sans-serif; color: #111; background: #ffe14a; padding: 10px 6px; border-radius: 4px; transform: rotate(-3deg); }
+  .namesup .nm { font: 400 clamp(38px, 7.5vw, 84px)/1 'Dela Gothic One', sans-serif; color: #fff; -webkit-text-stroke: clamp(8px, 1.4vw, 14px) #111; paint-order: stroke fill; letter-spacing: .04em; text-shadow: 0 6px 0 rgba(0,0,0,.35); }
+  body.look .namesup { display: none; }
+  body.capture #hud, body.capture #map, body.capture #hint, body.capture #skip, body.capture #banner, body.capture #title { display: none !important; }
+  #endcard { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; pointer-events: none; opacity: 0; background: radial-gradient(circle, rgba(20,8,4,.35), rgba(20,8,4,.8)); transition: opacity .3s; }
+  #endcard.on { opacity: 1; }
+  #endcard .k { font: 400 clamp(64px, 15vw, 150px)/1 'Dela Gothic One', sans-serif; color: #fff; -webkit-text-stroke: 12px #c8241e; paint-order: stroke fill; letter-spacing: .04em; transform: rotate(-4deg) scale(.4); transition: transform .35s cubic-bezier(.3,1.8,.5,1); }
+  #endcard.on .k { transform: rotate(-4deg) scale(1); }
+  #endcard .e { font: 400 clamp(18px, 4vw, 34px)/1 'Dela Gothic One', sans-serif; color: #ffe14a; -webkit-text-stroke: 6px #111; paint-order: stroke fill; letter-spacing: .08em; }
+  #endcard .s { font: 700 clamp(12px, 2.4vw, 18px) Inter, sans-serif; color: #fff; letter-spacing: .3em; text-transform: uppercase; margin-top: 10px; text-shadow: 0 2px 6px #000; }
   #telops { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
   .telop { position: absolute; transform: translate(-50%, -50%) rotate(var(--r)) scale(0); font: 400 var(--sz)/1 'Dela Gothic One', sans-serif; color: var(--c); -webkit-text-stroke: calc(var(--sz) * .16) #111; paint-order: stroke fill; letter-spacing: .02em; white-space: nowrap;
     filter: drop-shadow(0 0 0 #fff) drop-shadow(4px 4px 0 #fff) drop-shadow(-4px -4px 0 #fff) drop-shadow(4px -4px 0 #fff) drop-shadow(-4px 4px 0 #fff) drop-shadow(0 10px 18px rgba(0,0,0,.5)); animation: telop var(--d) cubic-bezier(.2, 1.6, .4, 1) forwards; }
@@ -85,7 +97,7 @@
 <canvas id="c"></canvas>
 <div class="vignette"></div>
 <div id="danger"></div>
-<header class="bar"><span class="brand">Vibecodevember · Day 12</span><span class="name">Labyrinth</span></header>
+<header class="bar"><span class="brand">Vibecodevember · Day 13</span><span class="name">Labyrinth</span></header>
 <canvas id="map" width="340" height="340"></canvas>
 <div id="hud"><div><span class="k">time</span><span class="v" id="time">0:00.0</span></div><div><span class="k">thrown out</span><span class="v" id="outs">0</span></div></div>
 <div id="hint"><b>W/S ↑↓</b> run · <b>A/D ←→</b> turn · <b>drag</b> look · <b>R</b> retry · <b>N</b> new maze</div>
@@ -96,6 +108,7 @@
 <div id="frz">▌▌ もう一度見てみよう · REPLAY</div>
 <div id="cap"></div>
 <div id="banner"><div class="stamp" id="stamp">失格</div><div class="sub" id="bsub"></div></div>
+<div id="endcard"><div class="k">鬼の蜂の巣</div><div class="e">HONEYCOMB OF THE ONI</div><div class="s">find the one true door</div></div>
 <div id="skip"><b>click</b> next · <b>esc</b> skip intro</div>
 <div id="stick"><i></i></div>
 <div id="title"><div class="in">
@@ -113,6 +126,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // ============================================================================ setup
 const Q = new URLSearchParams(location.search);
 const SHOT = Q.has('shot');
+const CAPTURE = Q.has('capture');           // ?capture: deterministic 25 s square promo film, driven frame by frame via window.__frame()
+if (CAPTURE) document.body.classList.add('capture');
 const AUTO = Q.get('auto');                 // ?auto=toss|hammer|sack|push|spin  — jump straight into a throw
 if (SHOT) document.body.classList.add('shot');
 if (Q.has('look')) document.body.classList.add('look');
@@ -142,8 +157,8 @@ const lerpA = (a, b, k) => a + wrapA(b - a) * k;
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: SHOT });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, SHOT ? 1 : 1.75));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: SHOT || CAPTURE });
+renderer.setPixelRatio(CAPTURE ? devicePixelRatio : Math.min(devicePixelRatio || 1, SHOT ? 1 : 1.75));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -389,8 +404,8 @@ function lathe(prof, segs = 10, sz = 1, keepUV = false, phi0 = 0, phiL = TAU, fn
 function limb(r0, r1, len, segs = 10) {
   return lathe([[1e-4, -len - r1 * .85], [r1 * .72, -len - r1 * .55], [r1, -len - r1 * .05], [(r0 + r1) / 2 * 1.07, -len * .5], [r0, -r0 * .15], [r0 * .75, r0 * .5], [1e-4, r0 * .8]], segs);
 }
-function clumpGeo(r, L, bend) {
-  let g = new THREE.ConeGeometry(r, L, 5, 4); g.translate(0, L / 2, 0); g = smoothGeo(g);
+function clumpGeo(r, L, bend, tip = 0) {
+  let g = tip ? new THREE.CylinderGeometry(r * tip, r, L, 6, 5) : new THREE.ConeGeometry(r, L, 5, 4); g.translate(0, L / 2, 0); g = smoothGeo(g);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) { const y = p.getY(i) / L; p.setX(i, p.getX(i) + bend * L * y * y); }
   g.computeVertexNormals(); return g;
@@ -415,7 +430,7 @@ function hairGeo(hr, ax, c) {
     const u = new THREE.Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1); const l = u.lengthSq(); if (l > 1 || l < .05) continue; u.normalize();
     if (c.skip(u)) continue;
     const L = lerp(c.L0, c.L1, Math.pow(rand(), .8)), r = lerp(c.r0, c.r1, rand());
-    const g = clumpGeo(r, L, (rand() - .5) * 2 * (c.bend ?? .4));
+    const g = clumpGeo(r, L, (rand() - .5) * 2 * (c.bend ?? .4), c.tip);
     g.rotateY(rand() * TAU);
     q.setFromUnitVectors(up, c.dir(u, rand).normalize()); g.applyQuaternion(q);
     g.translate(u.x * hr * ax[0] * .86, u.y * hr * ax[1] * .86 + (c.lift || 0), u.z * hr * ax[2] * .86);
@@ -642,7 +657,7 @@ function sculptHead(S) {
 
 // ============================================================================ expressions — morph weights + eye/tongue rig; values past 1 are deliberate
 const SYM = ['smile', 'frown', 'sneer', 'squint', 'browUp', 'lidU', 'lidL', 'eye'];
-const RIG = ['lidUL', 'lidUR', 'lidLL', 'lidLR', 'eyeL', 'eyeR', 'bulge', 'pupil', 'cross', 'tongue', 'tongueSide', 'shake', 'blood', 'roll'];
+const RIG = ['lidUL', 'lidUR', 'lidLL', 'lidLR', 'eyeL', 'eyeR', 'bulge', 'pupil', 'cross', 'tongue', 'tongueSide', 'shake', 'blood', 'roll', 'gazeUp'];
 const FKEYS = [...MORPHS, ...RIG];
 const FDEF = { eyeL: 1, eyeR: 1, pupil: 1, lidUL: .1, lidUR: .1 };
 const EXPR_SRC = {
@@ -667,6 +682,7 @@ const EXPR_SRC = {
   joy: { smile: 1.2, jaw: .95, squint: 1, browUp: .7, lidU: .55, lidL: .75, anim: 'laugh' },
   shout: { jaw: 1.15, wide: .7, browAngry: .9, eye: 1.15, pupil: .7, lowLipDown: .6, upLip: .5, flare: .8, noseWrinkle: .4, shake: .15, lidU: 0, anim: 'tremble' },
   proud: { smile: .55, browAngry: .25, lidU: .32, chinOut: .2, squint: .2 },
+  bellow: { jaw: .75, smile: .7, wide: 1, upLip: 1, lowLipDown: 1, squint: .15, lidU: .3, lidL: .2, browUp: 1.1, gazeUp: 1, flare: .7, pupil: .8, shake: .18, anim: 'tremble' },
   grimace: { wide: 1, upLip: .85, lowLipDown: .85, squint: 1, lidU: .55, browAngry: .9, noseWrinkle: 1, jaw: .08, shake: .35 },
 };
 const EXPR = {};
@@ -720,7 +736,7 @@ function buildHead(J, S) {
     for (let i = 0; i < n; i++) {
       if (gapIdx?.includes(i)) continue;
       const t = (i + .5) / n, x = lerp(-S.xc * .82, S.xc * .82, t), sz = sizeFn(i, n, t);
-      const z = fz(x, yM) - .15 - Math.abs(x) * .08;
+      const z = fz(x, yM) - .15 + (T.fwd || 0) - Math.abs(x) * .08;
       const gq = blob(sz.w / 2, sz.h / 2, sz.d / 2, 8, 6, v => { if (sz.point && (down ? v.y < 0 : v.y > 0)) { const k = Math.abs(v.y); v.x *= 1 - .75 * k; v.z *= 1 - .5 * k; } if (!sz.point && (down ? v.y < -.4 : v.y > .4)) v.y = down ? -.4 - (-.4 - v.y) * .3 : .4 + (v.y - .4) * .3; });
       gq.rotateY(-x * .9); gq.rotateZ(sz.tilt || 0); gq.scale(U, U, U);
       gq.translate(x * U, (yTop + (down ? -sz.h / 2 : sz.h / 2)) * U, z * U);
@@ -735,7 +751,7 @@ function buildHead(J, S) {
     if (T.crooked) { h *= .75 + rnd * .55; tilt = (rnd - .5) * .35; }
     return { w: w * U / U, h, d, point, tilt };
   };
-  row(upper, T.n, yM + .065, true, toothSize('up'), T.gap);
+  row(upper, T.n, yM + .065 - (T.drop || 0), true, toothSize('up'), T.gap);
   part(blob(S.xc * .9 * U, .035 * U, .06 * U, 12, 6), gumM, upper, [0, (yM + .075) * U, (fz(0, yM) - .11) * U], { ol: 0 });
   row(jaw, T.nLow ?? T.n, yM - .075, false, toothSize('low'), T.gapLow);
   if (T.tusks) for (const s of [1, -1]) {
@@ -842,7 +858,7 @@ function buildHead(J, S) {
     if (face.look) { tmp.copy(face.look); hc.worldToLocal(tmp); gx = clamp(Math.atan2(tmp.x, tmp.z), -.5, .5); gy = clamp(-Math.atan2(tmp.y - S.ey * U, Math.hypot(tmp.x, tmp.z)), -.4, .4); }
     const shake = cur.shake;
     for (const e of eyes) {
-      let yx = gx - e.s * cur.cross * .5, yy = gy;
+      let yx = gx - e.s * cur.cross * .5, yy = lerp(gy, -.42, clamp(cur.gazeUp, 0, 1));
       if (cur.roll > .3) { yx = Math.cos(t * 8 * e.s) * .45; yy = Math.sin(t * 8 * e.s) * .35; }
       if (shake > .05) { yx += (Math.random() - .5) * shake * .15; yy += (Math.random() - .5) * shake * .15; }
       e.ball.rotation.y = lerp(e.ball.rotation.y, yx, 1 - Math.exp(-dt * 20)); e.ball.rotation.x = lerp(e.ball.rotation.x, yy, 1 - Math.exp(-dt * 20));
@@ -1089,7 +1105,7 @@ function makeOni(kind) {
   const C = {
     aka: { skin: 0xc8402e, lid: 0xb03424, hair: 0x221614, iris: ['#b0180c', '#ffcf3a'], sclera: 0xffe9a0, lip: 0x5a0e08, brow: 0x1a1010, fur: 0x2a1c16 },
     ao:  { skin: 0x3f78c4, lid: 0x3466aa, hair: 0xe8e2d4, iris: ['#2a1a10', '#9a7a30'], sclera: 0xfff3b8, lip: 0x18305e, brow: 0xd8d0c0, fur: 0xd8d0c0 },
-    mc:  { skin: 0xe6b08a, lid: 0xf2ece2, hair: 0xd02a1e, iris: ['#140a06', '#5a3a20'], sclera: 0xffffff, lip: 0xc0221c, brow: 0x140c08, fur: 0xd02a1e },
+    mc:  { skin: 0xe6b08a, lid: 0xf2ece2, hair: 0xd02a1e, iris: ['#140a06', '#5a3a20'], sclera: 0xfff8ee, lip: 0x7e1612, brow: 0x140c08, fur: 0xd02a1e },
   }[kind];
   const skin = M(C.skin, { flat: false, roughness: .5 }), skinD = M(new THREE.Color(C.skin).multiplyScalar(.72).getHex(), { flat: false, roughness: .5 });
   const gold = M(0xd9a632, { metalness: .6, roughness: .28, flat: false }), hairM = M(0xffffff, { vertexColors: true }), ivory = M(0xf2e8cc, { roughness: .35, flat: false });
@@ -1200,20 +1216,27 @@ function makeOni(kind) {
       g.fillStyle = '#f4f1ea'; { const [cx, cy] = P(0, -.08); g.beginPath(); g.ellipse(cx, cy, .9 / S_ * 512, 1.08 / S_ * 512, 0, 0, TAU); g.fill(); }
       grain(g, 512, 512, 3000, .05);
       // unshaven shadow showing through the greasepaint around the mouth and chin
-      { const [cx, cy] = P(0, -.62), gr = g.createRadialGradient(cx, cy, 10, cx, cy, 120); gr.addColorStop(0, 'rgba(90,85,80,.45)'); gr.addColorStop(1, 'rgba(90,85,80,0)'); g.fillStyle = gr; g.fillRect(0, 0, 512, 512); }
+      { const [cx, cy] = P(0, -.62), gr = g.createRadialGradient(cx, cy, 10, cx, cy, 120); gr.addColorStop(0, 'rgba(80,76,72,.6)'); gr.addColorStop(.6, 'rgba(80,76,72,.35)'); gr.addColorStop(1, 'rgba(80,76,72,0)'); g.fillStyle = gr; g.fillRect(0, 0, 512, 512);
+        const rr = mulberry(5); g.fillStyle = 'rgba(40,36,34,.5)'; for (let i = 0; i < 900; i++) { const a = rr() * TAU, d = Math.sqrt(rr()) * 115; g.fillRect(cx + Math.cos(a) * d * 1.2, cy + Math.sin(a) * d * .8, 1.6, 1.6); } }
+      // greasepaint thins out to bare tan skin at the edges where the hood wraps
+      { const [cx, cy] = P(0, -.05), gr = g.createRadialGradient(cx, cy, 150, cx, cy, 215); gr.addColorStop(0, 'rgba(200,150,115,0)'); gr.addColorStop(1, 'rgba(200,150,115,.85)'); g.fillStyle = gr; g.fillRect(0, 0, 512, 512); }
+      // grey stubble moustache line above the lip
+      line([[-.2, -.3], [0, -.27], [.2, -.3]], 7, 'rgba(70,64,60,.55)');
       for (const s of [1, -1]) {
-        // teal lid shadow sweeping up to the temple
+        // teal lid shadow sweeping up to the temple, and a teal band under the eye
         g.fillStyle = 'rgba(40,170,150,.92)'; g.beginPath(); { const pts = [[s * .14, .16], [s * .36, .3], [s * .66, .36], [s * .72, .24], [s * .5, .18], [s * .3, .13]]; pts.forEach((q, i) => { const [x, y] = P(q[0], q[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); } g.fill();
+        line([[s * .2, -.06], [s * .42, -.1], [s * .62, -.04], [s * .74, .08]], 10, 'rgba(40,170,150,.9)');
         // bold black liner: thick wing above, thinner line below, both flaring out to the hairline
-        line([[s * .13, .12], [s * .3, .2], [s * .52, .22], [s * .76, .34]], 11, '#141010');
-        line([[s * .18, .0], [s * .4, -.04], [s * .6, .02], [s * .78, .16]], 7, '#141010');
+        line([[s * .13, .12], [s * .3, .2], [s * .52, .22], [s * .76, .34]], 12, '#141010');
+        line([[s * .16, .02], [s * .4, -.02], [s * .6, .03], [s * .78, .16]], 8, '#141010');
         // painted brow stroke high on the forehead
         line([[s * .12, .4], [s * .36, .52], [s * .62, .5]], 9, '#141010');
-        // nasolabial streaks from the nose wings down past the mouth corners, chin streaks
-        line([[s * .1, -.1], [s * .26, -.32], [s * .38, -.56]], 8, '#141010');
-        line([[s * .28, -.64], [s * .34, -.86]], 6, '#2a2220');
-        // red cheek flash
-        line([[s * .5, -.12], [s * .68, .0]], 7, '#c8241e');
+        // grey shading down the side of the nose
+        line([[s * .09, .14], [s * .1, -.1]], 9, 'rgba(110,105,100,.4)');
+        // black streaks: one from the nose wing past the mouth corner, one sweeping down the cheek from under the eye
+        line([[s * .13, -.1], [s * .24, -.22], [s * .3, -.3]], 12, '#141010');
+        line([[s * .5, -.1], [s * .62, -.24], [s * .68, -.36]], 11, '#141010');
+        line([[s * .3, -.7], [s * .36, -.84]], 7, '#2a2220');
       }
       line([[0, .12], [0, -.04]], 5, 'rgba(60,40,30,.35)');
     });
@@ -1228,8 +1251,8 @@ function makeOni(kind) {
     nose: isMC ? 1.15 : 1.75, noseW: isMC ? 1.1 : 1.65, socket: isMC ? 1 : 1.5, ridge: isMC ? .9 : 2.1, cheek: isMC ? 1 : 1.4, lip: isMC ? 1.25 : 1.35, chin: isMC ? 1.1 : 1.5, chinW: isMC ? 1 : 1.9, fold: isMC ? 1 : 1.6, curve: isMC ? .35 : -.6,
     shape: isMC ? p => { const k = Math.max(0, -p.y); p.x *= 1 - .12 * k; if (p.y < -.6 && p.z > 0) p.z += .06; }
       : p => { const k = Math.max(0, -p.y); p.x *= 1 + .28 * k; p.z *= 1 + .1 * k; if (p.y > .6) p.y = .6 + (p.y - .6) * .55; },
-    skin: isMC ? 0xffffff : C.skin, lipC: C.lip, blush: isMC ? 0xf0b0a0 : 0x701010, blushK: isMC ? .5 : 1, lid: C.lid, sclera: C.sclera, iris: C.iris, irisR: isMC ? .58 : .5, lashes: isMC,
-    teeth: isMC ? { n: 8, h: .1, gap: [2, 4, 5], crooked: true, nLow: 6, gapLow: [1, 2, 4] } : { n: 7, h: .1, crooked: true, fangs: [1, 5], fangLen: 1.7, nLow: 6, tusks: 1 }, toothC: isMC ? 0xf3ead0 : 0xeadfb8,
+    skin: isMC ? 0xffffff : C.skin, lipC: C.lip, blush: isMC ? 0xf0b0a0 : 0x701010, blushK: isMC ? .5 : 1, lid: C.lid, sclera: C.sclera, iris: C.iris, irisR: isMC ? .46 : .5, lashes: isMC,
+    teeth: isMC ? { n: 8, h: .17, fwd: .07, drop: .05, gap: [1, 3, 4, 6], crooked: true, nLow: 6, gapLow: [1, 2, 4] } : { n: 7, h: .1, crooked: true, fangs: [1, 5], fangLen: 1.7, nLow: 6, tusks: 1 }, toothC: isMC ? 0xf3ead0 : 0xeadfb8,
     brow: isMC ? { x: .36, y: .43, d: .05, make: (s, U) => brushBrow(U, s, .18, .13, 9, C.brow) } : { x: .4, y: .46, d: .07, make: (s, U) => brushBrow(U, s, .22, .24, 10, C.brow) },
     ears: isMC ? null : { y: .05, size: .9, pointy: true, ring: true },
   });
@@ -1254,16 +1277,29 @@ function makeOni(kind) {
         if (!(c.z > .25 && (c.x / .74) ** 2 + ((c.y + .08) / .86) ** 2 < 1)) nx.push(ix[t], ix[t + 1], ix[t + 2]); }
       g.setIndex(nx); g.computeVertexNormals(); part(g, M(0xc8382a, { roughness: .75, flat: false, side: THREE.DoubleSide }), hc, [0, 0, 0], { ol: .006 }); }
     // the lion mane: a huge shaggy mop of long soft red locks hanging past the shoulders, frizzing up on top
-    part(blob(hr * 1.5, hr * 1.6, hr * 1.1, 16, 12, v => { v.x *= 1 + .08 * Math.sin(v.y * 9); }), M(0xb8301e, { roughness: .9, flat: false }), mane, [0, -hr * .45, -hr * .55], { ol: .006 });
-    part(hairGeo(hr * 1.25, ax, { color: 0xc83a24, count: 170, L0: .3, L1: .7, r0: .07, r1: .12, bend: .5, seed: 6,
-      skip: u => u.z > -.02 - Math.max(0, u.y) * .3 || u.y < -.85, dir: (u, r) => new THREE.Vector3(u.x * 1.8 + (r() - .5) * .5, -1 - r() * .3 + Math.max(0, u.y) * .6, u.z * .5 - .45) }), hairM, mane, [0, -hr * .1, -hr * .15], { ol: .006 });
-    part(hairGeo(hr * 1.1, ax, { color: 0xe0563a, count: 70, L0: .14, L1: .32, r0: .045, r1: .07, bend: .9, seed: 13,
-      skip: u => u.y < .5 || u.z > .1, dir: (u, r) => new THREE.Vector3(u.x * 1.6 + (r() - .5) * .8, .4 + r() * .5, u.z * .8 - .5) }), hairM, mane, [0, hr * .05, -hr * .15], { ol: .005 });
+    part(blob(hr * 1.6, hr * 1.7, hr * 1.15, 20, 14, v => { const k = 1 + .1 * Math.sin(v.y * 11 + v.x * 5) * Math.sin(v.x * 9 + v.z * 7); v.multiplyScalar(k); }), M(0xa82818, { roughness: .95, flat: false }), mane, [0, -hr * .5, -hr * .6], { ol: .006 });
+    const furTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); const r = mulberry(77);
+      for (let i = 0; i < 900; i++) { const x = r() * w, v = r(); g.strokeStyle = v < .5 ? `rgba(90,20,10,${.15 + r() * .3})` : `rgba(255,190,150,${.1 + r() * .25})`; g.lineWidth = .6 + r() * 1.6; g.beginPath(); g.moveTo(x, -10); g.bezierCurveTo(x + (r() - .5) * 30, h * .3, x + (r() - .5) * 30, h * .7, x + (r() - .5) * 20, h + 10); g.stroke(); } });
+    furTex.wrapS = furTex.wrapT = THREE.RepeatWrapping; furTex.repeat.set(3, 1);
+    const maneM = mat(0xffffff, { map: furTex, vertexColors: true, roughness: .9 });
+    // fluffy cloud of teased hair around the top and sides: soft lumpy tufts, not spikes
+    { const r = mulberry(31), gs = [], col = new THREE.Color();
+      for (let i = 0, n = 0; n < 190 && i < 5000; i++) {
+        const u = new THREE.Vector3(r() * 2 - 1, r() * 2 - 1, r() * 2 - 1); if (u.lengthSq() > 1 || u.lengthSq() < .1) continue; u.normalize();
+        if (u.y < -.55 || u.z > .3 - Math.max(0, u.y) * .25 || (u.z > 0 && Math.abs(u.x) < .55 && u.y < .5)) continue;
+        const R_ = hr * lerp(.2, .36, r()), g = blob(R_, R_ * lerp(.7, 1, r()), R_, 16, 11, v => v.multiplyScalar(1 + .08 * Math.sin(v.x * 13 + i) * Math.sin(v.y * 11 + v.z * 9)));
+        const d = hr * lerp(1.15, 1.45, r()); g.translate(u.x * d * 1.15, u.y * d + hr * .12, u.z * d * .9 - hr * .15);
+        col.setHex(0xd8452a).multiplyScalar(.85 + r() * .3); const cs = []; for (let k = 0; k < g.attributes.position.count; k++) cs.push(col.r, col.g, col.b);
+        g.setAttribute('color', new THREE.Float32BufferAttribute(cs, 3)); gs.push(g); n++; }
+      part(mergeGeometries(gs), maneM, mane, [0, 0, 0], { ol: .004 }); }
+    // long soft locks spilling down the back and over the shoulders (blunt tips, hanging under their own weight)
+    part(hairGeo(hr * 1.3, ax, { color: 0xc8361f, count: 220, L0: .25, L1: .6, r0: .06, r1: .09, tip: .45, bend: .5, seed: 6,
+      skip: u => u.z > .05 || u.y < -.7 || u.y > .55, dir: (u, r) => new THREE.Vector3(u.x * .45 + (r() - .5) * .3, -1, u.z * .2 - .15) }), maneM, mane, [0, -hr * .1, -hr * .12], { ol: .004 });
     // gold lamé headband with a red stripe across the forehead
     part(lathe([[hr * 1.0, -.05], [hr * 1.05, -.03], [hr * 1.06, .03], [hr * 1.01, .05]], 32, ax[2] / ax[0]), gold, hc, [0, hr * .62, -.01], { ol: .005, s: [ax[0] * 1.02, 1, 1.02] });
     part(lathe([[hr * 1.065, -.014], [hr * 1.07, 0], [hr * 1.065, .014]], 32, ax[2] / ax[0]), M(0xc8241e, { roughness: .4 }), hc, [0, hr * .62, -.01], { ol: 0, s: [ax[0] * 1.02, 1, 1.02] });
     // scraggly goatee
-    part(hairGeo(hr * .32, [1, 1, 1], { color: 0x2a2420, count: 26, L0: .06, L1: .15, r0: .012, r1: .022, bend: .5, seed: 12, skip: u => u.y > -.05, dir: (u, r) => new THREE.Vector3(u.x * .4 + (r() - .5) * .3, -1, .3) }), hairM, J.jaw, [0, -hr * .82, J.faceZ(0, -hr * .82) - .03], { ol: .003 });
+    part(hairGeo(hr * .26, [1.1, .8, 1], { color: 0x5a524c, count: 50, L0: .025, L1: .055, r0: .01, r1: .018, bend: .6, seed: 12, skip: u => u.y > 0 || u.z < -.2, dir: (u, r) => new THREE.Vector3(u.x * .5 + (r() - .5) * .4, -1, .5) }), hairM, J.jaw, [0, -hr * .66, J.faceZ(0, -hr * .66) - .045], { ol: .003 });
   }
   J.spring(mane, isMC ? .9 : .6);
   const hornM = M(0xffffff, { vertexColors: true, flat: false, roughness: .35 });
@@ -1665,9 +1701,11 @@ function bfs(fromKey) {
 }
 
 // ============================================================================ audio
-let AC = null, master = null, noiseBuf = null;
+let AC = null, master = null, noiseBuf = null, capFilmT = 0;
 function initAudio() {
-  if (AC) return; try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  if (AC) return;
+  if (CAPTURE) { const real = new OfflineAudioContext(2, 44100 * 26, 44100); window.__offline = real; AC = new Proxy(real, { get: (o, k) => k === 'currentTime' ? capFilmT : (typeof o[k] === 'function' ? o[k].bind(o) : o[k]) }); }
+  else try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
   master = AC.createGain(); master.gain.value = .75;
   const comp = AC.createDynamicsCompressor(); master.connect(comp); comp.connect(AC.destination);
   noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -1906,21 +1944,26 @@ function hideCaption() { capEl.style.opacity = 0; capTimer = 0; }
 function banner(text, sub, win = false) { $('stamp').textContent = text; $('bsub').innerHTML = sub; bannerEl.classList.toggle('win', win); bannerEl.classList.add('on'); }
 // ---- variety-show grammar: pop-up telops, crash zooms, freeze-frame + replay tag + laugh track
 const TELC = { y: '#ffe14a', r: '#ff4a3a', b: '#4ab4ff', p: '#ff7ad0', g: '#7dff7a', w: '#ffffff' };
+const wait = (sec, fn) => CAPTURE ? later(sec, fn) : setTimeout(fn, sec * 1000);
 function telop(text, o = {}) {
   const d = document.createElement('div'); d.className = 'telop'; d.textContent = text;
   d.style.left = (o.x ?? 50) + '%'; d.style.top = (o.y ?? 32) + '%';
   d.style.setProperty('--c', TELC[o.c || 'y'] || o.c); d.style.setProperty('--sz', `clamp(${(o.size ?? 1) * 40}px, ${(o.size ?? 1) * 9}vw, ${(o.size ?? 1) * 104}px)`);
   d.style.setProperty('--r', (o.r ?? (Math.random() - .5) * 14) + 'deg'); d.style.setProperty('--d', (o.dur ?? 1.6) + 's');
-  $('telops').appendChild(d); sfx.pop(); setTimeout(() => d.remove(), (o.dur ?? 1.6) * 1000 + 100);
+  $('telops').appendChild(d); sfx.pop(); wait((o.dur ?? 1.6) + .1, () => d.remove());
 }
-let fovKick = 0, fovHold = 0, freezeT = 0;
+let fovKick = 0, fovHold = 0, freezeT = 0, shotFov = 60;
+function nameSuper(role, name, dur) {
+  const d = document.createElement('div'); d.className = 'namesup'; d.innerHTML = `<span class="role">${role}</span><span class="nm">${name}</span>`;
+  document.body.appendChild(d); sfx.pop(); requestAnimationFrame(() => d.classList.add('on')); wait(dur, () => { d.classList.remove('on'); wait(.4, () => d.remove()); });
+}
 function crashZoom(a = 18, hold = .5) { fovKick = a; fovHold = hold; sfx.whoosh(); }
 function flash() { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = 'opacity .35s'; f.style.opacity = 0; }); }
 function freezeFrame(label, c = 'y') {
   if (Q.has('t')) return;   // deterministic screenshots run straight through
-  freezeT = 1.25; document.body.classList.add('frozen'); flash(); sfx.jan(); fovKick = Math.max(fovKick, 8); fovHold = 0;
+  freezeT = CAPTURE ? .8 : 1.25; document.body.classList.add('frozen'); flash(); sfx.jan(); fovKick = Math.max(fovKick, 8); fovHold = 0;
   telop(label, { size: 1.5, c, y: 40, dur: 1.5, r: -8 });
-  setTimeout(() => { sfx.scratch(); sfx.crowd(2.4, .55); }, 1150);
+  wait(CAPTURE ? .7 : 1.15, () => { sfx.scratch(); sfx.crowd(2.4, .55); });
 }
 function genSay(jp, en) { const d = sfx.voice(en, 108, 1.2); gen.talkUntil = time + d + .3; caption(jp, en, 'General', d + 1.5); return d; }
 function mcSay(jp, en, base = 150) { const d = sfx.voice(en, base); mc.talkUntil = time + d; caption(jp, en, 'Oni-MC', d + 1.6); return d; }
@@ -2017,7 +2060,7 @@ function start() {
   setState('intro'); introI = -1; $('skip').classList.add('on'); nextLine();
 }
 const introLines = [
-  { jp: 'ガハハハ！ようこそ、人間！', en: 'GAHAHAHA! Welcome, tiny human!', shot: 'mc', tel: ['ガハハハ!!', 'y'], zoom: 16, crowd: true },
+  { jp: 'ガハハハ！ようこそ、人間！', en: 'GAHAHAHA! Welcome, tiny human!', shot: 'mcIn', lunge: true, name: ['門番', '鬼門 ガハハ丸'], tel: ['ガハハハ!!', 'y'], telAt: [74, 22], zoom: 10, crowd: true },
   { jp: '鬼の蜂の巣へ！', en: '…to the HONEYCOMB OF THE ONI!', shot: 'crane', tel: ['鬼の蜂の巣', 'r'], jan: true },
   { jp: '出口はたくさん…本物はひとつ！', en: 'Many doors lead out… only ONE is real. The rest? SPLASH!', shot: 'exit', tel: ['ドボン!?', 'b'], ooh: true },
   { jp: '中には…俺の弟たちがいるぞ！', en: 'And inside… live my little brothers!', shot: 'mc2', zoom: 10 },
@@ -2033,10 +2076,14 @@ function nextLine() {
   if (introI >= introLines.length) { endIntro(); return; }
   const L = introLines[introI];
   for (const o of onis) o.anim = 'idle';
+  if (mc.anim === 'lunge') mc.anim = 'talk'; if (L.lunge) mc.anim = 'lunge';
+  document.querySelectorAll('.namesup').forEach(e => e.remove());
+  if (L.name) later(.7, () => nameSuper(...L.name, 2.6));
   if (L.oni != null) { const o = onis[L.oni]; o.anim = 'roar'; o.talkUntil = time + 1.4; sfx.roar(o.pitch); caption(L.jp, L.en, o.name, 0); lineDur = 2.4; }
   else if (L.gen) { const d = genSay(L.jp, L.en); lineDur = Math.max(2.4, d + 1.1); }
   else if (L.salute) { player.saluteT = 0; sfx.stomp(.6); later(.32, () => { sfx.slap(); sfx.stomp(.5); }); const d = sfx.voice(L.en, 200, 1.1); player.talkUntil = time + .45 + d; later(.45, () => caption(L.jp, L.en, 'Contestant', d + 1.4)); lineDur = Math.max(2.6, d + 1.6); later(lineDur - .8, () => { if (state === 'intro') sfx.crowd(1.2, .3); }); }
   else { const d = mcSay(L.jp, L.en, 150); lineDur = Math.max(2.3, d + 1.1); }
+  if (L.dur) lineDur = L.dur;
   if (L.shot === 'player') { sfx.gong(); lineDur = 2.2; }
   if (L.zoom) crashZoom(L.zoom, .6);
   if (L.tel) later(L.zoom ? .25 : .5, () => { if (state === 'intro') telop(L.tel[0], { c: L.tel[1], y: L.telAt ? L.telAt[1] : 26 + Math.random() * 8, x: L.telAt ? L.telAt[0] : 38 + Math.random() * 24, size: L.telAt ? .8 : 1, r: L.telAt ? 8 : undefined }); });
@@ -2044,7 +2091,7 @@ function nextLine() {
   if (L.ooh) later(.3, () => sfx.ooh());
   if (L.crowd) later(lineDur - .9, () => { if (state === 'intro') sfx.crowd(1.6, .4); });
   // the general's pratfall: charges off his crate, trips, faceplants — still pointing
-  if (L.gen) { lineDur += 3.4; later(lineDur - 3.9, () => { if (state === 'intro') { gen.anim = 'gag'; gen.gagT = 0; } }); }
+  if (L.gen && !L.noGag) { lineDur += 3.4; later(lineDur - 3.9, () => { if (state === 'intro') { gen.anim = 'gag'; gen.gagT = 0; } }); }
 }
 function endIntro() {
   $('skip').classList.remove('on');
@@ -2154,7 +2201,13 @@ function animMC(dt) {
   const h = mc.h, f = h.face; resetPose(h);
   const talking = time < mc.talkUntil;
   f.talk = false; h.setMouth(false); f.look = state === 'intro' ? camHead : pHead;
-  if (mc.anim === 'laugh' || (mc.anim === 'talk' && !talking && state === 'out')) { poseLaugh(h, time); arm(h, 'R', -1.7, .2, 0); h.expr('cackle'); h.grip(.2); }
+  if (mc.anim === 'lunge') {
+    const t = time, b = Math.abs(Math.sin(t * 7));
+    h.hips.position.y = .93 - b * .04; h.torso.rotation.x = .32 + b * .06; h.torso.rotation.z = -.12; h.torso.rotation.y = Math.sin(t * 2.2) * .1;
+    h.neck.rotation.z = .38 + Math.sin(t * 3.1) * .12; h.neck.rotation.x = -.42 + b * .1; h.neck.rotation.y = Math.sin(t * 1.7) * .15;
+    arm(h, 'L', -2.6 + Math.sin(t * 7) * .12, 1.1, -.2); arm(h, 'R', -.9 + b * .3, .6, -1.9);
+    h.expr(talking && Math.sin(t * 9) > .6 ? 'cackle' : 'bellow'); h.grip(0); f.talk = false;
+  } else if (mc.anim === 'laugh' || (mc.anim === 'talk' && !talking && state === 'out')) { poseLaugh(h, time); arm(h, 'R', -1.7, .2, 0); h.expr('cackle'); h.grip(.2); }
   else if (mc.anim === 'shock') { h.torso.rotation.x = -.2; arm(h, 'L', -.3, 2.4, -1.2); arm(h, 'R', -.3, 2.4, -1.2); h.neck.rotation.x = -.15 + Math.sin(time * 40) * .02; h.expr('shock'); h.grip(0); }
   else if (talking) {
     const t = time; h.torso.rotation.x = Math.sin(t * 5) * .08 - .08; h.torso.rotation.y = Math.sin(t * 2.3) * .2;
@@ -2162,7 +2215,7 @@ function animMC(dt) {
     arm(h, 'R', -1.6 + Math.sin(t * 3.4 + 1) * .6, .5 + Math.sin(t * 2.6) * .3, -.3);
     h.neck.rotation.x = Math.sin(t * 7) * .12 - .1; h.neck.rotation.z = Math.sin(t * 4.1) * .12;
     // the MC hams it up: cycle through faces as he talks
-    const m = Math.floor(t * .8) % 5, ex_ = ['smug', 'mie', 'cackle', 'maw', 'gurn'][m]; h.expr(ex_); f.talk = ex_ === 'smug' || ex_ === 'gurn'; h.grip(0);
+    const m = Math.floor(t * .8) % 5, ex_ = ['bellow', 'mie', 'bellow', 'cackle', 'gurn'][m]; h.expr(ex_); f.talk = ex_ === 'smug' || ex_ === 'gurn'; h.grip(0);
   } else {
     h.torso.rotation.x = Math.sin(time * 1.6) * .03; arm(h, 'L', -.2, .3, -1.3); arm(h, 'R', -.9, .25, -.9);
     h.neck.rotation.y = Math.sin(time * .6) * .3; h.expr(state === 'play' ? 'smug' : 'neutral'); h.grip(.6);
@@ -2541,6 +2594,8 @@ const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`
 
 // ============================================================================ camera
 const cams = {
+  mcIn: k => { mc.h.headC.getWorldPosition(tmpV); const fx = Math.sin(mc.yaw), fz = Math.cos(mc.yaw), d = lerp(1.05, .78, Math.min(1, k * 2.5));
+    return { p: [tmpV.x + fx * d + fz * .12, tmpV.y - .12, tmpV.z + fz * d - fx * .12], l: [tmpV.x, tmpV.y - .14, tmpV.z], fov: 84 }; },
   mc: k => ({ p: [mc.pos.x - 1.2 - k * .3, 2.65, mc.pos.z + 2.6 - k * .6], l: [mc.pos.x, 2.45, mc.pos.z] }),
   mc2: k => ({ p: [mc.pos.x + 1.6 - k * .6, 2.3, mc.pos.z + 3.4 - k * .8], l: [mc.pos.x, 2.3, mc.pos.z] }),
   general: k => { const fx = Math.sin(gen.yaw), fz = Math.cos(gen.yaw), g = gen.anim === 'gag' ? 1 : 0;
@@ -2560,9 +2615,9 @@ const camLook = new THREE.Vector3();
 let faceCut = null;
 function cutTo(who, dur, side = .3, delay = 0) { later(delay, () => { faceCut = { who, until: time + dur, side }; }); }
 function updateCamera(dt) {
-  let wantP, wantL, rate = 6;
+  let wantP, wantL, rate = 6; shotFov = 60;
   if (state === 'title') { const a = time * .06; wantP = new THREE.Vector3(Math.sin(a) * 46, 24, Math.cos(a) * 46); wantL = new THREE.Vector3(0, 0, 0); rate = 50; }
-  else if (state === 'intro') { const L = introLines[clamp(introI, 0, introLines.length - 1)]; const c = cams[L.shot](clamp(lineT / Math.max(lineDur, 1), 0, 1)); wantP = new THREE.Vector3(...c.p); wantL = new THREE.Vector3(...c.l); rate = lineT < .05 || (gen.anim === 'gag' && gen.gagT < .06) ? 1000 : 4; }
+  else if (state === 'intro') { const L = introLines[clamp(introI, 0, introLines.length - 1)]; const c = cams[L.shot](clamp(lineT / Math.max(lineDur, 1), 0, 1)); shotFov = c.fov || 60; wantP = new THREE.Vector3(...c.p); wantL = new THREE.Vector3(...c.l); rate = lineT < .05 || (gen.anim === 'gag' && gen.gagT < .06) ? 1000 : 4; }
   else if (state === 'play') {
     camState.yaw = lerpA(camState.yaw, player.yaw, 1 - Math.exp(-dt * 4));
     const yaw = camState.yaw + lookOff, fx = Math.sin(yaw), fz = Math.cos(yaw);
@@ -2594,11 +2649,12 @@ function updateCamera(dt) {
     tmpV.y += +(Q.get('ly') || 0);
     wantL = tmpV.clone(); wantP = tmpV.clone().addScaledVector(fwd, +Q.get('dist') || (Q.get('far') ? 3.3 : who.hr * 5.5)); rate = 1000;
   }
+  if (CAPTURE && capCam && (state === 'play' || capCam.always)) { const c = capCam.fn(dt); wantP = c.p; wantL = c.l; rate = c.rate || 8; shotFov = c.fov || 60; }
   const k = 1 - Math.exp(-dt * rate);
   camState.pos.lerp(wantP, k); camLook.lerp(wantL, rate >= 1000 ? 1 : Math.min(1, k * 1.4));
   camera.position.copy(camState.pos); camera.lookAt(camLook);
   if (fovHold > 0) fovHold -= dt; else fovKick *= Math.exp(-dt * 3);
-  camera.fov = 60 - fovKick; camera.updateProjectionMatrix();
+  camera.fov = shotFov - fovKick; camera.updateProjectionMatrix();
 }
 
 // ============================================================================ loop
@@ -2633,10 +2689,84 @@ else if (AUTO || Q.has('play')) {
   if (Q.has('toexit')) { const e = maze.real; player.pos.x = e.mx - e.nx * 2.2; player.pos.z = e.mz - e.nz * 2.2; player.yaw = Math.atan2(e.nx, e.nz); keys.KeyW = true; }
   if (Q.has('stand')) { const [q, r] = Q.get('stand').split(',').map(Number), c = hexCenter(q, r); player.pos.x = c.x; player.pos.z = c.z; }
 }
+// ---------------------------------------------------------------------------- ?capture director
+let capCam = null;
+if (CAPTURE) {
+  const FPS = 30, N = 25 * FPS, cap = {};
+  const byShot = Object.fromEntries(introLines.map(l => [l.shot, l]));
+  introLines.splice(0, introLines.length,
+    { ...byShot.mcIn, dur: 2.4 }, { ...byShot.crane, dur: 1.2 }, { ...byShot.aka, dur: 1.1 }, { ...byShot.ao, dur: 1.1 },
+    { ...byShot.general, dur: 1.6, noGag: true }, { ...byShot.salute, dur: 1.5 });
+  const center = k => { const r = maze.rooms.get(k); return { x: r.x, z: r.z }; };
+  function setupRun() {
+    cap.run = true; graceT = 99; hideCaption(); gen.nagged = true;
+    // a fake door two rooms deep; run straight at it with an oni hot on the heels
+    let best = null;
+    for (const e of maze.exits) { if (e === maze.real) continue; const d = bfs(e.k1); const st = [...d].find(([, v]) => v === 2); if (st) { best = { e, d, st: st[0] }; break; } }
+    const { e, d } = best; let cur = best.st; const path = [];
+    while (d.get(cur) > 0) { cur = maze.rooms.get(cur).doors.find(n => d.get(n) === d.get(cur) - 1); path.push(center(cur)); }
+    path.push({ x: e.mx + e.nx * 3, z: e.mz + e.nz * 3 });
+    const c0 = center(best.st), s0 = { x: lerp(c0.x, path[0].x, .4), z: lerp(c0.z, path[0].z, .4) }; player.pos.x = s0.x; player.pos.z = s0.z; player.yaw = Math.atan2(path[0].x - s0.x, path[0].z - s0.z); player.speed = 3.5;
+    const o = onis[0]; o.pos.x = s0.x - Math.sin(player.yaw) * 3.2; o.pos.z = s0.z - Math.cos(player.yaw) * 3.2; o.yaw = player.yaw; o.state = 'chase'; o.speed = 3.5; sfx.roar(o.pitch);
+    const o2 = onis[1]; const back = maze.rooms.get(best.st).doors.find(n => d.get(n) === 3) || best.st; const b2 = center(back); o2.pos.x = b2.x; o2.pos.z = b2.z; o2.state = 'chase';
+    cap.path = path; cap.wi = 0; keys.KeyW = true;
+    telop('逃げろ!!', { c: 'y', y: 24, x: 30, size: .9, r: -8 });
+    capCam = { fn: () => { const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw), u = clamp(t_state / 2.6, 0, 1);
+      // tracking shot in front of the runner (oni looming behind), rising to a crane as he nears the door
+      const dd = lerp(2.1, 3.4, u), hh = lerp(4.4, 6.6, u * u);
+      return { p: new THREE.Vector3(player.pos.x + fx * dd + fz * .8, hh, player.pos.z + fz * dd - fx * .8), l: new THREE.Vector3(player.pos.x - fx * 1.2, lerp(1.0, .6, u), player.pos.z - fz * 1.2), rate: t_state < .05 ? 1000 : 6, fov: 62 }; } };
+  }
+  function steer(dt) {
+    const w = cap.path[cap.wi]; if (!w) return;
+    const dx = w.x - player.pos.x, dz = w.z - player.pos.z;
+    if (Math.hypot(dx, dz) < .7 && cap.wi < cap.path.length - 1) cap.wi++;
+    player.yaw = lerpA(player.yaw, Math.atan2(dx, dz), 1 - Math.exp(-dt * 10));
+  }
+  function setupToss() {
+    cap.toss = true; capCam = null; keys.KeyW = false; seq = null; player.wet = false; hideCaption();
+    document.querySelectorAll('.telop').forEach(x => x.remove()); for (const o of onis) { o.anim = 'idle'; o.scripted = false; o.state = 'patrol'; }
+    setState('play'); graceT = 99;
+    const room = [...maze.rooms.values()].find(r => r.key === key(1, -1)) || maze.rooms.get(key(0, 0));
+    player.pos.x = room.x - 1; player.pos.z = room.z; player.yaw = PI / 2; player.speed = 0;
+    onis[0].pos.x = room.x + .2; onis[0].pos.z = room.z; onis[0].yaw = -PI / 2; onis[1].pos.x = room.x + 2.6; onis[1].pos.z = room.z + 1.4;
+    startCatch(onis[0], 'toss');
+  }
+  window.__ready = true;
+  let i = 0;
+  window.__frame = () => {
+    capFilmT = i / FPS;
+    if (i === 0) start();
+    if (freezeT > 0) { freezeT -= 1 / FPS; fovKick += 9 / FPS; camera.fov = shotFov - fovKick; camera.updateProjectionMatrix(); if (freezeT <= 0) document.body.classList.remove('frozen'); }
+    else {
+      if (state === 'play' && !cap.run) setupRun();
+      if (state === 'play' && cap.run && !cap.toss) steer(1 / FPS);
+      if (state === 'out' && !cap.toss) { cap.outT = (cap.outT || 0) + 1 / FPS; if (cap.outT > .3) setupToss(); }
+      step(1 / FPS);
+    }
+    if (cap.toss && freezeT > 0) cap.froze = true;
+    if (cap.froze && freezeT <= 0) cap.landT = (cap.landT || 0) + 1 / FPS;
+    if (!cap.card && (cap.landT > .4 || i === N - 30)) { cap.card = i; console.log('endcard at', i); $('endcard').classList.add('on'); sfx.gong(); sfx.crowd(1.6, .5); }
+    getComputedStyle(document.body).opacity;
+    for (const a of document.getAnimations()) { if (a._t0 == null) a._t0 = capFilmT; a.pause(); a.currentTime = (capFilmT - a._t0) * 1000; }
+    renderer.render(scene, camera);
+    i++;
+    return { t: capFilmT, state, line: introI, card: cap.card, done: i >= N };
+  };
+  window.__audio = async () => {
+    const buf = await window.__offline.startRendering(), L = buf.getChannelData(0), Rr = buf.getChannelData(1), n = 25 * 44100;
+    const out = new DataView(new ArrayBuffer(44 + n * 4)); let peak = 0;
+    const W = (o, str) => { for (let k = 0; k < str.length; k++) out.setUint8(o + k, str.charCodeAt(k)); };
+    W(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); W(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true); out.setUint32(24, 44100, true); out.setUint32(28, 44100 * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); W(36, 'data'); out.setUint32(40, n * 4, true);
+    for (let k = 0; k < n; k++) { const a = L[k], b = Rr[k]; peak = Math.max(peak, Math.abs(a), Math.abs(b)); out.setInt16(44 + k * 4, clamp(a, -1, 1) * 32767, true); out.setInt16(46 + k * 4, clamp(b, -1, 1) * 32767, true); }
+    const bytes = new Uint8Array(out.buffer); let bin = ''; for (let k = 0; k < bytes.length; k += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(k, k + 32768));
+    return { b64: btoa(bin), peak };
+  };
+}
 let warpTo = +(Q.get('t') || 0);
 function frame() {
+  if (CAPTURE) { requestAnimationFrame(frame); return; }
   if (warpTo) { clock.getDelta(); while (time < warpTo) step(1 / 30); warpTo = 0; }
-  else if (freezeT > 0) { const rd = Math.min(clock.getDelta(), .05); freezeT -= rd; fovKick += rd * 9; camera.fov = 60 - fovKick; camera.updateProjectionMatrix(); if (freezeT <= 0) document.body.classList.remove('frozen'); }
+  else if (freezeT > 0) { const rd = Math.min(clock.getDelta(), .05); freezeT -= rd; fovKick += rd * 9; camera.fov = shotFov - fovKick; camera.updateProjectionMatrix(); if (freezeT <= 0) document.body.classList.remove('frozen'); }
   else step(Math.min(clock.getDelta(), .05));
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
