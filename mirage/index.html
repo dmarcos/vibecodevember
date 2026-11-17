@@ -29,6 +29,14 @@
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0c0b; font: italic 400 21px 'Cormorant Garamond', Georgia, serif; color: var(--soft); transition: opacity .9s; z-index: 10; }
   #loading.done { opacity: 0; pointer-events: none; }
   body.shot .bar, body.shot #hud, body.shot .scrim, body.shot #snd, body.shot #loading { display: none !important; }
+  /* ?capture: clean square frame for the social video; keeps the header and the Mach readout */
+  body.capture #hint, body.capture #snd, body.capture #loading { display: none !important; }
+  body.capture #hud { bottom: 34px; }
+  body.capture .bar { height: 84px; padding: 0 40px; }
+  body.capture .brand { font-size: 14px; }
+  body.capture .name { font-size: 36px; }
+  body.capture #mach .lbl { font-size: 13px; }
+  body.capture #machv { font-size: 48px; min-width: 90px; }
   @media (max-width: 600px) {
     #snd { bottom: auto; top: 64px; }
     #hint { font-size: 10px; }
@@ -63,6 +71,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const Q = new URLSearchParams(location.search);
 const SHOT = Q.has('shot');
 if (SHOT) document.body.classList.add('shot');
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
 const PERIOD = 6000;                      // the world repeats every 6 km in x, so we can wrap without a seam
 const ALT = 9;                            // flight altitude above the desert floor
 const CRUISE = 0.82;
@@ -738,47 +748,232 @@ const engineMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.03, 
 const FXV = /* glsl */`
 varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
 void main(){ vUv = uv; vP = position; vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - wp.xyz); gl_Position = projectionMatrix * viewMatrix * wp; }`;
-// vapour cone: Prandtl–Glauert condensation, soft at the front, cut sharp by the shock at the back
-const vaporMat = new THREE.ShaderMaterial({
-  uniforms: { uAmt: { value: 0 }, uTime: { value: 0 }, uSeed: { value: 0 } },
-  vertexShader: FXV,
-  fragmentShader: `${NOISE}\nconst vec3 SUN_DIR = ${v3(SUN)};
-  uniform float uAmt, uTime, uSeed; varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+// vapour cone: Prandtl–Glauert condensation, raymarched as a volume (see volMat below).
+const quadGeo = new THREE.PlaneGeometry(2, 2);
+const QV = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+// shed condensation: puffs torn off the rear edge, left hanging in the air (they get motion-blurred into streaks)
+const SHED_N = 1400;
+const shedGeo = new THREE.InstancedBufferGeometry();
+shedGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+shedGeo.setIndex([0, 1, 2, 0, 2, 3]);
+const sOff = new Float32Array(SHED_N * 3), sDat = new Float32Array(SHED_N * 4);
+shedGeo.setAttribute('aOff', new THREE.InstancedBufferAttribute(sOff, 3).setUsage(THREE.DynamicDrawUsage));
+shedGeo.setAttribute('aDat', new THREE.InstancedBufferAttribute(sDat, 4).setUsage(THREE.DynamicDrawUsage));
+shedGeo.instanceCount = SHED_N;
+const shed = new THREE.Mesh(shedGeo, new THREE.ShaderMaterial({
+  vertexShader: `attribute vec3 aOff; attribute vec4 aDat; varying vec4 vD; varying vec2 vQ;
+    void main(){ vD = aDat; vQ = position.xy; vec4 mv = viewMatrix * vec4(aOff, 1.0); mv.xy += position.xy * aDat.y; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `${NOISE}
+    varying vec4 vD; varying vec2 vQ;
+    void main(){
+      float r = length(vQ); if (r > 1.0 || vD.w <= 0.0) discard;
+      float n = vnoise(vQ * 3.0 + vD.z * 17.0, 1000.0) * 0.6 + vnoise(vQ * 7.0 + vD.z * 5.0, 1000.0) * 0.4;
+      float a = (1.0 - smoothstep(0.1, 1.0, r)) * smoothstep(0.3, 0.7, n + 0.35 * (1.0 - r));
+      float life = vD.x;
+      a *= (1.0 - smoothstep(0.2, 1.0, life)) * vD.w;
+      if (a < 0.012) discard;
+      vec3 col = mix(vec3(0.62, 0.67, 0.78), vec3(1.32, 1.3, 1.24), 0.5 + 0.5 * vQ.y);
+      gl_FragColor = vec4(col, a * 0.45);
+    }`,
+  transparent: true, depthWrite: true,      // writes depth so the blur streaks it at its true distance
+}));
+shed.frustumCulled = false; scene.add(shed);
+const shedP = []; for (let i = 0; i < SHED_N; i++) shedP.push({ p: new THREE.Vector3(0, -999, 0), v: new THREE.Vector3(), age: 1, life: 1, s0: 1, seed: Math.random(), a: 0 });
+let shedHead = 0;
+const _sv = new THREE.Vector3();
+function spawnShed(strength, vs, xoff) {
+  const q = shedP[shedHead]; shedHead = (shedHead + 1) % SHED_N;
+  const th = Math.random() * Math.PI * 2, r = 6.2 * vs * (0.85 + Math.random() * 0.2);
+  _sv.set(-5.8 + xoff + (Math.random() - 0.3) * 0.6, Math.sin(th) * r, Math.cos(th) * r);
+  q.p.copy(_sv); jet.localToWorld(q.p);
+  q.v.set(0, Math.sin(th), Math.cos(th)).multiplyScalar(1.5 + Math.random() * 2);
+  q.age = 0; q.life = 0.22 + Math.random() * 0.3; q.s0 = 0.25 + Math.random() * 0.6; q.a = strength; q.seed = Math.random();
+}
+// ---------------------------------------------------------------------------- volumetric vapour cone
+// Tileable 3D cloud noise (R: billowy Perlin-Worley-ish, G: fine Worley detail), generated once at startup.
+function cloudNoise3D(N) {
+  const r = rng(77);
+  const worley = (C) => {
+    const pts = new Float32Array(C * C * C * 3);
+    for (let i = 0; i < pts.length; i++) pts[i] = r();
+    const out = new Float32Array(N * N * N); const s = C / N; let k = 0;
+    for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const fx = (x + 0.5) * s, fy = (y + 0.5) * s, fz = (z + 0.5) * s;
+      const cx = Math.floor(fx), cy = Math.floor(fy), cz = Math.floor(fz); let md = 9;
+      for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const ix = cx + dx, iy = cy + dy, iz = cz + dz;
+        const wx = ((ix % C) + C) % C, wy = ((iy % C) + C) % C, wz = ((iz % C) + C) % C;
+        const pi = (wx + wy * C + wz * C * C) * 3;
+        const px = ix + pts[pi] - fx, py = iy + pts[pi + 1] - fy, pz = iz + pts[pi + 2] - fz;
+        const d = px * px + py * py + pz * pz; if (d < md) md = d;
+      }
+      out[k++] = 1 - Math.min(1, Math.sqrt(md));
+    }
+    return out;
+  };
+  const value = (L) => {
+    const lat = new Float32Array(L * L * L); for (let i = 0; i < lat.length; i++) lat[i] = r();
+    const out = new Float32Array(N * N * N); const s = L / N; let k = 0;
+    const g = (x, y, z) => lat[(x % L) + (y % L) * L + (z % L) * L * L];
+    const sm = (t) => t * t * (3 - 2 * t);
+    for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const fx = x * s, fy = y * s, fz = z * s, ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+      const u = sm(fx - ix), v = sm(fy - iy), w = sm(fz - iz);
+      const a = g(ix, iy, iz) * (1 - u) + g(ix + 1, iy, iz) * u, b = g(ix, iy + 1, iz) * (1 - u) + g(ix + 1, iy + 1, iz) * u;
+      const c = g(ix, iy, iz + 1) * (1 - u) + g(ix + 1, iy, iz + 1) * u, d = g(ix, iy + 1, iz + 1) * (1 - u) + g(ix + 1, iy + 1, iz + 1) * u;
+      out[k++] = (a * (1 - v) + b * v) * (1 - w) + (c * (1 - v) + d * v) * w;
+    }
+    return out;
+  };
+  const v4 = value(4), v8 = value(8), v16 = value(16), w4 = worley(4), w8 = worley(8), w16 = worley(16);
+  const data = new Uint8Array(N * N * N * 2);
+  for (let i = 0; i < N * N * N; i++) {
+    const fbm = v4[i] * 0.55 + v8[i] * 0.3 + v16[i] * 0.15;
+    const wf = w4[i] * 0.6 + w8[i] * 0.3 + w16[i] * 0.1;
+    const pw = Math.min(1, Math.max(0, (fbm - (1 - wf) * 0.55) / 0.45 * 0.55 + wf * 0.45));   // Perlin-Worley-ish billows
+    data[i * 2] = Math.round(pw * 255);
+    data[i * 2 + 1] = Math.round((w8[i] * 0.5 + w16[i] * 0.5) * 255);
+  }
+  const t = new THREE.Data3DTexture(data, N, N, N);
+  t.format = THREE.RGFormat; t.type = THREE.UnsignedByteType;
+  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping; t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.unpackAlignment = 1; t.needsUpdate = true;
+  return t;
+}
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const volRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const volMat = new THREE.ShaderMaterial({
+  uniforms: {
+    tNoise: { value: cloudNoise3D(64) }, tDepth: { value: null },
+    uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uInvJet: { value: new THREE.Matrix4() },
+    uSunL: { value: new THREE.Vector3() }, uAmt: { value: 0 }, uCol: { value: 0 }, uTail: { value: 0 }, uTime: { value: 0 },
+    uXoff: { value: 0 }, uRS: { value: 1 }, uJit: { value: 0 }, uSeed: { value: 0 }, uFlick: { value: 1 }, uSteps: { value: COARSE ? 32 : 52 },
+  },
+  vertexShader: QV,
+  fragmentShader: /* glsl */`
+  precision highp sampler3D;
+  uniform sampler3D tNoise; uniform sampler2D tDepth;
+  uniform mat4 uProjInv, uCamWorld, uInvJet;
+  uniform vec3 uSunL; uniform float uAmt, uCol, uTail, uTime, uXoff, uRS, uJit, uSeed, uSteps, uFlick;
+  varying vec2 vUv;
+  const float SIGMA = 0.75;
+  float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+  float hg(float mu, float g){ float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * mu, 1.5)); }
+  // A condensation cone as seen in photos: a thin-walled, flared bell around the flight axis.
+  // Narrow and faint where it starts, flaring hard to a crisp rear edge (the shock), milky inside.
+  float lobe(float x, float r, float X0, float X1, float R0, float R1, float pw, float wall, float cutN){
+    float t = (X0 - x) / (X0 - X1);
+    if (t < -0.02 || t > 1.02) return 0.0;
+    float tc = clamp(t, 0.0, 1.0);
+    float R = (R0 + (R1 - R0) * pow(tc, pw)) * uRS;
+    float W = wall * (0.3 + 0.7 * tc) * uRS;
+    float dr = r - R;
+    float shellD = exp(-dr * dr / (W * W));
+    float fill = (1.0 - smoothstep(R * 0.75, R, r)) * 0.28;
+    float front = pow(smoothstep(0.0, 1.0, t), 1.7);
+    float cut = 0.965 + uJit + (cutN - 0.5) * 0.015;
+    float rear = 1.0 - smoothstep(cut - 0.035, cut, t);
+    return max(shellD, fill) * front * rear;
+  }
+  float density(vec3 p, bool detail){
+    float x = p.x - uXoff, r = length(p.yz);
+    float u = atan(p.z, p.y) / 6.28318 + 0.5;
+    // smooth large-scale variation + fine streaks radiating along the cone (constant along each meridian)
+    float tA = (2.5 - x) / 8.5;
+    vec2 nA = texture(tNoise, vec3(u * 3.0, tA * 0.35 - uTime * 0.5 + uSeed, 0.37)).rg;
+    float streak = detail ? texture(tNoise, vec3(u * 29.0, tA * 0.12 + uSeed * 0.3, uTime * 0.07)).g : 0.5;
+    float sh = lobe(x, r, 2.5, -6.0, 0.9, 6.2, 2.0, 1.5, nA.g) * uAmt;
+    sh = max(sh, lobe(x, r, 5.7, 2.9, 0.5, 2.3, 1.6, 0.55, nA.g) * uCol);   // smaller cone over the canopy
+    if (sh < 0.004) return 0.0;
+    float d = sh * (0.6 + 0.8 * nA.r) * (0.75 + 0.5 * streak) * uFlick;
+    // as it collapses the veil thins unevenly rather than fading uniformly
+    d -= (1.0 - uAmt) * (0.15 + 0.3 * (1.0 - nA.r)) * smoothstep(0.0, 0.3, 1.0 - uAmt);
+    return max(d, 0.0);
+  }
   void main(){
-    float along = vUv.y;            // 0 = front edge, 1 = rear shock
-    float ang = vUv.x;
-    vec3 N = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
-    float n1 = vnoise(vec2(ang * 18.0, along * 4.0 - uTime * 7.0 + uSeed), 18.0);
-    float n2 = vnoise(vec2(ang * 70.0, along * 2.0 - uTime * 3.0 + uSeed * 3.0), 70.0);
-    float n3 = vnoise(vec2(ang * 9.0 + uSeed, along * 9.0 - uTime * 11.0), 9.0);
-    float front = pow(smoothstep(0.0, 0.9, along + (n1 - 0.5) * 0.35), 1.6);
-    float rear = 1.0 - smoothstep(0.90, 0.955, along + (n3 - 0.5) * 0.05);
-    float c = abs(dot(N, normalize(vV)));
-    float edgeN = vnoise(vec2(ang * 26.0 + uSeed, along * 6.0 - uTime * 5.0), 26.0);
-    float shell = pow(smoothstep(0.05, 0.95, c + (edgeN - 0.5) * 0.35), 1.3);
-    float wisp = smoothstep(0.25, 0.85, n1 * 0.6 + n2 * 0.4 + along * 0.25);
-    float d = front * rear * shell * wisp * 1.25;
-    d *= uAmt;
-    float lit = 0.5 + 0.5 * dot(N, SUN_DIR);
-    vec3 col = mix(vec3(0.62, 0.68, 0.80), vec3(1.30, 1.27, 1.20), lit);
-    gl_FragColor = vec4(col, clamp(d, 0.0, 0.9));
+    vec2 ndc = vUv * 2.0 - 1.0;
+    vec4 vd = uProjInv * vec4(ndc, 1.0, 1.0);
+    vec3 dirV = normalize(vd.xyz / vd.w);
+    vec3 roW = uCamWorld[3].xyz, rdW = normalize(mat3(uCamWorld) * dirV);
+    float dz = texture2D(tDepth, vUv).r;
+    vec4 sp = uProjInv * vec4(ndc, dz * 2.0 - 1.0, 1.0);
+    float tScene = length(sp.xyz / sp.w);
+    vec3 ro = (uInvJet * vec4(roW, 1.0)).xyz, rd = normalize(mat3(uInvJet) * rdW);
+    // bounding cylinder around the jet's axis
+    float Rb = 7.4 * uRS + 0.5;
+    float a = dot(rd.yz, rd.yz), b = 2.0 * dot(ro.yz, rd.yz), c = dot(ro.yz, ro.yz) - Rb * Rb;
+    float disc = b * b - 4.0 * a * c;
+    if (disc <= 0.0) { gl_FragColor = vec4(0.0); return; }
+    float sq = sqrt(disc);
+    float t0 = (-b - sq) / (2.0 * a), t1 = (-b + sq) / (2.0 * a);
+    float xa = (-6.6 + uXoff - ro.x) / rd.x, xb = (5.9 + uXoff - ro.x) / rd.x;
+    t0 = max(t0, min(xa, xb)); t1 = min(t1, max(xa, xb));
+    t0 = max(t0, 0.0); t1 = min(t1, tScene);
+    if (t1 <= t0) { gl_FragColor = vec4(0.0); return; }
+    float stepL = (t1 - t0) / uSteps;
+    float j = ign(gl_FragCoord.xy);
+    float mu = dot(rd, uSunL);
+    float phase = mix(hg(mu, 0.6), hg(mu, -0.2), 0.45) * 4.0 * 3.14159;
+    vec3 C = vec3(0.0); float T = 1.0;
+    for (int i = 0; i < 64; i++){
+      if (float(i) >= uSteps || T < 0.02) break;
+      vec3 p = ro + rd * (t0 + (float(i) + j) * stepL);
+      float d = density(p, true);
+      if (d > 0.003) {
+        float sig = d * SIGMA;
+        // short march toward the sun for self-shadowing
+        float dl = density(p + uSunL * 0.5, false) * 0.6 + density(p + uSunL * 1.6, false) * 1.2 + density(p + uSunL * 3.6, false) * 2.4;
+        float Tl = exp(-dl * SIGMA);
+        float powder = 1.0 - exp(-sig * 3.0);
+        vec3 sunC = vec3(1.42, 1.37, 1.28) * Tl * (0.35 + 0.65 * phase) * (0.45 + 0.75 * powder);
+        float h = clamp(p.y / (6.0 * uRS) * 0.5 + 0.5, 0.0, 1.0);
+        vec3 amb = mix(vec3(0.34, 0.31, 0.27), vec3(0.52, 0.60, 0.76), h) * (0.38 + 0.4 * exp(-dl * SIGMA * 0.5));
+        float al = 1.0 - exp(-sig * stepL);
+        C += T * al * (sunC + amb);
+        T *= 1.0 - al;
+      }
+    }
+    gl_FragColor = vec4(C, 1.0 - T);
   }`,
-  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  depthWrite: false, depthTest: false,
 });
-const vapor = (() => {
-  const pts = []; const N = 40;
-  for (let i = 0; i < N; i++) { const t = i / (N - 1); const x = 3.6 - 7.2 * t; const r = 0.8 + 2.6 * Math.pow(t, 0.7); pts.push(new THREE.Vector2(r, x)); }
-  const g = new THREE.LatheGeometry(pts, 96); g.rotateZ(-Math.PI / 2);
-  const m = new THREE.Mesh(g, vaporMat); m.layers.set(2); m.frustumCulled = false; fx.add(m); return m;
-})();
-// a second, thinner collar around the tail
-const vapor2 = (() => {
-  const pts = []; const N = 24;
-  for (let i = 0; i < N; i++) { const t = i / (N - 1); const x = -3.6 - 3.4 * t; const r = 1.4 + 1.6 * Math.pow(t, 0.7); pts.push(new THREE.Vector2(r, x)); }
-  const g = new THREE.LatheGeometry(pts, 96); g.rotateZ(-Math.PI / 2);
-  const mat = vaporMat.clone(); mat.uniforms = THREE.UniformsUtils.clone(vaporMat.uniforms); mat.uniforms.uSeed.value = 5.3;
-  const m = new THREE.Mesh(g, mat); m.layers.set(2); m.frustumCulled = false; fx.add(m); return m;
-})();
+const volQuad = new THREE.Mesh(quadGeo, volMat); volQuad.frustumCulled = false;
+const volScene = new THREE.Scene(); volScene.add(volQuad);
+const volCompMat = new THREE.ShaderMaterial({
+  uniforms: { tVol: { value: volRT.texture }, tDepth: { value: null }, uVolRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: QV,
+  // nearest-depth upsample: of the 4 half-res texels around this pixel, take the one whose depth matches ours
+  fragmentShader: `uniform sampler2D tVol, tDepth; uniform vec2 uVolRes; varying vec2 vUv;
+    void main(){
+      float d0 = texture2D(tDepth, vUv).r;
+      vec2 st = vUv * uVolRes - 0.5; vec2 b = floor(st);
+      vec4 best = vec4(0.0); float bd = 1e9; vec4 bil = texture2D(tVol, vUv); float spread = 0.0;
+      for (int i = 0; i < 4; i++){
+        vec2 o = vec2(float(i - (i / 2) * 2), float(i / 2));
+        vec2 uv = (b + o + 0.5) / uVolRes;
+        float dd = abs(texture2D(tDepth, uv).r - d0);
+        spread = max(spread, dd);
+        if (dd < bd) { bd = dd; best = texture2D(tVol, uv); }
+      }
+      gl_FragColor = spread < 1e-4 ? bil : best;
+    }`,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+  blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+});
+const volComp = new THREE.Mesh(quadGeo, volCompMat); volComp.frustumCulled = false;
+const volCompScene = new THREE.Scene(); volCompScene.add(volComp);
+const _invJet = new THREE.Matrix4(), _q = new THREE.Quaternion();
+function updateShed(dt) {
+  for (let i = 0; i < SHED_N; i++) {
+    const q = shedP[i];
+    if (q.age < q.life) { q.age += dt; q.p.addScaledVector(q.v, dt); }
+    const t = Math.min(1, q.age / q.life);
+    sOff[i * 3] = q.p.x; sOff[i * 3 + 1] = q.p.y; sOff[i * 3 + 2] = q.p.z;
+    sDat[i * 4] = t; sDat[i * 4 + 1] = q.s0 * (1 + 1.8 * t); sDat[i * 4 + 2] = q.seed; sDat[i * 4 + 3] = t < 1 ? q.a : 0;
+  }
+  shedGeo.attributes.aOff.needsUpdate = true; shedGeo.attributes.aDat.needsUpdate = true;
+}
 // afterburner plume with shock diamonds
 const PLUME_L = 7.5;
 const plumeMat = new THREE.ShaderMaterial({
@@ -858,8 +1053,6 @@ const sceneRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, s
 const maskRT = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
 const postRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
 const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-const quadGeo = new THREE.PlaneGeometry(2, 2);
-const QV = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 const blurMat = new THREE.ShaderMaterial({
   uniforms: { tColor: { value: null }, tDepth: { value: null }, tMask: { value: null }, uProj: { value: new THREE.Matrix4() }, uProjInv: { value: new THREE.Matrix4() }, uVel: { value: new THREE.Vector3() }, uRes: { value: new THREE.Vector2() }, uMaxLen: { value: 0.16 } },
@@ -978,13 +1171,13 @@ const depthOnlyMat = new THREE.MeshBasicMaterial({ colorWrite: false });
 function resize() {
   const w = W(), h = H();
   renderer.setSize(innerWidth, innerHeight, false);
-  sceneRT.setSize(w, h); maskRT.setSize(w, h); postRT.setSize(w, h);
+  sceneRT.setSize(w, h); maskRT.setSize(w, h); postRT.setSize(w, h); volRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
   bloom.setSize(w, h);
   blurMat.uniforms.uRes.value.set(w, h); finalMat.uniforms.uRes.value.set(w, h);
   camera.aspect = innerWidth / innerHeight;
   // fit ~27 m of airframe horizontally, never closer than 34 m
   const tanV = Math.tan(THREE.MathUtils.degToRad(VFOV / 2));
-  view.dist = Math.max(29, 13.5 / (tanV * camera.aspect));
+  view.dist = Math.max(29, (CAPTURE ? 12 : 13.5) / (tanV * camera.aspect));
   view.halfTanH = tanV * camera.aspect;
   camera.updateProjectionMatrix();
 }
@@ -1049,6 +1242,90 @@ sndBtn.addEventListener('click', (e) => {
   sndBtn.textContent = soundOn ? 'sound on' : 'sound off';
 });
 
+// ============================================================================ ?capture: scripted 10 s film + offline soundtrack
+// cruise → reheat lights → slow climb through the transonic band (vapour cone holds) → boom → push to Mach 1.32
+const CAP = { light: 2.0, boom: 3.4, dur: 10 };
+function capFlight(t) {
+  const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  let m = CRUISE;
+  if (t >= 2.2 && t < 3.4) { const u = (t - 2.2) / 1.2; m = CRUISE + (1.0 - CRUISE) * u * u; }
+  else if (t >= 3.4 && t < 6.2) m = 1.0 + 0.06 * sm((t - 3.4) / 2.8);
+  else if (t >= 6.2) m = 1.06 + 0.26 * sm((t - 6.2) / 2.0);
+  return { mach: m, ab: t >= CAP.light ? 1 : 0 };
+}
+async function renderSoundtrack() {
+  const sr = 48000, dur = CAP.dur, ctx = new OfflineAudioContext(2, sr * dur, sr);
+  const noise = (sec, brown, k = 0.02) => {
+    const len = Math.floor(sr * sec), b = ctx.createBuffer(1, len, sr), d = b.getChannelData(0); let last = 0; const r = rng(5 + sec * 100);
+    for (let i = 0; i < len; i++) { const w = r() * 2 - 1; if (brown) { last = (last + k * w) / (1 + k); d[i] = last * 3.5; } else d[i] = w; }
+    return b;
+  };
+  const master = ctx.createGain(); master.gain.value = 0.85; master.connect(ctx.destination);
+  const s1 = ctx.createBufferSource(); s1.buffer = noise(4, true); s1.loop = true;
+  const ef = ctx.createBiquadFilter(); ef.type = 'lowpass';
+  const eg = ctx.createGain();
+  s1.connect(ef).connect(eg).connect(master); s1.start(0);
+  const s2 = ctx.createBufferSource(); s2.buffer = noise(3, false); s2.loop = true;
+  const rf = ctx.createBiquadFilter(); rf.type = 'bandpass'; rf.Q.value = 0.6;
+  const rg = ctx.createGain();
+  s2.connect(rf).connect(rg).connect(master); s2.start(0);
+  // automate from the same timeline the picture uses
+  let ab = 0;
+  for (let k = 0; k <= dur * 60; k++) {
+    const t = k / 60, c = capFlight(t);
+    ab += (c.ab - ab) * (1 - Math.exp(-(1 / 60) * (c.ab ? 9 : 2.5)));
+    ef.frequency.setValueAtTime(380 + 260 * (c.mach - 0.8) + 700 * ab, t);
+    eg.gain.setValueAtTime(0.28 + 0.3 * ab, t);
+    rg.gain.setValueAtTime(0.03 + 0.16 * ab, t);
+    rf.frequency.setValueAtTime(500 + 500 * ab, t);
+  }
+  // reheat thump
+  { const o = ctx.createBufferSource(); o.buffer = noise(0.6, true); const g = ctx.createGain(), f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 260; g.gain.setValueAtTime(1.4, CAP.light); g.gain.exponentialRampToValueAtTime(0.001, CAP.light + 0.55);
+    o.connect(f).connect(g).connect(master); o.start(CAP.light); }
+  // sonic boom: N-wave double bang + rolling rumble + sub thump
+  {
+    const len = Math.floor(sr * 3.2), b = ctx.createBuffer(2, len, sr); const r = rng(99);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch); let last = 0; const t0 = Math.floor(0.01 * sr), Ln = Math.floor(0.13 * sr);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr; let v = 0;
+        if (i >= t0 && i < t0 + Ln) v = 1 - 2 * (i - t0) / Ln;
+        const w = r() * 2 - 1; last = (last + 0.04 * w) / 1.04;
+        v += last * 5.0 * Math.exp(-t * 1.6) * (t > 0.02 ? 1 : 0);
+        d[i] = v * 0.9;
+      }
+    }
+    const src = ctx.createBufferSource(); src.buffer = b;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+    const g = ctx.createGain(); g.gain.value = 1.1;
+    const th = ctx.createOscillator(); th.frequency.setValueAtTime(52, CAP.boom); th.frequency.exponentialRampToValueAtTime(28, CAP.boom + 0.9);
+    const tg = ctx.createGain(); tg.gain.setValueAtTime(0, 0); tg.gain.setValueAtTime(0.9, CAP.boom); tg.gain.exponentialRampToValueAtTime(0.001, CAP.boom + 1.2);
+    src.connect(lp).connect(g).connect(master); th.connect(tg).connect(master);
+    src.start(CAP.boom); th.start(CAP.boom); th.stop(CAP.boom + 1.3);
+  }
+  // fade in/out
+  master.gain.setValueAtTime(0, 0); master.gain.linearRampToValueAtTime(0.85, 0.4);
+  master.gain.setValueAtTime(0.85, dur - 0.5); master.gain.linearRampToValueAtTime(0, dur);
+  const buf = await ctx.startRendering();
+  // 16-bit WAV, returned base64
+  const n = buf.length, L = buf.getChannelData(0), Rr = buf.getChannelData(1);
+  let peak = 1e-6; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(Rr[i]));
+  const gain = Math.min(1, 0.89 / peak);
+  const ab2 = new ArrayBuffer(44 + n * 4), dv = new DataView(ab2);
+  const wstr = (o, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(o + i, str.charCodeAt(i)); };
+  wstr(0, 'RIFF'); dv.setUint32(4, 36 + n * 4, true); wstr(8, 'WAVE'); wstr(12, 'fmt '); dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true); dv.setUint16(22, 2, true); dv.setUint32(24, sr, true); dv.setUint32(28, sr * 4, true); dv.setUint16(32, 4, true); dv.setUint16(34, 16, true);
+  wstr(36, 'data'); dv.setUint32(40, n * 4, true);
+  for (let i = 0, o = 44; i < n; i++, o += 4) {
+    dv.setInt16(o, Math.max(-1, Math.min(1, L[i] * gain)) * 32767, true);
+    dv.setInt16(o + 2, Math.max(-1, Math.min(1, Rr[i] * gain)) * 32767, true);
+  }
+  const bytes = new Uint8Array(ab2); let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 // ============================================================================ flight state & input
 const S = {
   x: 0, camX: 0, mach: CRUISE, target: CRUISE, abT: 0, ab: 0, vSmooth: 0, lead: 0,
@@ -1064,6 +1341,7 @@ canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
 addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); press(); } if (e.key === 'm' || e.key === 'M') sndBtn.click(); });
 function boom() {
   S.shake = 1; S.shockT = 0; S.flash = 0.22; S.vapSeed = Math.random() * 100;
+  S.vap = 1;
   boomSound();
   // burst of dust along the whole shock footprint
   const mu = Math.asin(1 / 1.04), tanMu = Math.tan(mu);
@@ -1079,6 +1357,10 @@ const toUv = (v, out) => { v.project(camera); return out.set(v.x * 0.5 + 0.5, v.
 let last = performance.now(), lastMachTxt = '';
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  tick(dt);
+  requestAnimationFrame(frame);
+}
+function tick(dt) {
   S.t += dt;
   // --- flight model: reheat pushes toward the target Mach, drag pulls back to cruise
   S.abT -= dt;
@@ -1089,22 +1371,24 @@ function frame(now) {
   const rate = S.target > S.mach ? 0.62 : 0.95;
   S.mach += (S.target - S.mach) * (1 - Math.exp(-dt * rate));
   if (Q.has('mach')) { S.mach = +Q.get('mach'); S.abT = 1; if (S.t < 0.1 && S.mach >= 1) boom(); }
+  if (CAPTURE) { const c = capFlight(S.t); S.mach = c.mach; S.target = c.mach; S.abT = c.ab; }
   if (prevM < 1 && S.mach >= 1) boom();
   if (prevM >= 1 && S.mach < 1) { S.vapSeed = Math.random() * 100; }
-  const trans = Math.exp(-Math.pow((S.mach - 1.0) / 0.045, 2));
-  S.vap = Math.max(S.vap * Math.exp(-dt * 1.6), trans);
+  const trans = Math.exp(-Math.pow((S.mach - 1.0) / 0.06, 2));
+  S.vap = Math.max(S.vap * Math.exp(-dt * 1.0), trans);
   const v = S.mach * 340 * VIS_K;
   S.x += v * dt;
   // camera lags acceleration so the jet surges ahead in frame, then settles
   S.vSmooth += (v - S.vSmooth) * (1 - Math.exp(-dt * 0.9));
   const leadT = THREE.MathUtils.clamp((v - S.vSmooth) * 0.06, -2.5, 3.5);
   S.lead += (leadT - S.lead) * (1 - Math.exp(-dt * 3));
-  S.camX = S.x - 1.2 - S.lead;
+  S.camX = CAPTURE ? S.x - 0.4 - S.lead * 0.55 : S.x - 1.2 - S.lead;
   // seamless wrap of the periodic world
   if (S.x > PERIOD * 1.5) {
     S.x -= PERIOD; S.camX -= PERIOD; S.vSmooth = S.vSmooth;
     rocks.shift(-PERIOD); bushes.shift(-PERIOD);
     for (const p of dustP) p.x -= PERIOD;
+    for (const q of shedP) q.p.x -= PERIOD;
   }
   // --- jet attitude: low-level buffet
   const tb = S.t;
@@ -1119,13 +1403,21 @@ function frame(now) {
     Math.sin(tb * 0.29) * 0.06 - 0.04 + S.shake * Math.sin(tb * 27) * 0.06);
   jet.rotation.set(Math.sin(tb * 0.53) * 0.025 + Math.sin(tb * 13) * buff * 0.01, 0, S.pitch + Math.sin(tb * 19) * buff * 0.004);
   // --- effects
-  vaporMat.uniforms.uTime.value = S.t; vaporMat.uniforms.uSeed.value = S.vapSeed;
-  vaporMat.uniforms.uAmt.value = Math.min(1, S.vap * 1.25);
-  vapor2.material.uniforms.uTime.value = S.t; vapor2.material.uniforms.uAmt.value = Math.min(1, S.vap * 0.35);
-  vapor2.material.uniforms.uSeed.value = S.vapSeed + 5.3;
+  // shocks oscillate: the cloud flickers, its rear edge jitters, and it slides aft as Mach climbs
+  const flick = 0.8 + 0.2 * Math.sin(S.t * 37) * Math.sin(S.t * 23 + 1.3) + 0.08 * Math.sin(S.t * 71);
+  const jit = Math.sin(S.t * 41) * Math.sin(S.t * 29 + 0.7) * 0.01;
   const vs = 0.85 + 0.3 * THREE.MathUtils.clamp(S.mach - 0.95, 0, 0.2) / 0.2;
-  vapor.scale.set(1, vs, vs); vapor.position.x = -THREE.MathUtils.clamp(S.mach - 0.97, 0, 0.15) * 6;
-  vapor.visible = S.vap > 0.01; vapor2.visible = false;
+  const xoff = -THREE.MathUtils.clamp(S.mach - 0.97, 0, 0.15) * 6;
+  {
+    const u = volMat.uniforms;
+    u.uAmt.value = Math.min(1, S.vap * 1.3);
+    u.uCol.value = Math.min(1, S.vap * (0.35 + 0.45 * Math.exp(-Math.pow((S.mach - 0.98) / 0.05, 2))));
+    u.uFlick.value = 0.9 + 0.1 * flick;
+    u.uTail.value = 0;
+    u.uTime.value = S.t; u.uSeed.value = (S.vapSeed % 10) * 0.37; u.uJit.value = jit;
+    u.uXoff.value = xoff; u.uRS.value = vs;
+  }
+  updateShed(dt);
   plumeMat.uniforms.uAB.value = S.ab; plumeMat.uniforms.uTime.value = S.t;
   plume.visible = S.ab > 0.01;
   const pl = 0.55 + 0.45 * S.ab + 0.08 * Math.sin(S.t * 31) * S.ab;
@@ -1187,7 +1479,6 @@ function frame(now) {
   if (mt !== lastMachTxt) { machEl.textContent = mt; machEl.classList.toggle('super', S.mach >= 1); lastMachTxt = mt; }
 
   render(dt, v);
-  requestAnimationFrame(frame);
 }
 
 function render(dt, v) {
@@ -1214,6 +1505,18 @@ function render(dt, v) {
   camera.layers.set(1); scene.overrideMaterial = depthOnlyMat; renderer.render(scene, camera);
   scene.overrideMaterial = null;
   camera.layers.set(2); renderer.render(scene, camera);
+  // 4b. volumetric vapour cone: raymarched at half resolution against the scene depth, then composited
+  if (volMat.uniforms.uAmt.value > 0.01 || volMat.uniforms.uCol.value > 0.01) {
+    jet.updateMatrixWorld();
+    const u = volMat.uniforms;
+    u.tDepth.value = sceneRT.depthTexture;
+    u.uProjInv.value.copy(camera.projectionMatrixInverse); u.uCamWorld.value.copy(camera.matrixWorld);
+    _invJet.copy(jet.matrixWorld).invert(); u.uInvJet.value.copy(_invJet);
+    jet.getWorldQuaternion(_q); u.uSunL.value.copy(SUN).applyQuaternion(_q.invert());
+    renderer.autoClear = true; renderer.setRenderTarget(volRT); renderer.setClearColor(0x000000, 0); renderer.render(volScene, orthoCam);
+    volCompMat.uniforms.tDepth.value = sceneRT.depthTexture; volCompMat.uniforms.uVolRes.value.set(volRT.width, volRT.height);
+    renderer.autoClear = false; renderer.setRenderTarget(postRT); renderer.render(volCompScene, orthoCam);
+  }
   renderer.autoClear = true;
   scene.fog = fog; sky.visible = true;
   camera.layers.set(0); camera.layers.enable(1);
@@ -1224,7 +1527,13 @@ function render(dt, v) {
   renderer.setRenderTarget(null); renderer.render(finalScene, orthoCam);
 }
 
-requestAnimationFrame((t) => { last = t; requestAnimationFrame(frame); setTimeout(() => document.getElementById('loading').classList.add('done'), 350); });
+if (!CAPTURE) requestAnimationFrame((t) => { last = t; requestAnimationFrame(frame); setTimeout(() => document.getElementById('loading').classList.add('done'), 350); });
+else {
+  // deterministic film: one fixed 1/30 s step per frame, driven by the recorder
+  window.__frame = (i) => { while (S.t < i / 30 - 1e-6) tick(1 / 30); return S.t; };
+  window.__soundtrack = renderSoundtrack;
+  window.__ready = true;
+}
 if (Q.has('boom')) setTimeout(press, +Q.get('boom') || 1000);
 </script>
 </body>
