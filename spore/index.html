@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vibecodevember - Day 16 - Spore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #f1ece2; --soft: #a39b8e; --dim: #6b655c; --bar: 56px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .bar { position: fixed; left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 3vw, 36px); pointer-events: none; z-index: 2; }
+  .brand { font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; opacity: .85; }
+  .name { font: italic 400 24px 'Cormorant Garamond', Georgia, serif; letter-spacing: .05em; }
+  #card { position: fixed; pointer-events: none; text-shadow: 0 0 14px rgba(0,0,0,.9); max-width: 330px; transition: opacity .35s; }
+  #card .common { font: 500 10px Inter, sans-serif; letter-spacing: .3em; text-transform: uppercase; color: var(--soft); }
+  #card .latin { font: italic 500 34px/1.05 'Cormorant Garamond', Georgia, serif; margin: 4px 0 12px; }
+  #card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 11px; line-height: 1.4; }
+  #card dt { color: var(--dim); letter-spacing: .12em; text-transform: uppercase; font-size: 9px; padding-top: 2px; }
+  #card dd { margin: 0; color: #d8d1c4; }
+  #species { position: fixed; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; z-index: 2; }
+  .pill { border: 1px solid rgba(241,236,226,.22); background: rgba(10,9,8,.55); color: var(--soft); border-radius: 16px; padding: 6px 12px; font: italic 400 15px 'Cormorant Garamond', Georgia, serif; cursor: pointer; backdrop-filter: blur(6px); transition: color .2s, border-color .2s, background .2s; white-space: nowrap; }
+  .pill:hover { color: var(--ink); border-color: rgba(241,236,226,.45); }
+  .pill.on { color: #15120e; background: #e8dfcf; border-color: #e8dfcf; }
+  #mags { position: fixed; display: flex; justify-content: center; gap: 6px; z-index: 2; }
+  #mags .pill { font: 500 11px Inter, sans-serif; letter-spacing: .06em; padding: 7px 11px; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  #mags .pill small { font-size: 8.5px; letter-spacing: .08em; opacity: .7; }
+  #readout { position: fixed; text-align: center; font-size: 10.5px; letter-spacing: .1em; color: var(--soft); pointer-events: none; white-space: nowrap; }
+  #readout b { color: var(--ink); font-weight: 500; }
+  #fwrap { position: fixed; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 2; }
+  #fwrap span { font: 500 8.5px Inter, sans-serif; letter-spacing: .26em; text-transform: uppercase; color: var(--dim); writing-mode: vertical-rl; transform: rotate(180deg); }
+  #focus { -webkit-appearance: none; appearance: none; writing-mode: vertical-lr; direction: rtl; width: 22px; height: 180px; background: transparent; cursor: ns-resize; }
+  #focus::-webkit-slider-runnable-track { width: 2px; background: rgba(241,236,226,.2); border-radius: 2px; }
+  #focus::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 8px; border-radius: 4px; background: #e8dfcf; margin-left: -8px; }
+  #focus::-moz-range-track { width: 2px; background: rgba(241,236,226,.2); }
+  #focus::-moz-range-thumb { width: 18px; height: 8px; border-radius: 4px; background: #e8dfcf; border: 0; }
+  body.portrait #fwrap { flex-direction: row; }
+  body.portrait #fwrap span { writing-mode: horizontal-tb; transform: none; }
+  body.portrait #focus { writing-mode: horizontal-tb; direction: ltr; width: 180px; height: 22px; cursor: ew-resize; }
+  body.portrait #focus::-webkit-slider-runnable-track { width: auto; height: 2px; }
+  body.portrait #focus::-webkit-slider-thumb { width: 8px; height: 18px; margin-left: 0; margin-top: -8px; }
+  #hint { position: fixed; right: clamp(16px, 3vw, 36px); bottom: 16px; font-size: 10px; letter-spacing: .08em; color: var(--dim); pointer-events: none; text-align: right; }
+  #hint b { color: var(--soft); font-weight: 500; }
+  #lfade { position: fixed; background: #000; opacity: 0; pointer-events: none; transition: opacity .32s; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #000; font: italic 400 21px 'Cormorant Garamond', Georgia, serif; color: var(--soft); transition: opacity .9s; z-index: 10; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  body.shot .bar, body.shot #card, body.shot #species, body.shot #mags, body.shot #readout, body.shot #fwrap, body.shot #hint, body.shot #loading { display: none !important; }
+  /* ?capture: square social film, one view at a time */
+  #cap, #magl { display: none; }
+  body.capture #card, body.capture #species, body.capture #mags, body.capture #readout, body.capture #fwrap, body.capture #hint, body.capture #loading { display: none !important; }
+  body.capture .bar { height: 64px; padding: 0 28px; }
+  body.capture .brand { font-size: 10.5px; }
+  body.capture .name { font-size: 30px; }
+  body.capture #cap, body.capture #magl { display: block; position: fixed; bottom: 22px; pointer-events: none; text-shadow: 0 0 16px rgba(0,0,0,.95); z-index: 3; }
+  #cap { left: 28px; }
+  #cap .c1 { font: 500 9.5px Inter, sans-serif; letter-spacing: .3em; text-transform: uppercase; color: var(--soft); }
+  #cap .c2 { font: italic 500 30px/1.05 'Cormorant Garamond', Georgia, serif; margin-top: 4px; }
+  #magl { right: 28px; text-align: right; }
+  #magl b { display: block; font: 400 34px/1 'Cormorant Garamond', Georgia, serif; font-style: italic; }
+  #magl small { display: block; margin-top: 5px; font: 500 9px Inter, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--soft); }
+  @media (max-width: 700px) {
+    #card .latin { font-size: 25px; margin-bottom: 6px; }
+    #card dl { display: none; }
+    #hint { display: none; }
+    .pill { font-size: 13px; padding: 5px 9px; }
+    #mags .pill { padding: 5px 7px; font-size: 10px; }
+    #mags .pill small { display: none; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<header class="bar"><span class="brand">Vibecodevember · Day 16</span><span class="name">Spore</span></header>
+<div id="card"><div class="common" id="cCommon"></div><div class="latin" id="cLatin"></div><dl id="cFacts"></dl></div>
+<nav id="species"></nav>
+<div id="readout"></div>
+<nav id="mags"></nav>
+<div id="fwrap"><input id="focus" type="range" min="-4" max="26" step="0.01" value="4" aria-label="fine focus" /><span>fine focus</span></div>
+<div id="hint"><b>drag</b> the slide · <b>scroll</b> to focus · <b>drag</b> the mushroom to turn it · <b>← →</b> species · <b>1–5</b> objectives</div>
+<div id="lfade"></div>
+<div id="cap"><div class="c1"></div><div class="c2"></div></div>
+<div id="magl"><b></b><small></small></div>
+<div id="loading">preparing slides…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const Q = new URLSearchParams(location.search);
+const SHOT = Q.has('shot');
+if (SHOT) document.body.classList.add('shot');
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
+
+// ============================================================================ small utilities
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const TAU = Math.PI * 2;
+function hash3(i, j, k) { let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(k, 1274126177)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+function noise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const a = hash3(xi, yi, zi), b = hash3(xi + 1, yi, zi), c = hash3(xi, yi + 1, zi), d = hash3(xi + 1, yi + 1, zi);
+  const e = hash3(xi, yi, zi + 1), f = hash3(xi + 1, yi, zi + 1), g = hash3(xi, yi + 1, zi + 1), h = hash3(xi + 1, yi + 1, zi + 1);
+  return lerp(lerp(lerp(a, b, u), lerp(c, d, u), v), lerp(lerp(e, f, u), lerp(g, h, u), v), w);
+}
+function fbm3(x, y, z, o = 4) { let s = 0, a = 0.5, n = 0; for (let i = 0; i < o; i++) { s += a * noise3(x, y, z); n += a; x *= 2.03; y *= 2.03; z *= 2.03; a *= 0.5; } return s / n; }
+const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+function ramp(stops, t) {
+  if (t <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) return mix3(stops[i - 1][1], stops[i][1], sstep(0, 1, (t - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0])));
+  return stops[stops.length - 1][1];
+}
+const toLin = (c) => Math.pow(clamp(c, 0, 1), 2.2);
+function gauss(rng) { return Math.sqrt(-2 * Math.log(rng() + 1e-9)) * Math.cos(TAU * rng()); }
+function fibDirs(n, rng, jit = 0) {
+  const out = [], off = rng() * TAU;
+  for (let i = 0; i < n; i++) {
+    const y = 1 - 2 * (i + 0.5) / n, r = Math.sqrt(1 - y * y), th = i * 2.399963 + off;
+    const v = new THREE.Vector3(Math.cos(th) * r, y, Math.sin(th) * r);
+    if (jit) v.add(new THREE.Vector3(gauss(rng), gauss(rng), gauss(rng)).multiplyScalar(jit));
+    out.push(v.normalize());
+  }
+  return out;
+}
+
+// ============================================================================ renderer
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: SHOT });
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(DPR);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
+renderer.autoClear = false;
+
+// ============================================================================ geometry helpers (mushrooms, units = cm)
+function finish(g) {
+  for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'color') g.deleteAttribute(k);
+  g = mergeVertices(g, 1e-4);
+  g.computeVertexNormals();
+  return g;
+}
+function colorize(g, fn) {
+  const P = g.attributes.position, n = P.count, col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const c = fn(P.getX(i), P.getY(i), P.getZ(i)); col[i * 3] = toLin(c[0]); col[i * 3 + 1] = toLin(c[1]); col[i * 3 + 2] = toLin(c[2]); }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+// lathe with per-vertex displacement (along the lathe normal) and colour; profile = [[r, y], ...] going up the outside
+function lathe(profile, segs, colorFn, dispFn) {
+  const pts = profile.map(p => new THREE.Vector2(Math.max(p[0], 0.0004), p[1]));
+  const g = new THREE.LatheGeometry(pts, segs);
+  const P = g.attributes.position, N = g.attributes.normal, UV = g.attributes.uv, n = P.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    const info = { x, y, z, t: UV.getY(i), r: Math.hypot(x, z), a: Math.atan2(z, x) };
+    if (dispFn) { const d = dispFn(info); P.setXYZ(i, x + N.getX(i) * d, y + N.getY(i) * d, z + N.getZ(i) * d); }
+    const c = colorFn(info);
+    col[i * 3] = toLin(c[0]); col[i * 3 + 1] = toLin(c[1]); col[i * 3 + 2] = toLin(c[2]);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return finish(g);
+}
+function smoothProfile(pts, n) {
+  const c = new THREE.SplineCurve(pts.map(p => new THREE.Vector2(p[0], p[1])));
+  return c.getSpacedPoints(n).map(v => [v.x, v.y]);
+}
+// indexed grid; fn(i, j) -> {p:[x,y,z], c:[r,g,b]}; columns wrap if wrap=true
+function gridGeo(rows, cols, fn, wrap = false) {
+  const nc = wrap ? cols : cols + 1;
+  const pos = new Float32Array((rows + 1) * nc * 3), col = new Float32Array((rows + 1) * nc * 3), idx = [];
+  for (let i = 0; i <= rows; i++) for (let j = 0; j < nc; j++) {
+    const o = fn(i, j), k = (i * nc + j) * 3;
+    pos[k] = o.p[0]; pos[k + 1] = o.p[1]; pos[k + 2] = o.p[2];
+    col[k] = toLin(o.c[0]); col[k + 1] = toLin(o.c[1]); col[k + 2] = toLin(o.c[2]);
+  }
+  const cc = wrap ? cols : cols;
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cc; j++) {
+    const j1 = wrap ? (j + 1) % nc : j + 1;
+    const a = i * nc + j, b = i * nc + j1, c = (i + 1) * nc + j, d = (i + 1) * nc + j1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+// tube along a curve with variable radius; colorFn(t, angle, p) ; returns indexed geometry
+function tubeGeo(curve, n, radial, radiusFn, colorFn, capEnd = false) {
+  const frames = curve.computeFrenetFrames(n, false);
+  const rows = [];
+  const geo = gridGeo(n, radial, (i, j) => {
+    const t = i / n, p = curve.getPointAt(t), N = frames.normals[i], B = frames.binormals[i];
+    const a = j / radial * TAU, r = radiusFn(t, a, p);
+    const v = p.clone().addScaledVector(N, Math.cos(a) * r).addScaledVector(B, Math.sin(a) * r);
+    return { p: [v.x, v.y, v.z], c: colorFn(t, a, v) };
+  }, true);
+  return geo;
+}
+function alignQuat(n, yaw) {
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
+  return q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
+}
+function placed(geo, pos, quat, scale) {
+  const g = geo.clone();
+  g.applyMatrix4(new THREE.Matrix4().compose(pos, quat, scale));
+  return g;
+}
+function blobGeo(rng, det = 1, flat = 0.5, col = [0.93, 0.9, 0.78], lift = 0.25) {
+  let g = new THREE.IcosahedronGeometry(1, det);
+  g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
+  const P = g.attributes.position, s = rng() * 100;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    const k = 0.72 + 0.55 * noise3(x * 1.6 + s, y * 1.6, z * 1.6);
+    P.setXYZ(i, x * k, (y * k + lift) * flat, z * k);
+  }
+  colorize(g, (x, y) => { const t = 0.9 + 0.1 * y; return [col[0] * t, col[1] * t, col[2] * t]; });
+  return finish(g);
+}
+
+// ============================================================================ mushroom materials
+const MAT = {
+  flesh: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.62, sheen: 0.7, sheenRoughness: 0.45, sheenColor: new THREE.Color(0.32, 0.3, 0.28), side: THREE.DoubleSide }),
+  cap: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.4, clearcoat: 0.18, clearcoatRoughness: 0.45, sheen: 0.35, sheenRoughness: 0.6, sheenColor: new THREE.Color(0.5, 0.2, 0.12), side: THREE.DoubleSide }),
+  matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, side: THREE.DoubleSide }),
+  lacq: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, clearcoat: 1.0, clearcoatRoughness: 0.1, side: THREE.DoubleSide }),
+};
+
+// ---------------------------------------------------------------- procedural surface detail
+// Object-space noise drives a bump (normal perturbation from screen derivatives), albedo mottling,
+// cavity darkening and roughness variation. Octaves fade out with fwidth so nothing shimmers at distance.
+const TEX_COMMON = /* glsl */`
+varying vec3 vObjPos;
+float th(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vn(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(th(i), th(i + vec3(1,0,0)), f.x), mix(th(i + vec3(0,1,0)), th(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(th(i + vec3(0,0,1)), th(i + vec3(1,0,1)), f.x), mix(th(i + vec3(0,1,1)), th(i + vec3(1,1,1)), f.x), f.y), f.z); }
+float fbmA(vec3 p, float fw, int oct){ float s = 0.0, a = 0.5, f = 1.0;
+  for (int i = 0; i < 6; i++){ if (i >= oct) break; s += a * clamp(1.6 - fw * f * 2.2, 0.0, 1.0) * (vn(p * f) - 0.5); f *= 2.03; a *= 0.5; p += 17.3; }
+  return s * 2.0; }
+float cellN(vec3 p){ vec3 i = floor(p), f = fract(p); float d = 8.0;
+  for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++){
+    vec3 o = vec3(float(x), float(y), float(z)); vec3 r = o + vec3(th(i + o), th(i + o + 13.1), th(i + o + 27.7)) * 0.85 - f; d = min(d, dot(r, r)); }
+  return sqrt(d); }
+vec3 bumpN(vec3 surf_pos, vec3 n, vec2 dH, float fd){
+  vec3 sx = dFdx(surf_pos), sy = dFdy(surf_pos);
+  vec3 R1 = cross(sy, n), R2 = cross(n, sx);
+  float det = dot(sx, R1) * fd;
+  vec3 g = sign(det) * (dH.x * R1 + dH.y * R2);
+  return normalize(abs(det) * n - g);
+}`;
+const TEX_MODES = {
+  // smooth, slightly sticky cap cuticle with soft mottling and wet/dry gloss patches
+  skin: `float m1 = fbmA(p * 1.6, fw * 1.6, 4), m2 = fbmA(p * 9.0, fw * 9.0, 4), m3 = fbmA(vec3(p.x, p.y * 6.0, p.z) * 14.0, fw * 40.0, 3);
+    h = 0.03 * m1 + 0.008 * m2 + 0.003 * m3;
+    tint = vec3(1.0 + 0.22 * m1 + 0.1 * m2) * mix(vec3(1.0), vec3(0.86, 0.92, 1.05), smoothstep(0.1, 0.6, m1));
+    rough = 0.26 + 0.36 * smoothstep(-0.3, 0.4, m2 + 0.5 * m1);`,
+  // silky fibrous stems and veils: fibres run along the stem axis
+  fiber: `float f1 = fbmA(vec3(p.x * 34.0, p.y * 2.2, p.z * 34.0), fw * 34.0, 4), g = fbmA(p * 5.0, fw * 5.0, 3);
+    h = 0.007 * f1 + 0.012 * g;
+    tint = vec3(1.0 + 0.16 * f1 + 0.1 * g) * vec3(1.0, 0.995, 0.97 + 0.04 * f1);
+    rough = 0.5 + 0.22 * f1;`,
+  // woolly, torn scales of the ink cap
+  shaggy: `float f1 = fbmA(vec3(p.x * 20.0, p.y * 3.0, p.z * 20.0), fw * 20.0, 4), f2 = fbmA(p * 45.0, fw * 45.0, 3);
+    h = 0.014 * f1 + 0.005 * f2;
+    tint = vec3(1.0 + 0.2 * f1 + 0.1 * f2) * mix(vec3(1.0), vec3(0.95, 0.9, 0.82), smoothstep(0.0, 0.6, f1));
+    rough = 0.7 + 0.2 * f2;`,
+  // morel head: fine wrinkles and grain inside the pits and on the ridges
+  morel: `float w = fbmA(p * 9.0, fw * 9.0, 4), c = cellN(p * 22.0), aa = clamp(1.5 - fw * 22.0 * 2.0, 0.0, 1.0);
+    h = 0.012 * w - 0.006 * (1.0 - smoothstep(0.0, 0.5, c)) * aa;
+    tint = vec3(1.0 + 0.3 * fbmA(p * 3.0, fw * 3.0, 3) + 0.15 * w) * mix(1.0, mix(0.8, 1.04, smoothstep(0.1, 0.5, c)), aa);
+    rough = 0.62 + 0.2 * w;`,
+  // granular / furfuraceous surfaces: puffball skin, morel stem, veil warts
+  gran: `float c = cellN(p * 16.0), aa = clamp(1.5 - fw * 16.0 * 2.0, 0.0, 1.0), g = fbmA(p * 5.0, fw * 5.0, 4);
+    h = 0.012 * smoothstep(0.75, 0.05, c) * aa + 0.012 * g;
+    tint = vec3(1.0 + 0.14 * g) * mix(1.0, mix(0.8, 1.05, smoothstep(0.15, 0.55, c)), aa);
+    rough = 0.72 + 0.15 * g;`,
+  // radially fibrillose, silky cap (Inocybe)
+  radial: `float a = atan(p.z, p.x), r = length(p.xz);
+    float f = fbmA(vec3(cos(a) * 80.0, sin(a) * 80.0, r * 5.0 + p.y * 5.0), fw * 80.0 / max(r, 0.25), 4);
+    float g = fbmA(p * 6.0, fw * 6.0, 3);
+    h = 0.006 * f + 0.008 * g;
+    tint = vec3(1.0 + 0.4 * f + 0.12 * g) * mix(vec3(1.0), vec3(1.06, 1.0, 0.9), smoothstep(0.0, 0.5, f));
+    rough = 0.45 + 0.2 * f;`,
+  // lacquered crust: low ripples, tiny wrinkles, high gloss
+  lacq: `float w = fbmA(p * 3.2, fw * 3.2, 4), fine = fbmA(vec3(p.x * 30.0, p.y * 10.0, p.z * 30.0), fw * 30.0, 3);
+    h = 0.016 * w + 0.0025 * fine;
+    tint = vec3(1.0 + 0.25 * w + 0.06 * fine);
+    rough = 0.16 + 0.18 * smoothstep(-0.2, 0.5, w);`,
+  // pore surface under the bracket: tiny round pores
+  pore: `float c = cellN(p * 38.0), aa = clamp(1.5 - fw * 38.0 * 2.0, 0.0, 1.0), g = fbmA(p * 4.0, fw * 4.0, 3);
+    h = -0.004 * smoothstep(0.32, 0.08, c) * aa + 0.006 * g;
+    tint = vec3(1.0 + 0.12 * g) * mix(1.0, mix(0.55, 1.0, smoothstep(0.08, 0.32, c)), aa);
+    rough = 0.85;`,
+  gill: `float g = fbmA(p * 22.0, fw * 22.0, 3), b = fbmA(p * 3.0, fw * 3.0, 3);
+    h = 0.002 * g;
+    tint = vec3(1.0 + 0.08 * g + 0.1 * b);
+    rough = 0.8;`,
+  // soil: crumbs, aggregates, darker crevices, scattered lighter organic matter
+  soil: `float big = fbmA(p * 0.8, fw * 0.8, 4), c = cellN(p * 3.2), aa = clamp(1.5 - fw * 3.2 * 2.0, 0.0, 1.0), f = fbmA(p * 11.0, fw * 11.0, 4);
+    float c2 = cellN(p * 9.0 + 5.0), aa2 = clamp(1.5 - fw * 9.0 * 2.0, 0.0, 1.0);
+    h = 0.07 * big + 0.05 * smoothstep(0.7, 0.1, c) * aa + 0.018 * smoothstep(0.6, 0.05, c2) * aa2 + 0.012 * f;
+    tint = vec3(0.8 + 0.5 * big + 0.25 * f) * mix(1.0, mix(0.55, 1.1, smoothstep(0.1, 0.55, c)), aa);
+    tint *= mix(vec3(1.0), vec3(1.35, 1.15, 0.85), smoothstep(0.62, 0.78, vn(p * 2.3)));
+    rough = 0.92;`,
+};
+const texCache = new Map();
+function tex(base, mode, bump = 1) {
+  const keyS = mode + bump + base.uuid;
+  if (texCache.has(keyS)) return texCache.get(keyS);
+  const m = base.clone();
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'varying vec3 vObjPos;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vObjPos = position;');
+    sh.fragmentShader = TEX_COMMON + '\n' + sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 p = vObjPos; float fw = max(length(fwidth(p)), 1e-5);
+        float h = 0.0, rough = 0.6; vec3 tint = vec3(1.0);
+        { ${TEX_MODES[mode]} }
+        h *= ${bump.toFixed(3)};
+        diffuseColor.rgb *= tint;`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = clamp(rough, 0.04, 1.0);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n normal = bumpN(-vViewPosition, normal, vec2(dFdx(h), dFdy(h)), faceDirection);');
+  };
+  m.customProgramCacheKey = () => 'tex-' + mode + bump;
+  texCache.set(keyS, m);
+  return m;
+}
+function mesh(geo, mat, cast = true) { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; return m; }
+
+// gills: radial plates under a cap
+function gillsGeo(rng, o) {
+  const pos = [], col = [], idx = []; const K = 22; let vi = 0;
+  for (let i = 0; i < o.n; i++) {
+    const a = i / o.n * TAU + (rng() - 0.5) * 0.4 / o.n * TAU;
+    const lvl = i % 4 === 0 ? 0 : (i % 2 === 0 ? 1 : 2);
+    const rs = o.r0 + (o.r1 - o.r0) * [0, 0.42, 0.7][lvl];
+    const ca = Math.cos(a), sa = Math.sin(a), base = vi;
+    for (let k = 0; k <= K; k++) {
+      const r = rs + (o.r1 - rs) * k / K;
+      const top = o.yTop(r) + 0.02;
+      const d = o.depth(r) * sstep(0, 0.35, r - rs);
+      const w = 0.012 * Math.sin(r * 9 + i);
+      pos.push(r * ca - sa * w, top, r * sa + ca * w, r * ca - sa * w, top - d, r * sa + ca * w);
+      const ct = o.col(0, r), cb = o.col(1, r);
+      col.push(toLin(ct[0]), toLin(ct[1]), toLin(ct[2]), toLin(cb[0]), toLin(cb[1]), toLin(cb[2]));
+      if (k > 0) { const b = base + 2 * k; idx.push(b - 2, b - 1, b + 1, b - 2, b + 1, b); }
+      vi += 2;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+// ---------------------------------------------------------------- Amanita muscaria
+const AM_RAMP = [[0, [0.36, 0.03, 0.025]], [0.3, [0.6, 0.045, 0.03]], [0.7, [0.76, 0.09, 0.035]], [0.9, [0.84, 0.26, 0.06]], [1, [0.87, 0.44, 0.13]]];
+function amanita(rng, o) {
+  const grp = new THREE.Group();
+  const R = o.R, cy = o.capY;
+  const yu = r => cy + o.uD * (1 - Math.pow(r / R, 1.8)) - o.inc * Math.pow(r / R, 7);
+  const yt = r => cy + 0.2 + o.capH * Math.pow(Math.max(0, 1 - Math.pow(r / R, 2.3)), 0.62) - o.inc * Math.pow(r / R, 7);
+  const prof = [], NU = 24, NT = 80;
+  for (let i = 0; i <= NU; i++) { const r = 0.02 + (R - 0.02) * i / NU; prof.push([r, yu(r)]); }
+  prof.push([R + 0.07, (yu(R) + yt(R)) * 0.5]);
+  for (let i = NT; i >= 0; i--) { const u = i / NT; const r = R * (1 - Math.pow(1 - u, 1.5)); prof.push([r, yt(r)]); }
+  const tU = (NU + 0.5) / (prof.length - 1);
+  const stri = (info, rr) => rr > 0.76 ? (0.5 + 0.5 * Math.sin(info.a * 118 + 3 * noise3(info.x * 2, info.y * 2, info.z * 2))) * sstep(0.76, 0.97, rr) : 0;
+  grp.add(mesh(lathe(prof, 360, info => {
+    if (info.t < tU) return [0.93, 0.91, 0.84];
+    const rr = info.r / R, c = ramp(AM_RAMP, rr);
+    const k = (0.84 + 0.3 * fbm3(info.x * 1.3, info.y * 1.3, info.z * 1.3, 3)) * (1 - 0.22 * stri(info, rr));
+    return [c[0] * k, c[1] * k, c[2] * k];
+  }, info => info.t < tU ? 0 : 0.035 * (fbm3(info.x * 2.5, info.y * 2.5, info.z * 2.5, 3) - 0.5) - 0.014 * stri(info, info.r / R)), tex(MAT.cap, 'skin')));
+
+  // warts (remnants of the universal veil)
+  const wv = [0, 1, 2, 3, 4, 5].map(i => blobGeo(rng, 3, 0.42 + 0.2 * rng(), mix3([0.94, 0.9, 0.76], [0.8, 0.74, 0.58], i / 5 * 0.8), 0.1 + 0.3 * rng()));
+  const wl = [], pl = [];
+  for (let a = 0; a < 6000 && pl.length < o.nW; a++) {
+    const rr = Math.pow(rng(), 0.7) * 0.94, r = rr * R, th = rng() * TAU, x = r * Math.cos(th), z = r * Math.sin(th);
+    const md = o.wD * (1 - 0.55 * rr);
+    if (pl.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < (md * 0.5 + p[2] * 0.5) ** 2)) continue;
+    pl.push([x, z, md]);
+    const e = 0.01, dy = (yt(r + e) - yt(Math.max(0, r - e))) / (2 * e);
+    const n = new THREE.Vector3(-dy * Math.cos(th), 1, -dy * Math.sin(th)).normalize();
+    const s = md * 0.5 * (0.75 + 0.5 * rng());
+    wl.push(placed(wv[(rng() * 6) | 0], new THREE.Vector3(x, yt(r) - 0.02, z), alignQuat(n, rng() * TAU), new THREE.Vector3(s, s * (0.7 + 0.5 * rng()), s)));
+  }
+  // stem
+  const sr = y => {
+    const s = o.stemR * (1.18 - 0.22 * clamp(y / cy, 0, 1));
+    const bt = (y - o.bY) / o.bRy, b = Math.abs(bt) < 1 ? o.bulbR * Math.sqrt(1 - bt * bt) : 0;
+    const k = 0.15; return k * Math.log(Math.exp(s / k) + Math.exp(b / k));
+  };
+  const y0 = o.bY - o.bRy * 0.9, sp = [[0.01, y0]];
+  for (let i = 0; i <= 90; i++) { const y = y0 + (cy + 0.5 - y0) * i / 90; sp.push([sr(y), y]); }
+  sp.push([0.01, cy + 0.5]);
+  grp.add(mesh(lathe(sp, 96, info => {
+    const f = 0.9 + 0.12 * noise3(info.x * 7, info.y * 0.7, info.z * 7);
+    let c = [0.94 * f, 0.92 * f, 0.86 * f];
+    c = mix3(c, [0.48, 0.38, 0.28], sstep(o.bY - 0.1, o.bY - 0.75, info.y) * 0.85);
+    return c;
+  }, info => 0.012 * (noise3(info.x * 9, info.y * 0.8, info.z * 9) - 0.5)), tex(MAT.flesh, 'fiber')));
+  // volval rings on the bulb shoulder
+  for (let ring = 0; ring < 3; ring++) {
+    const y = o.bY + o.bRy * (0.35 + ring * 0.2), r = sr(y) + 0.02, cnt = Math.round(TAU * r / 0.2);
+    for (let i = 0; i < cnt; i++) {
+      const th = (i + rng() * 0.6) / cnt * TAU, n = new THREE.Vector3(Math.cos(th), 0.55, Math.sin(th)).normalize();
+      const s = 0.08 + 0.06 * rng();
+      wl.push(placed(wv[(rng() * 6) | 0], new THREE.Vector3(Math.cos(th) * r, y, Math.sin(th) * r), alignQuat(n, rng() * TAU), new THREE.Vector3(s * 1.4, s, s)));
+    }
+  }
+  grp.add(mesh(mergeGeometries(wl), tex(MAT.matte, 'gran', 1.2)));
+  // gills
+  grp.add(mesh(gillsGeo(rng, { n: Math.round(R * 64), r0: o.stemR * 1.1, r1: R - 0.06, yTop: yu, depth: r => o.gD * Math.pow(Math.sin(Math.PI * clamp((r - o.stemR) / (R - o.stemR), 0, 1)), 0.5), col: (e) => e ? [0.96, 0.94, 0.88] : [0.9, 0.88, 0.8] }), tex(MAT.matte, 'gill'), false));
+  // annulus (skirt)
+  if (o.ring) {
+    const yA = cy - o.ring, s0 = sr(yA);
+    const ap = smoothProfile([[s0 - 0.02, yA], [s0 + 0.22, yA - 0.12], [s0 + 0.5, yA - 0.55], [s0 + 0.66, yA - 1.05], [s0 + 0.6, yA - 1.45]], 28);
+    ap.reverse();
+    grp.add(mesh(lathe(ap, 140, info => {
+      const e = sstep(yA - 0.9, yA - 1.32, info.y);
+      return mix3([0.95, 0.94, 0.89], [0.93, 0.86, 0.55], e * 0.8);
+    }, info => {
+      const e = sstep(yA - 0.5, yA - 1.32, info.y);
+      return e * (0.14 * Math.sin(info.a * 11 + 2.5 * noise3(info.x * 1.5, info.y, info.z * 1.5)) + 0.03 * Math.sin(info.a * 47 + noise3(info.x * 4, 0, info.z * 4) * 4)) + 0.02 * Math.sin(info.a * 90);
+    }), tex(MAT.flesh, 'fiber')));
+  }
+  return grp;
+}
+
+// ---------------------------------------------------------------- Coprinus comatus
+function coprinus(rng, o) {
+  const grp = new THREE.Group();
+  const Hc = o.Hc, Rc = o.Rc, my = o.my;
+  const oR = s => Rc * Math.pow(Math.max(0, 1 - Math.pow(s, 4.2)), 0.42) * (1 + o.flare * Math.pow(1 - s, 4));
+  const prof = [[0.01, my + Hc * 0.88]];
+  for (let i = 0; i <= 30; i++) { const s = 0.86 * (1 - i / 30); prof.push([Math.max(o.stemR + 0.05, oR(s) - 0.18), my + s * Hc]); }
+  prof.push([oR(0) - 0.08, my - 0.07]);
+  const tM = (prof.length - 1);
+  for (let i = 0; i <= 90; i++) { const s = i / 90; prof.push([oR(s), my + s * Hc]); }
+  const tMargin = tM / (prof.length - 1);
+  const ink = 0.06 + 0.32 * o.ink;
+  grp.add(mesh(lathe(prof, 200, info => {
+    const s = (info.y - my) / Hc;
+    if (info.t < tMargin) { return mix3([0.2, 0.15, 0.16], [0.05, 0.04, 0.05], sstep(0.4, 0.05, s) * 0.5 + o.ink * 0.5); }
+    const nn = noise3(info.x * 3, info.y * 3, info.z * 3);
+    const f = 0.93 + 0.09 * noise3(info.x * 9, info.y * 1.2, info.z * 9);
+    let c = [0.95 * f, 0.94 * f, 0.9 * f];
+    c = mix3(c, [0.72, 0.56, 0.4], sstep(0.86, 0.96, s));
+    c = mix3(c, [0.78, 0.6, 0.58], sstep(ink + 0.14, ink + 0.02, s + nn * 0.05));
+    c = mix3(c, [0.05, 0.045, 0.05], sstep(ink + 0.02, ink - 0.04, s + nn * 0.05));
+    return c;
+  }, info => {
+    if (info.t < tMargin) return 0.04 * Math.sin(info.a * 80);
+    return 0.025 * (fbm3(info.x * 3, info.y * 3, info.z * 3, 3) - 0.5);
+  }), tex(MAT.flesh, 'shaggy')));
+  // shaggy scales
+  const shV = [0, 1, 2].map(v => {
+    let g = new THREE.PlaneGeometry(1, 1, 4, 6); g.translate(0, -0.5, 0);
+    const P = g.attributes.position;
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), y = P.getY(i), t = -y;
+      // ragged, torn tip: the lower edge is jagged, the whole flake recurves outward
+      const jag = t > 0.8 ? 0.25 * Math.sin(x * 23 + v * 3) * (t - 0.8) / 0.2 : 0;
+      P.setXYZ(i, x * (1 - 0.7 * t) + 0.1 * t * t * (v - 1), y + jag * 0.4, 0.55 * t * t * t + 0.06 * Math.abs(x) + 0.03 * Math.sin(x * 17));
+    }
+    g = finish(colorize(g, (x, y) => mix3([0.94, 0.92, 0.87], [0.76, 0.65, 0.52], sstep(0.55, 1.1, -y))));
+    return g;
+  });
+  const sl = [];
+  const rows = Math.round(Hc * 0.72 / 0.27);
+  for (let r = 0; r < rows; r++) {
+    const s = 0.15 + 0.72 * r / rows, rad = oR(s), cnt = Math.max(6, Math.round(TAU * rad / (0.3 + 0.1 * s) * (0.7 + 0.5 * rng())));
+    for (let k = 0; k < cnt; k++) {
+      const ss = s + (rng() - 0.5) * 0.035, th = (k + (r % 2) * 0.5 + (rng() - 0.5) * 0.9) / cnt * TAU;
+      const e = 0.005, rr = oR(ss), dr = (oR(ss + e) - oR(ss - e)) / (2 * e);
+      const T = new THREE.Vector3(-Math.sin(th), 0, Math.cos(th));
+      const U = new THREE.Vector3(dr * Math.cos(th), Hc, dr * Math.sin(th)).normalize();
+      const N = new THREE.Vector3().crossVectors(U, T).normalize();
+      const k2 = 1 - 0.5 * s, w = (0.26 + 0.16 * rng()) * k2, l = (0.4 + 0.3 * rng()) * k2;
+      const m = new THREE.Matrix4().makeBasis(T.clone().multiplyScalar(w), U.clone().multiplyScalar(l), N.clone().multiplyScalar(l));
+      m.setPosition(rr * Math.cos(th) + N.x * 0.01, my + ss * Hc, rr * Math.sin(th) + N.z * 0.01);
+      m.multiply(new THREE.Matrix4().makeRotationZ((rng() - 0.5) * 0.5)); const g = shV[(rng() * 3) | 0].clone(); g.applyMatrix4(m); sl.push(g);
+    }
+  }
+  grp.add(mesh(mergeGeometries(sl), tex(MAT.flesh, 'shaggy', 0.6)));
+  // stem
+  const sp = [[0.01, -0.3]];
+  const top = my + Hc * 0.86;
+  for (let i = 0; i <= 50; i++) { const y = -0.3 + (top + 0.3) * i / 50; sp.push([o.stemR * (1.05 - 0.22 * (y / top)) + 0.22 * Math.exp(-(((y - 0.1) / 0.5) ** 2)), y]); }
+  sp.push([0.01, top]);
+  grp.add(mesh(lathe(sp, 64, info => { const f = 0.92 + 0.1 * noise3(info.x * 12, info.y * 0.6, info.z * 12); return mix3([0.95 * f, 0.94 * f, 0.91 * f], [0.5, 0.42, 0.32], sstep(0.3, -0.2, info.y)); }), tex(MAT.flesh, 'fiber')));
+  if (o.ringY) {
+    const tg = new THREE.TorusGeometry(o.stemR * 0.98 + 0.06, 0.07, 10, 48); tg.rotateX(Math.PI / 2); tg.translate(0, o.ringY, 0);
+    grp.add(mesh(finish(colorize(tg, (x, y) => y < o.ringY ? [0.82, 0.74, 0.62] : [0.95, 0.94, 0.9])), tex(MAT.flesh, 'fiber')));
+  }
+  return grp;
+}
+
+// ---------------------------------------------------------------- Morchella esculenta
+function morel(rng, o) {
+  const grp = new THREE.Group();
+  const hb = o.hb, Hh = o.Hh, Rm = o.Rm;
+  const rs = s => Rm * Math.pow(Math.sin(Math.PI * (0.16 + 0.84 * s)), 0.8);
+  const prof = [[0.01, hb]];
+  for (let i = 0; i <= 170; i++) { const s = i / 170; prof.push([rs(s), hb + s * Hh]); }
+  // Voronoi seeds on the head surface, cells elongated vertically
+  const seeds = [], rows = 10;
+  for (let r = 0; r < rows; r++) {
+    const s = clamp((r + 0.5) / rows * 0.97 + (rng() - 0.5) * 0.04, 0, 1), rad = rs(s), cnt = Math.max(3, Math.round(TAU * rad / 1.15));
+    const off = rng() * TAU;
+    for (let k = 0; k < cnt; k++) {
+      const ss = clamp(s + (rng() - 0.5) * 0.06, 0, 1), th = off + (k + (rng() - 0.5) * 0.5) / cnt * TAU, rr = rs(ss);
+      seeds.push([rr * Math.sin(th), (hb + ss * Hh) * 0.55, rr * Math.cos(th)]);
+    }
+  }
+  grp.add(mesh(lathe(prof, 240, info => {
+    const p = info.pit, f = 0.88 + 0.2 * noise3(info.x * 5, info.y * 5, info.z * 5);
+    const c = ramp([[0, [0.8, 0.74, 0.62]], [0.25, [0.66, 0.53, 0.33]], [0.7, [0.52, 0.37, 0.17]], [1, [0.34, 0.22, 0.1]]], p);
+    return [c[0] * f, c[1] * f, c[2] * f];
+  }, info => {
+    let f1 = 1e9, f2 = 1e9; const py = info.y * 0.55;
+    for (const s of seeds) { const d = Math.hypot(info.x - s[0], py - s[1], info.z - s[2]); if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d; }
+    const s = (info.y - hb) / Hh, fade = sstep(0.0, 0.05, s) * sstep(1.0, 0.92, s);
+    const pit = sstep(0.03, 0.42, f2 - f1) * fade;
+    info.pit = pit;
+    return -o.depth * Math.pow(pit, 0.55) + 0.03 * (fbm3(info.x * 6, info.y * 6, info.z * 6, 3) - 0.5);
+  }), tex(MAT.flesh, 'morel')));
+  const sp = smoothProfile([[0.01, -0.4], [1.9, -0.35], [2.05, 0.15], [1.85, 0.8], [1.62, 1.8], [1.5, 3.0], [1.47, hb + 0.3], [0.01, hb + 0.35]], 60);
+  grp.add(mesh(lathe(sp, 120, info => {
+    const f = 0.86 + 0.18 * noise3(info.x * 14, info.y * 14, info.z * 14);
+    return mix3([0.92 * f, 0.87 * f, 0.75 * f], [0.45, 0.36, 0.26], sstep(0.3, -0.3, info.y));
+  }, info => 0.1 * Math.sin(info.a * 6 + 2.5 * noise3(info.x * 0.8, info.y * 0.8, info.z * 0.8)) * sstep(2.4, 0.1, info.y) + 0.025 * (noise3(info.x * 6, info.y * 6, info.z * 6) - 0.5)), tex(MAT.flesh, 'gran')));
+  return grp;
+}
+
+// ---------------------------------------------------------------- Inocybe asterospora
+function inocybe(rng, o) {
+  const grp = new THREE.Group();
+  const R = o.R, cy = o.capY;
+  const yu = r => cy + o.uD * (1 - r / R);
+  const yt = r => cy + 0.1 + o.capH * Math.pow(Math.max(0, 1 - Math.pow(r / R, 1.0)), 1.05) + o.umbo * Math.exp(-((r / (0.24 * R)) ** 2));
+  const prof = [], NU = 16, NT = 70;
+  for (let i = 0; i <= NU; i++) { const r = 0.02 + (R - 0.02) * i / NU; prof.push([r, yu(r)]); }
+  prof.push([R + 0.04, (yu(R) + yt(R)) * 0.5]);
+  for (let i = NT; i >= 0; i--) { const u = i / NT, r = R * (1 - Math.pow(1 - u, 1.4)); prof.push([r, yt(r)]); }
+  const tU = (NU + 0.5) / (prof.length - 1);
+  const seed = rng() * 50;
+  const fib = info => 0.6 * noise3(Math.cos(info.a) * 42 + seed, Math.sin(info.a) * 42, info.r * 2.2) + 0.4 * noise3(Math.cos(info.a) * 110 + seed, Math.sin(info.a) * 110, info.r * 4);
+  const crack = info => sstep(0.72, 0.76, noise3(Math.cos(info.a) * 34 + seed, Math.sin(info.a) * 34, info.r * 0.3 + 5)) * sstep(0.3 * R, 0.75 * R, info.r);
+  grp.add(mesh(lathe(prof, 300, info => {
+    if (info.t < tU) return [0.5, 0.42, 0.33];
+    const rr = info.r / R, n = fib(info), cr = crack(info);
+    let c = ramp([[0, [0.3, 0.19, 0.11]], [0.3, [0.42, 0.29, 0.17]], [0.75, [0.56, 0.41, 0.25]], [1, [0.62, 0.48, 0.32]]], rr);
+    const k = 0.62 + 0.62 * n; c = [c[0] * k, c[1] * k, c[2] * k];
+    return mix3(c, [0.86, 0.78, 0.64], cr * 0.85);
+  }, info => info.t < tU ? 0 : -0.03 * crack(info) + 0.012 * (fib(info) - 0.5) + 0.05 * (noise3(Math.cos(info.a) * 3 + seed, Math.sin(info.a) * 3, 0) - 0.5) * sstep(0.7 * R, R, info.r)), tex(MAT.flesh, 'radial')));
+  grp.add(mesh(gillsGeo(rng, { n: Math.round(R * 34), r0: o.stemR * 1.2, r1: R - 0.04, yTop: yu, depth: r => o.gD * Math.pow(Math.sin(Math.PI * clamp((r - o.stemR) / (R - o.stemR), 0, 1)), 0.6), col: (e) => e ? [0.74, 0.68, 0.6] : [0.5, 0.42, 0.33] }), tex(MAT.matte, 'gill'), false));
+  const s = o.stemR, top = cy + 0.4;
+  const sp = smoothProfile([[0.01, -0.25], [0.5 * s / 0.33, -0.1], [0.66 * s / 0.33, 0.22], [0.62 * s / 0.33, 0.36], [0.44 * s / 0.33, 0.48], [s * 1.08, 0.8], [s, top * 0.5], [s * 0.93, top], [0.01, top]], 70);
+  grp.add(mesh(lathe(sp, 64, info => {
+    const f = 0.9 + 0.14 * noise3(info.x * 20, info.y * 1.5, info.z * 20);
+    let c = [0.8 * f, 0.66 * f, 0.56 * f];
+    c = mix3(c, [0.92, 0.89, 0.84], sstep(top - 1.4, top, info.y) * 0.8);
+    c = mix3(c, [0.93, 0.9, 0.84], sstep(0.85, 0.3, info.y));
+    return mix3(c, [0.45, 0.36, 0.26], sstep(0.1, -0.2, info.y));
+  }), tex(MAT.flesh, 'fiber')));
+  return grp;
+}
+
+// ---------------------------------------------------------------- Ganoderma lucidum
+function ganoderma(rng, o) {
+  const grp = new THREE.Group();
+  const pts = o.stipe.map(p => new THREE.Vector3(...p));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const tip = curve.getPointAt(1);
+  grp.add(mesh(tubeGeo(curve, 60, 40, (t) => o.sR * (1.0 + 0.5 * Math.exp(-t * 14) - 0.15 * t), (t, a, p) => {
+    const f = 0.85 + 0.2 * noise3(p.x * 4, p.y * 4, p.z * 4);
+    return mix3([0.22 * f, 0.05 * f, 0.03 * f], [0.38, 0.3, 0.22], sstep(0.08, 0.0, t));
+  }), tex(MAT.lacq, 'lacq')));
+  if (o.cap) {
+    const R0 = o.R, phiM = 2.25, e = 0.15;
+    const Rf = ph => R0 * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(ph) / phiM, 3)), 0.6) * (1 + 0.05 * Math.sin(3 * ph + 1) + 0.06 * (noise3(ph * 2, 3, 1) - 0.5));
+    const sulc = (rho, Rp) => (0.13 * Math.pow(0.5 + 0.5 * Math.sin(rho * Rp * 3.4 + 0.8 * Math.sin(rho * 9)), 3.0) + 0.03 * (noise3(rho * 4, Rp * 0.3, 0.5) - 0.5)) * Math.sqrt(rho) * sstep(1.0, 0.85, rho);
+    const topH = (rho, Rp) => e + 1.15 * Math.pow(Math.max(0, 1 - rho * rho), 0.7) * Math.pow(Rp / R0, 0.6) + sulc(rho, Rp);
+    const botH = (rho, Rp) => -e - 0.38 * (1 - rho * rho) * Math.pow(Rp / R0, 0.6);
+    const capM = new THREE.Matrix4().makeRotationY(o.yaw).multiply(new THREE.Matrix4().makeRotationZ(o.tilt));
+    capM.setPosition(tip.x, tip.y - 0.05, tip.z);
+    const NP = 240, half = 110;
+    const point = (s, ph) => {
+      const Rp = Rf(ph); let rho, h;
+      if (s < 0.5) { const u = s / 0.5; if (u < 0.88) { rho = u / 0.88; h = topH(rho, Rp); } else { const a = (u - 0.88) / 0.12 * Math.PI / 2; rho = 1; h = 0; const rr = Rp + e * 0.85 * Math.sin(a); return [rr, e * Math.cos(a), Rp, 1, ph]; } return [rho * Rp, h, Rp, rho, ph]; }
+      const u = (s - 0.5) / 0.5;
+      if (u < 0.12) { const a = Math.PI / 2 + u / 0.12 * Math.PI / 2; const rr = Rp + e * 0.85 * Math.sin(a); return [rr, e * Math.cos(a), Rp, 1, ph]; }
+      rho = 1 - (u - 0.12) / 0.88; return [rho * Rp, botH(rho, Rp), Rp, rho, ph];
+    };
+    const build = (s0, s1, colFn) => {
+      const g = gridGeo(half, NP, (i, j) => {
+        const s = s0 + (s1 - s0) * i / half, ph = -phiM + 2 * phiM * j / NP;
+        const [rr, h, Rp, rho] = point(s, ph);
+        const v = new THREE.Vector3(rr * Math.cos(ph), h, rr * Math.sin(ph)).applyMatrix4(capM);
+        return { p: [v.x, v.y, v.z], c: colFn(rho, Rp, ph, s, v) };
+      });
+      return g;
+    };
+    grp.add(mesh(build(0, 0.5, (rho, Rp, ph, s, v) => {
+      const n = noise3(v.x * 2, v.y * 2, v.z * 2);
+      let c = ramp([[0, [0.12, 0.022, 0.018]], [0.45, [0.26, 0.04, 0.028]], [0.76, [0.42, 0.07, 0.03]], [0.88, [0.66, 0.2, 0.05]], [0.94, [0.84, 0.48, 0.12]], [0.985, [0.93, 0.8, 0.48]]], rho + 0.025 * (n - 0.5));
+      const z = 0.72 + 0.28 * Math.sin(rho * Rp * 3.4 + 0.8 * Math.sin(rho * 9) + 0.6) * sstep(0.95, 0.8, rho);
+      if (s > 0.47) c = mix3(c, [0.94, 0.86, 0.6], sstep(0.485, 0.5, s));
+      return [c[0] * z, c[1] * z, c[2] * z];
+    }), tex(MAT.lacq, 'lacq')));
+    grp.add(mesh(build(0.5, 1, (rho, Rp, ph, s, v) => {
+      const f = 0.88 + 0.16 * noise3(v.x * 30, v.y * 30, v.z * 30);
+      return mix3([0.9 * f, 0.84 * f, 0.68 * f], [0.62, 0.48, 0.32], sstep(0.35, 0.0, rho) * 0.7);
+    }), tex(MAT.matte, 'pore')));
+  } else {
+    // young "antler" knob: yellow-white growing tip
+    const tg = new THREE.Vector3().subVectors(tip, curve.getPointAt(0.9)).normalize();
+    const tc = new THREE.CatmullRomCurve3([tip.clone().addScaledVector(tg, -0.05), tip.clone().addScaledVector(tg, 0.6).add(new THREE.Vector3(0.1, 0, 0)), tip.clone().addScaledVector(tg, 1.15).add(new THREE.Vector3(0.25, 0, 0.1))]);
+    grp.add(mesh(tubeGeo(tc, 24, 32, t => o.sR * 0.86 * Math.pow(Math.max(0, 1 - t * t), 0.45) + 0.02, (t, a, p) => mix3([0.85, 0.42, 0.08], [0.98, 0.94, 0.78], sstep(0.05, 0.75, t))), tex(MAT.lacq, 'lacq')));
+  }
+  return grp;
+}
+
+// ---------------------------------------------------------------- Lycoperdon perlatum
+function lycoperdon(rng, o) {
+  const grp = new THREE.Group();
+  const prof = smoothProfile([[0.01, -0.3], [0.9, -0.25], [1.15, 0.1], [1.05, 0.6], [1.0, 1.1], [1.15, 1.7], [1.55, 2.3], [2.0, 2.9], [2.22, 3.5], [2.2, 4.1], [1.95, 4.7], [1.45, 5.2], [0.75, 5.55], [0.25, 5.72], [0.01, 5.76]], 90);
+  const old = o.old || 0;
+  grp.add(mesh(lathe(prof, 160, info => {
+    const f = 0.9 + 0.14 * noise3(info.x * 9, info.y * 9, info.z * 9);
+    let c = mix3([0.92, 0.89, 0.8], [0.72, 0.6, 0.44], old * sstep(2, 5, info.y));
+    c = mix3(c, [0.95, 0.93, 0.87], sstep(2.2, 0.8, info.y));
+    c = mix3(c, [0.45, 0.36, 0.26], sstep(0.25, -0.2, info.y));
+    if (old) { const sc = sstep(0.62, 0.7, noise3(info.x * 6, info.y * 6, info.z * 6)) * sstep(2.6, 4, info.y); c = mix3(c, [0.55, 0.45, 0.32], sc * 0.7); c = mix3(c, [0.2, 0.16, 0.12], sstep(5.5, 5.7, info.y)); }
+    return [c[0] * f, c[1] * f, c[2] * f];
+  }, info => 0.07 * Math.sin(info.a * 9 + 2 * fbm3(info.x, info.y, info.z, 2)) * sstep(1.7, 0.4, info.y) + 0.03 * (noise3(info.x * 4, info.y * 4, info.z * 4) - 0.5) - (old ? 0.18 * sstep(5.45, 5.7, info.y) : 0)), tex(MAT.flesh, 'gran')));
+  // spines and granules over the head
+  const segs = []; let tot = 0;
+  for (let i = 1; i < prof.length; i++) { const [r0, y0] = prof[i - 1], [r1, y1] = prof[i]; if (y0 < 2.2) continue; const w = (r0 + r1) * 0.5 * Math.hypot(r1 - r0, y1 - y0); tot += w; segs.push([tot, r0, y0, r1, y1]); }
+  const pick = () => { const u = rng() * tot; const s = segs.find(q => q[0] >= u) || segs[segs.length - 1]; const t = rng(); const r = lerp(s[1], s[3], t), y = lerp(s[2], s[4], t); const dr = s[3] - s[1], dy = s[4] - s[2], l = Math.hypot(dr, dy); return [r, y, dy / l, -dr / l]; };
+  const cone = finish(colorize((() => { const g = new THREE.ConeGeometry(1, 1, 7, 2); g.translate(0, 0.5, 0); return g; })(), (x, y) => mix3([0.94, 0.92, 0.84], [0.62, 0.52, 0.4], sstep(0.3, 1, y))));
+  const gran = finish(colorize(new THREE.IcosahedronGeometry(1, 1), () => [0.92, 0.89, 0.8]));
+  const parts = [];
+  const nSp = Math.round(520 * (1 - old * 0.75)), nGr = Math.round(1900 * (1 - old * 0.6));
+  for (let i = 0; i < nSp + nGr; i++) {
+    const [r, y, nr, ny] = pick(), th = rng() * TAU;
+    const n = new THREE.Vector3(nr * Math.cos(th), ny, nr * Math.sin(th)).normalize();
+    const p = new THREE.Vector3(r * Math.cos(th), y, r * Math.sin(th)).addScaledVector(n, -0.01);
+    if (i < nSp) { const s = 0.045 + 0.025 * rng(), h = 0.09 + 0.09 * rng(); parts.push(placed(cone, p, alignQuat(n, rng() * TAU), new THREE.Vector3(s, h, s))); }
+    else { const s = 0.022 + 0.022 * rng(); parts.push(placed(gran, p, alignQuat(n, 0), new THREE.Vector3(s, s * 0.8, s))); }
+  }
+  grp.add(mesh(mergeGeometries(parts), tex(MAT.flesh, 'gran', 0.4), false));
+  return grp;
+}
+
+// ============================================================================ forest floor
+const groundH = (x, z) => (fbm3(x * 0.22, 0.5, z * 0.22, 4) - 0.5) * 0.9 + (noise3(x * 2.2, 1.5, z * 2.2) - 0.5) * 0.1 - sstep(10, 18, Math.hypot(x, z)) * 1.6;
+function leafTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 384;
+  const g = c.getContext('2d'); g.translate(128, 192);
+  g.beginPath(); g.moveTo(0, -180);
+  g.bezierCurveTo(92, -125, 112, 40, 0, 170); g.bezierCurveTo(-112, 40, -92, -125, 0, -180); g.closePath();
+  const gr = g.createRadialGradient(0, 0, 10, 0, 0, 190); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#cfc4b0');
+  g.fillStyle = gr; g.fill();
+  g.strokeStyle = 'rgba(90,70,50,0.55)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, 175); g.lineTo(0, -170); g.stroke();
+  g.lineWidth = 1.6;
+  for (let k = -5; k <= 6; k++) { const y = k * 26; for (const sx of [-1, 1]) { g.beginPath(); g.moveTo(0, y); g.quadraticCurveTo(sx * 40, y - 22, sx * 78 * Math.cos(k * 0.17), y - 48); g.stroke(); } }
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(60,40,20,${Math.random() * 0.12})`; g.fillRect(Math.random() * 220 - 110, Math.random() * 360 - 180, 3, 3); }
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+  return tx;
+}
+let LEAF_TX = null;
+function buildGround(rng, cfg, excl) {
+  const grp = new THREE.Group();
+  const g = new THREE.PlaneGeometry(40, 40, 240, 240); g.rotateX(-Math.PI / 2);
+  const P = g.attributes.position;
+  for (let i = 0; i < P.count; i++) P.setY(i, groundH(P.getX(i), P.getZ(i)));
+  colorize(g, (x, y, z) => {
+    const d = Math.hypot(x, z), f = 0.55 + 0.8 * fbm3(x * 0.7, 0, z * 0.7, 4), sp = noise3(x * 6, 2, z * 6);
+    let c = [0.2 * f, 0.135 * f, 0.085 * f];
+    c = mix3(c, [0.32, 0.22, 0.12], sstep(0.62, 0.8, sp) * 0.6);
+    const fade = sstep(17, 6, d); return [c[0] * fade, c[1] * fade, c[2] * fade];
+  });
+  g.computeVertexNormals();
+  grp.add(mesh(g, tex(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96 }), 'soil'), false));
+  const free = (x, z) => !excl.some(e => (x - e[0]) ** 2 + (z - e[1]) ** 2 < e[2] * e[2]);
+  const dummy = new THREE.Object3D(), col = new THREE.Color();
+  const scatter = (count, geo, mat, place, color, fr = 13) => {
+    const im = new THREE.InstancedMesh(geo, mat, count); let n = 0;
+    for (let a = 0; a < count * 4 && n < count; a++) {
+      const r = Math.sqrt(rng()) * fr, th = rng() * TAU, x = r * Math.cos(th), z = r * Math.sin(th);
+      if (!place(x, z, dummy)) continue;
+      dummy.updateMatrix(); im.setMatrixAt(n, dummy.matrix);
+      const c = color(x, z); col.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace); im.setColorAt(n, col); n++;
+    }
+    im.count = n; im.castShadow = true; im.receiveShadow = true; grp.add(im);
+  };
+  if (cfg.moss) {
+    const parts = [];
+    for (let i = 0; i < 12; i++) { const h = 0.12 + 0.1 * rng(); const c = new THREE.ConeGeometry(0.022, h, 4, 1); c.translate(0, h / 2, 0); c.rotateZ((rng() - 0.5) * 1.1); c.rotateY(rng() * TAU); parts.push(finish(colorize(c, (x, y) => { const t = 0.3 + 0.7 * sstep(0, 0.2, y); return [t, t, t]; }))); }
+    const tuft = mergeGeometries(parts);
+    scatter(cfg.moss, tuft, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), (x, z, d) => {
+      if (noise3(x * 0.45 + 7, 3, z * 0.45) < 0.47 || !free(x, z)) return false;
+      const s = 0.8 + 0.6 * rng(); d.position.set(x, groundH(x, z) - 0.02, z); d.rotation.set((rng() - 0.5) * 0.3, rng() * TAU, (rng() - 0.5) * 0.3); d.scale.set(s, s * (0.8 + 0.5 * rng()), s); return true;
+    }, (x, z) => { const t = noise3(x * 1.5, 9, z * 1.5); return mix3([0.17, 0.3, 0.05], [0.38, 0.46, 0.1], t); });
+  }
+  if (cfg.grass) {
+    let bl = new THREE.PlaneGeometry(0.14, 1, 1, 6); bl.translate(0, 0.5, 0);
+    const BP = bl.attributes.position;
+    for (let i = 0; i < BP.count; i++) { const y = BP.getY(i); BP.setXYZ(i, BP.getX(i) * (1 - y * 0.85), y, 0.3 * y * y); }
+    bl = finish(colorize(bl, (x, y) => { const t = 0.4 + 0.6 * y; return [t, t, t]; }));
+    scatter(cfg.grass, bl, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide }), (x, z, d) => {
+      if (!free(x, z)) return false; const h = 2.5 + 4 * rng(); d.position.set(x, groundH(x, z) - 0.05, z); d.rotation.set((rng() - 0.5) * 0.3, rng() * TAU, 0); d.scale.set(1, h, h); return true;
+    }, () => rng() < 0.12 ? [0.55, 0.5, 0.3] : mix3([0.16, 0.32, 0.07], [0.36, 0.48, 0.12], rng()));
+  }
+  if (cfg.leaves) {
+    if (!LEAF_TX) LEAF_TX = leafTexture();
+    const lg = new THREE.PlaneGeometry(1.7, 2.6, 6, 8); lg.rotateX(-Math.PI / 2);
+    const LP = lg.attributes.position;
+    for (let i = 0; i < LP.count; i++) { const x = LP.getX(i), z = LP.getZ(i); LP.setY(i, 0.22 * x * x + 0.04 * Math.sin(z * 3)); }
+    lg.computeVertexNormals();
+    scatter(cfg.leaves, lg, new THREE.MeshStandardMaterial({ map: LEAF_TX, alphaTest: 0.5, roughness: 0.82, side: THREE.DoubleSide }), (x, z, d) => {
+      if (!free(x, z)) return false; const s = 0.8 + 0.6 * rng(); d.position.set(x, groundH(x, z) + 0.04, z); d.rotation.set((rng() - 0.5) * 0.35, rng() * TAU, (rng() - 0.5) * 0.35); d.scale.set(s, s, s); return true;
+    }, () => [[0.45, 0.28, 0.12], [0.6, 0.42, 0.18], [0.28, 0.17, 0.08], [0.68, 0.52, 0.22]][(rng() * 4) | 0].map(v => v * (0.8 + 0.3 * rng())));
+  }
+  if (cfg.needles) {
+    const ng = finish(colorize(new THREE.BoxGeometry(0.035, 0.03, 3.4, 1, 1, 6), () => [1, 1, 1]));
+    scatter(cfg.needles, ng, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }), (x, z, d) => {
+      if (!free(x, z)) return false; d.position.set(x, groundH(x, z) + 0.03, z); d.rotation.set((rng() - 0.5) * 0.15, rng() * TAU, (rng() - 0.5) * 0.1); d.scale.set(1, 1, 0.6 + 0.5 * rng()); return true;
+    }, () => mix3([0.55, 0.32, 0.14], [0.3, 0.18, 0.09], rng()));
+  }
+  if (cfg.log) {
+    let lgeo = new THREE.CylinderGeometry(2.1, 2.3, 30, 96, 60, true); lgeo.rotateZ(Math.PI / 2);
+    const LP = lgeo.attributes.position;
+    for (let i = 0; i < LP.count; i++) {
+      const x = LP.getX(i), y = LP.getY(i), z = LP.getZ(i), a = Math.atan2(z, y), r = Math.hypot(y, z);
+      const d = 0.14 * fbm3(x * 0.35, Math.cos(a) * 2, Math.sin(a) * 2, 3) + 0.12 * Math.abs(Math.sin(a * 13 + 2 * noise3(x * 0.4, 0, 0)));
+      LP.setXYZ(i, x, y * (r + d) / r, z * (r + d) / r);
+    }
+    lgeo = finish(colorize(lgeo, (x, y, z) => {
+      const f = 0.6 + 0.6 * fbm3(x * 0.8, y * 0.8, z * 0.8, 3);
+      let c = [0.22 * f, 0.17 * f, 0.13 * f];
+      const moss = sstep(0.8, 1.8, y) * sstep(0.58, 0.68, noise3(x * 0.6, y * 0.6, z * 0.6));
+      c = mix3(c, [0.2, 0.32, 0.07], moss);
+      const fade = sstep(15, 7, Math.abs(x)); return [c[0] * fade, c[1] * fade, c[2] * fade];
+    }));
+    const lm = mesh(lgeo, MAT.matte); lm.position.set(0, 0.7, -6.5); lm.rotation.y = 0.32; grp.add(lm);
+  }
+  return grp;
+}
+
+// ============================================================================ species
+const SPECIES = [
+  {
+    key: 'amanita', latin: 'Amanita muscaria', common: 'Fly agaric',
+    facts: [['spore print', 'white'], ['spores', '9–12 × 6.5–8.5 µm'], ['shape', 'broadly ellipsoid, smooth, hyaline'], ['mount', 'water · oil guttules common']],
+    view: { target: [0.6, 6.4, -0.6], dist: 46, pitch: 0.17 },
+    ground: { moss: 5200, needles: 320, leaves: 22 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const a = amanita(rng, { R: 5.0, capY: 9.2, capH: 1.7, uD: 0.7, inc: 0.25, stemR: 1.0, bulbR: 1.95, bY: 0.55, bRy: 1.25, nW: 320, wD: 0.6, gD: 0.75, ring: 1.6 });
+      a.rotation.set(0.04, 0.4, -0.05); g.add(a); ex.push([0, 0, 2.2]);
+      const b = amanita(rng, { R: 2.5, capY: 2.4, capH: 1.9, uD: 1.1, inc: 0.95, stemR: 0.85, bulbR: 1.5, bY: 0.4, bRy: 0.95, nW: 260, wD: 0.42, gD: 0.4, ring: 0 });
+      b.position.set(5.2, groundH(5.2, -2.6), -2.6); b.rotation.set(0.12, 1.4, 0.1); g.add(b); ex.push([5.2, -2.6, 1.8]);
+      a.position.y = groundH(0, 0);
+      return { g, ex };
+    },
+  },
+  {
+    key: 'coprinus', latin: 'Coprinus comatus', common: 'Shaggy ink cap',
+    facts: [['spore print', 'black'], ['spores', '10–13 × 6.5–8 µm'], ['shape', 'ellipsoid, smooth, apical germ pore'], ['mount', 'water']],
+    view: { target: [-0.2, 8.4, 0.2], dist: 48, pitch: 0.15 },
+    ground: { grass: 3600, moss: 900, leaves: 6 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const put = (f, x, z, ry, rx, rz) => { f.position.set(x, groundH(x, z), z); f.rotation.set(rx, ry, rz); g.add(f); ex.push([x, z, 1.0]); };
+      put(coprinus(rng, { Hc: 9.5, Rc: 2.3, my: 5.4, stemR: 0.62, ink: 0.15, flare: 0, ringY: 2.4 }), 0, 0, 0.3, 0.03, -0.03);
+      put(coprinus(rng, { Hc: 6.4, Rc: 1.95, my: 2.0, stemR: 0.52, ink: 0, flare: 0, ringY: 0 }), 3.4, 2.4, 1.2, 0.08, 0.1);
+      put(coprinus(rng, { Hc: 7.4, Rc: 2.35, my: 4.6, stemR: 0.56, ink: 0.85, flare: 0.4, ringY: 1.2 }), -3.6, -1.6, 2.2, -0.06, 0.12);
+      return { g, ex };
+    },
+  },
+  {
+    key: 'morchella', latin: 'Morchella esculenta', common: 'Yellow morel',
+    facts: [['spore print', 'cream to pale orange'], ['spores', '20–24 × 12–15 µm'], ['shape', 'ellipsoid, smooth, 8 per ascus'], ['mount', 'water · squash of the pits']],
+    view: { target: [-1.2, 6.6, -0.8], dist: 40, pitch: 0.16 },
+    ground: { leaves: 75, moss: 700, needles: 60 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const a = morel(rng, { hb: 4.2, Hh: 7.6, Rm: 2.7, depth: 0.42 }); a.position.set(0, groundH(0, 0), 0); a.rotation.set(0, 0.5, -0.04); g.add(a); ex.push([0, 0, 2.2]);
+      const b = morel(rng, { hb: 4.2, Hh: 7.0, Rm: 2.5, depth: 0.42 }); b.scale.setScalar(0.62); b.position.set(-4.4, groundH(-4.4, -2.6), -2.6); b.rotation.set(0.05, 2.0, 0.1); g.add(b); ex.push([-4.4, -2.6, 1.4]);
+      return { g, ex };
+    },
+  },
+  {
+    key: 'inocybe', latin: 'Inocybe asterospora', common: 'Star-spored fibrecap',
+    facts: [['spore print', 'snuff brown'], ['spores', '9–12 × 8–10 µm'], ['shape', 'stellate, 5–7 conical nodules'], ['mount', 'water']],
+    view: { target: [0.3, 3.9, 0.6], dist: 28, pitch: 0.2 },
+    ground: { moss: 6500, needles: 260, leaves: 14 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const put = (f, x, z, ry, rx, rz) => { f.position.set(x, groundH(x, z), z); f.rotation.set(rx, ry, rz); g.add(f); ex.push([x, z, 0.8]); };
+      put(inocybe(rng, { R: 2.0, capY: 5.3, capH: 1.35, uD: 0.25, umbo: 0.38, stemR: 0.34, gD: 0.4 }), 0, 0, 0.2, 0.05, -0.08);
+      put(inocybe(rng, { R: 1.5, capY: 3.6, capH: 1.15, uD: 0.2, umbo: 0.32, stemR: 0.27, gD: 0.3 }), 2.6, 1.6, 1.0, 0.12, 0.14);
+      put(inocybe(rng, { R: 0.95, capY: 2.0, capH: 0.95, uD: 0.12, umbo: 0.25, stemR: 0.2, gD: 0.2 }), -1.8, 2.0, 2.3, -0.1, 0.06);
+      return { g, ex };
+    },
+  },
+  {
+    key: 'ganoderma', latin: 'Ganoderma lucidum', common: 'Reishi · lacquered bracket',
+    facts: [['spore print', 'rusty brown'], ['spores', '9–12 × 5.5–8 µm'], ['shape', 'truncate, double wall, echinulate'], ['mount', 'water']],
+    view: { target: [1.2, 4.6, -0.6], dist: 38, pitch: 0.24 },
+    ground: { leaves: 60, moss: 2600, needles: 40 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const a = ganoderma(rng, { stipe: [[0, -0.4, 0], [0.15, 1.6, 0.1], [0.6, 3.4, 0.0], [1.4, 4.7, -0.2]], sR: 0.62, cap: true, R: 5.0, yaw: -0.15, tilt: 0.1 });
+      a.position.y = groundH(0, 0); g.add(a); ex.push([0, 0, 1.2]);
+      const b = ganoderma(rng, { stipe: [[0, -0.3, 0], [-0.2, 1.3, 0.1], [-0.1, 2.4, 0.4], [0.3, 3.2, 0.8]], sR: 0.42, cap: false });
+      b.position.set(-3.2, groundH(-3.2, 2.8), 2.8); g.add(b); ex.push([-3.2, 2.8, 0.8]);
+      return { g, ex };
+    },
+  },
+  {
+    key: 'lycoperdon', latin: 'Lycoperdon perlatum', common: 'Common puffball',
+    facts: [['spore mass', 'olive brown'], ['spores', '3.5–4.5 µm'], ['shape', 'globose, minutely spiny'], ['mount', 'water · with capillitium']],
+    view: { target: [0.4, 3.6, 0.4], dist: 31, pitch: 0.2 },
+    ground: { moss: 6200, leaves: 30, needles: 120 },
+    build(rng) {
+      const g = new THREE.Group(), ex = [];
+      const put = (f, x, z, s, ry, rx, rz) => { f.scale.setScalar(s); f.position.set(x, groundH(x, z) - 0.1, z); f.rotation.set(rx, ry, rz); g.add(f); ex.push([x, z, 2.1 * s]); };
+      put(lycoperdon(rng, {}), 0, 0, 1.0, 0, 0.03, -0.05);
+      put(lycoperdon(rng, { old: 1 }), 3.6, -1.6, 0.92, 1, -0.08, 0.1);
+      put(lycoperdon(rng, {}), -2.9, 1.9, 0.68, 2, 0.12, 0.08);
+      put(lycoperdon(rng, {}), 1.7, 3.1, 0.45, 3, -0.1, -0.15);
+      return { g, ex };
+    },
+  },
+];
+
+// ============================================================================ mushroom scene
+const mushScene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+mushScene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+mushScene.environmentIntensity = 0.28;
+const key = new THREE.DirectionalLight(0xffe8cc, 2.7);
+key.position.set(-9, 15, 7); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, near: 1, far: 50 });
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03; key.shadow.radius = 4;
+mushScene.add(key);
+const rim = new THREE.DirectionalLight(0xb0c4ff, 1.5); rim.position.set(7, 7, -11); mushScene.add(rim);
+mushScene.add(new THREE.HemisphereLight(0x8a9cba, 0x2a1d12, 0.55));
+const mcamL = new THREE.PerspectiveCamera(30, 1, 0.5, 200);
+let current = null;
+const builtMush = new Map();
+function getMush(i) {
+  if (builtMush.has(i)) return builtMush.get(i);
+  const sp = SPECIES[i], rng = mulberry32(1000 + i * 77);
+  const { g, ex } = sp.build(rng);
+  const grp = new THREE.Group(); grp.add(g); grp.add(buildGround(mulberry32(500 + i), sp.ground, ex));
+  builtMush.set(i, grp); return grp;
+}
+const orbit = { yaw: 0.6, pitch: 0.16, dist: 30, target: new THREE.Vector3(), tYaw: 0.6, tPitch: 0.16, tDist: 30, idle: 0 };
+
+// ============================================================================ microscope: specimen shading
+// Brightfield: the image is transmitted light. Each surface layer multiplies the light by its transmittance:
+// Beer–Lambert absorption over the local chord, loss at steep (refracting) walls, and a focus-dependent lens term.
+// Multiplicative blending is order independent, so no sorting; each depth slab is rendered and defocused separately.
+const SU = { uZmin: { value: -1e9 }, uZmax: { value: 1e9 }, uFocus: { value: 4 }, uTime: { value: 0 } };
+const SPEC_VS = /* glsl */`
+uniform float uTime;
+attribute float aK;
+#ifdef USE_INSTANCING
+attribute vec2 aSeed;
+#else
+attribute float aCz;
+#endif
+varying vec3 vN; varying float vZ; varying float vCz; varying float vK;
+void main(){
+#ifdef USE_INSTANCING
+  mat4 m = modelMatrix * instanceMatrix;
+  vec4 wp = m * vec4(position, 1.0);
+  float s = aSeed.x * 6.2831853;
+  vec2 br = vec2(sin(uTime * 0.83 + s) + 0.6 * sin(uTime * 2.31 + s * 3.1), cos(uTime * 0.71 + s * 1.7) + 0.6 * sin(uTime * 1.93 + s * 2.3));
+  wp.xy += br * aSeed.y;
+  vCz = m[3].z;
+  vN = mat3(m) * normal;
+#else
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vCz = aCz;
+  vN = mat3(modelMatrix) * normal;
+#endif
+  vZ = wp.z; vK = aK;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+const SPEC_FS = /* glsl */`
+uniform vec3 uSigma; uniform float uThick, uRim, uRimPow, uLens, uLensScale, uZmin, uZmax, uFocus;
+varying vec3 vN; varying float vZ; varying float vCz; varying float vK;
+void main(){
+  // absorption lives in the body between the walls, so attribute each surface layer partly toward the object's mid-plane
+  float zs = vCz + (vZ - vCz) * 0.45;
+  if (zs < uZmin || zs >= uZmax) discard;
+  vec3 n = normalize(vN);
+  float c = abs(n.z);
+  vec3 T = exp(-uSigma * (uThick * c * vK));
+  float rim = uRim * pow(1.0 - c, uRimPow);
+  float d = clamp((uFocus - vCz) / uLensScale, -1.0, 1.0);
+  float lens = 1.0 + uLens * d * c * c * c;
+  gl_FragColor = vec4(T * (1.0 - rim) * lens, 1.0);
+}`;
+function specMat(p) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: SU.uTime, uZmin: SU.uZmin, uZmax: SU.uZmax, uFocus: SU.uFocus,
+      uSigma: { value: new THREE.Vector3(...p.sigma) }, uThick: { value: p.thick }, uRim: { value: p.rim }, uRimPow: { value: p.rimPow ?? 2 },
+      uLens: { value: p.lens ?? 0.2 }, uLensScale: { value: p.lensScale ?? 3 },
+    },
+    vertexShader: SPEC_VS, fragmentShader: SPEC_FS, side: THREE.DoubleSide,
+    transparent: true, depthTest: false, depthWrite: false,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,
+  });
+}
+const PM = {
+  bubble: { sigma: [0, 0, 0], thick: 1, rim: 0.86, rimPow: 0.55, lens: 0.25, lensScale: 8 },
+  sbubble: { sigma: [0, 0, 0], thick: 1, rim: 0.9, rimPow: 0.85, lens: 0.8, lensScale: 3 },
+  dust: { sigma: [0.36, 0.39, 0.44], thick: 1.8, rim: 0.5, rimPow: 1.5, lens: 0.1 },
+  hypha: { sigma: [0.004, 0.005, 0.011], thick: 2.6, rim: 0.32, rimPow: 2.4, lens: 0.2, lensScale: 3 },
+  capil: { sigma: [0.07, 0.075, 0.16], thick: 2.0, rim: 0.42, rimPow: 1.8, lens: 0.2, lensScale: 2 },
+  ascus: { sigma: [0.0015, 0.002, 0.0045], thick: 9, rim: 0.2, rimPow: 3.2, lens: 0.1, lensScale: 8 },
+  paraph: { sigma: [0.005, 0.007, 0.015], thick: 3.5, rim: 0.3, rimPow: 2.2, lens: 0.15, lensScale: 3 },
+};
+
+// ---------------------------------------------------------------- spore geometry (µm)
+function finishSpec(g, cz = 0) {
+  for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'aK') g.deleteAttribute(k);
+  const n = g.attributes.position.count;
+  if (!g.attributes.aK) g.setAttribute('aK', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
+  g.setAttribute('aCz', new THREE.BufferAttribute(new Float32Array(n).fill(cz), 1));
+  if (!g.index) g = mergeVertices(g);
+  return g;
+}
+function sporeGeo(det, fn) {
+  let g = new THREE.IcosahedronGeometry(1, det);
+  g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
+  const P = g.attributes.position, n = P.count, K = new Float32Array(n).fill(1), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { v.fromBufferAttribute(P, i).normalize(); const r = fn(v); P.setXYZ(i, r[0], r[1], r[2]); if (r.length > 3) K[i] = r[3]; }
+  g.setAttribute('aK', new THREE.BufferAttribute(K, 1));
+  g.computeVertexNormals(); g.computeBoundingBox();
+  return finishSpec(g);
+}
+const APIC = new THREE.Vector3(-0.95, 0.31, 0).normalize();
+function ellip(v, o) {
+  let x = v.x * o.L / 2, y = v.y * o.W / 2, z = v.z * (o.D ?? o.W) / 2;
+  if (o.asym && v.y > 0) y *= 1 - o.asym * (1 - v.x * v.x);
+  if (o.ovoid) { const f = 1 + o.ovoid * v.x; y *= f; z *= f; }
+  let k = 1;
+  if (o.trunc) {
+    const xt = o.L / 2 - o.trunc;
+    if (x > xt) x = xt + (x - xt) * 0.2;
+    if (o.poreK != null) k = lerp(o.poreK, 1, sstep(0.7, 1.6, Math.hypot(y, z)) + sstep(xt - 0.3, xt - 1.0, x));
+  }
+  if (o.apic) { const d = v.dot(APIC); if (d > 0.93) { const s = o.apic * Math.pow((d - 0.93) / 0.07, 1.5); x += v.x * s; y += v.y * s; z += v.z * s; } }
+  if (o.spikes) { let b = 0; for (const s of o.spikes) { const d = v.dot(s); if (d > o.spCos) b += o.spH * Math.pow((d - o.spCos) / (1 - o.spCos), 2.2); } x += v.x * b; y += v.y * b; z += v.z * b; }
+  return [x + (o.ox || 0), y, z, k];
+}
+function sphereAt(det, r, c) { return sporeGeo(det, v => [c[0] + v.x * r, c[1] + v.y * r, c[2] + v.z * r]); }
+
+// ---------------------------------------------------------------- slide definitions
+const MOUNT = 24, REG = 2300;
+const SLIDES = {
+  amanita: {
+    density: 0.0016, clumpFrac: 0.55, cell: 7.8, sideFrac: 0.25, lods: [1, 8, 24], nVar: 4, hyphae: 7,
+    parts: [{ sigma: [0.006, 0.007, 0.013], thick: 3.6, rim: 0.42, rimPow: 2.2, lens: 0.35, lensScale: 3 },
+            { sigma: [0.004, 0.006, 0.022], thick: 1.8, rim: 0.5, rimPow: 1.5, lens: 0.7, lensScale: 1.5 }],
+    variant: (r, v) => ({ L: lerp(9.5, 12, r()), W: lerp(7, 8.5, r()), gut: [1, 1, 0, 2][v], gr: lerp(1.6, 2.4, r()) }),
+    part(p, o, det) {
+      if (p === 0) return sporeGeo(det, v => ellip(v, { L: o.L, W: o.W, D: o.W * 0.92, apic: 0.55, asym: 0.07 }));
+      if (!o.gut) return null;
+      const d = Math.min(det, 10);
+      if (o.gut === 1) return sphereAt(d, o.gr, [0.35, 0, 0]);
+      return mergeGeometries([sphereAt(d, o.gr * 0.6, [-1.7, 0.2, 0]), sphereAt(d, o.gr * 0.55, [1.8, -0.1, 0])]);
+    },
+  },
+  coprinus: {
+    density: 0.0018, clumpFrac: 0.65, cell: 7.6, sideFrac: 0.25, lods: [1, 8, 24], nVar: 4, hyphae: 5,
+    parts: [{ sigma: [0.2, 0.28, 0.4], thick: 3.5, rim: 0.45, rimPow: 2, lens: 0.25, lensScale: 3 }],
+    variant: (r) => ({ L: lerp(10.5, 13, r()), W: lerp(6.8, 8, r()) }),
+    part(p, o, det) { return sporeGeo(det, v => ellip(v, { L: o.L, W: o.W, D: o.W * 0.88, trunc: 0.75, poreK: 0.3, apic: 0.45, asym: 0.03 })); },
+  },
+  morchella: {
+    density: 0.00045, clumpFrac: 0.3, cell: 13.5, sideFrac: 0.2, lods: [1, 8, 24], nVar: 4, hyphae: 3,
+    parts: [{ sigma: [0.005, 0.007, 0.017], thick: 6.2, rim: 0.36, rimPow: 2.4, lens: 0.3, lensScale: 5 },
+            { sigma: [0.02, 0.025, 0.05], thick: 0.5, rim: 0.6, rimPow: 1.5, lens: 0.3, lensScale: 1 }],
+    variant: (r) => ({ L: lerp(19.5, 23.5, r()), W: lerp(11.5, 13.5, r()), seed: r() }),
+    part(p, o, det) {
+      if (p === 0) return sporeGeo(det, v => ellip(v, { L: o.L, W: o.W, D: o.W * 0.95 }));
+      const r = mulberry32(o.seed * 1e6), gs = [];
+      for (const sx of [-1, 1]) for (let i = 0; i < 4 + (r() * 4 | 0); i++) {
+        const a = (r() - 0.5) * 1.3, b = r() * TAU, rad = 0.3 + 0.3 * r();
+        const dx = Math.cos(a), dy = Math.sin(a) * Math.cos(b), dz = Math.sin(a) * Math.sin(b);
+        gs.push(sphereAt(Math.min(det, 3), rad, [sx * (o.L / 2 * dx + rad * 0.6), dy * o.W / 2 * 0.5, dz * o.W / 2 * 0.5]));
+      }
+      return mergeGeometries(gs);
+    },
+    extras: morelExtras,
+  },
+  inocybe: {
+    density: 0.0016, clumpFrac: 0.55, cell: 9.5, sideFrac: 0.12, rollJit: 0.25, lods: [1, 8, 26], nVar: 5, hyphae: 5,
+    parts: [{ sigma: [0.08, 0.13, 0.22], thick: 3.4, rim: 0.48, rimPow: 1.8, lens: 0.25, lensScale: 3 }],
+    variant: (r) => {
+      const n = 5 + (r() * 3 | 0), nod = [], off = r() * TAU;
+      for (let i = 0; i < n; i++) { const a = off + (i + (r() - 0.5) * 0.35) / n * TAU, t = (r() - 0.5) * 0.5; nod.push({ d: new THREE.Vector3(Math.cos(a) * Math.cos(t), Math.sin(a) * Math.cos(t), Math.sin(t)), h: lerp(1.5, 2.3, r()), c: Math.cos(0.52) }); }
+      if (r() < 0.6) nod.push({ d: new THREE.Vector3(0, 0, r() < 0.5 ? 1 : -1), h: lerp(0.8, 1.3, r()), c: Math.cos(0.45) });
+      return { R: lerp(3.2, 3.7, r()), nod };
+    },
+    part(p, o, det) {
+      return sporeGeo(det, v => {
+        let b = 0; for (const n of o.nod) { const d = v.dot(n.d); if (d > n.c) b += n.h * Math.pow((d - n.c) / (1 - n.c), 1.5); }
+        const a = v.dot(APIC) > 0.95 ? 0.4 * (v.dot(APIC) - 0.95) / 0.05 : 0;
+        return [v.x * (o.R * 1.04 + b + a), v.y * (o.R + b + a), v.z * (o.R * 0.82 + b)];
+      });
+    },
+  },
+  ganoderma: {
+    density: 0.0017, clumpFrac: 0.55, cell: 7.8, sideFrac: 0.25, lods: [1, 8, 26], nVar: 4, hyphae: 6,
+    parts: [{ sigma: [0.006, 0.008, 0.016], thick: 3.6, rim: 0.46, rimPow: 2.4, lens: 0.15, lensScale: 3 },
+            { sigma: [0.11, 0.18, 0.3], thick: 2.7, rim: 0.42, rimPow: 1.8, lens: 0.25, lensScale: 2.5 }],
+    variant: (r) => ({ L: lerp(9.5, 12, r()), W: lerp(6.2, 8, r()), sp: fibDirs(110, r, 0.12) }),
+    part(p, o, det) {
+      if (p === 0) return sporeGeo(det, v => ellip(v, { L: o.L, W: o.W, D: o.W * 0.94, trunc: 1.2, apic: 0.5 }));
+      return sporeGeo(det, v => ellip(v, { L: o.L * 0.76, W: o.W * 0.74, D: o.W * 0.7, trunc: 0.35, ox: -0.45, spikes: o.sp, spCos: Math.cos(0.13), spH: 0.5 }));
+    },
+  },
+  lycoperdon: {
+    density: 0.004, clumpFrac: 0.6, cell: 4.4, sideFrac: 0, rollJit: 3, lods: [0, 4, 16], nVar: 4, hyphae: 0,
+    parts: [{ sigma: [0.2, 0.17, 0.4], thick: 1.9, rim: 0.48, rimPow: 1.6, lens: 0.4, lensScale: 1.5 }],
+    variant: (r, v) => ({ R: lerp(1.8, 2.2, r()), sp: fibDirs(70, r, 0.1), ped: v === 3 }),
+    part(p, o, det) {
+      return sporeGeo(det, v => {
+        let b = 0; for (const s of o.sp) { const d = v.dot(s); if (d > 0.987) b += 0.3 * Math.pow((d - 0.987) / 0.013, 2.5); }
+        if (o.ped) { const d = -v.x; if (d > 0.985) b += 1.6 * Math.pow((d - 0.985) / 0.015, 1.2); }
+        const r = o.R + b; return [v.x * r, v.y * r, v.z * r];
+      });
+    },
+    extras: puffExtras,
+  },
+};
+
+// ---- extras: morel asci & paraphyses, puffball capillitium, common debris
+let ASCUS_GEO = null;
+function ascusGeo() {
+  if (ASCUS_GEO) return ASCUS_GEO;
+  const prof = smoothProfile([[0.01, 0], [2.5, 2], [3.5, 15], [6, 35], [9.5, 60], [10, 90], [10, 220], [9.6, 232], [8.4, 238], [0.01, 240]], 50).map(p => new THREE.Vector2(Math.max(p[0], 0.01), p[1]));
+  const g = new THREE.LatheGeometry(prof, 30);
+  g.rotateZ(-Math.PI / 2); g.translate(-120, 0, 0);
+  ASCUS_GEO = g; return g;
+}
+function morelExtras(ctx) {
+  const { rng, statics, forced } = ctx;
+  const addAscus = (cx, cy, yaw, full) => {
+    const g = ascusGeo().clone();
+    g.applyMatrix4(new THREE.Matrix4().makeRotationZ(yaw).setPosition(cx, cy, 10.6));
+    statics('ascus', finishSpec(g, 10.6));
+    if (!full) return;
+    const ca = Math.cos(yaw), sa = Math.sin(yaw);
+    for (let k = 0; k < 8; k++) {
+      const lx = -52 + k * 21.5 + (rng() - 0.5) * 2, ly = (rng() - 0.5) * 2.5;
+      forced.push({ x: cx + ca * lx - sa * ly, y: cy + sa * lx + ca * ly, z: 10.6 + (rng() - 0.5) * 1.5, yaw: yaw + (rng() - 0.5) * 0.25, roll: (rng() - 0.5) * 0.8, amp: 0.0 });
+    }
+  };
+  const addPara = (cx, cy, yaw, len) => {
+    const ca = Math.cos(yaw), sa = Math.sin(yaw), pts = [];
+    const bend = (rng() - 0.5) * 12;
+    for (let i = 0; i <= 6; i++) { const t = i / 6, lx = -120 + t * len, ly = bend * t * t; pts.push(new THREE.Vector3(cx + ca * lx - sa * ly, cy + sa * lx + ca * ly, 6 + 2 * t)); }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    statics('paraph', finishSpec(new THREE.TubeGeometry(curve, 24, 3.2, 10, false), 7));
+    const end = pts[6]; statics('paraph', finishSpec(sphereAt(3, 4.8, [end.x, end.y, end.z]), end.z));
+  };
+  const frags = 11;
+  for (let f = 0; f < frags; f++) {
+    const r = Math.sqrt(rng()) * REG * 0.85, th = rng() * TAU, cx = r * Math.cos(th), cy = r * Math.sin(th);
+    const yaw = rng() * TAU, n = 6 + (rng() * 9 | 0), ca = Math.cos(yaw), sa = Math.sin(yaw);
+    for (let k = 0; k < n; k++) {
+      const off = (k - n / 2) * 22.5, base = (rng() - 0.5) * 30, y2 = yaw + (k - n / 2) * 0.02;
+      addAscus(cx - sa * off + ca * base, cy + ca * off + sa * base, y2, rng() < 0.75);
+      if (rng() < 0.7) addPara(cx - sa * (off + 11) + ca * base, cy + ca * (off + 11) + sa * base, y2, 170 + rng() * 40);
+    }
+  }
+  if (ctx.near) { const yaw = 0.35; for (let k = 0; k < 3; k++) addAscus(ctx.near[0] + 30 + k * 23 * -Math.sin(yaw), ctx.near[1] - 50 + k * 23 * Math.cos(yaw), yaw, k !== 1); }
+  for (let i = 0; i < 26; i++) { const r = Math.sqrt(rng()) * REG * 0.9, th = rng() * TAU; addAscus(r * Math.cos(th), r * Math.sin(th), rng() * TAU, rng() < 0.6); }
+}
+function puffExtras(ctx) {
+  const { rng, statics } = ctx;
+  const thread = (x, y, ang, len, rad) => {
+    const pts = []; let z = lerp(3, 14, rng());
+    for (let s = 0; s <= len; s += 16) { pts.push(new THREE.Vector3(x, y, z)); ang += (rng() - 0.5) * 0.45; x += Math.cos(ang) * 16; y += Math.sin(ang) * 16; z = clamp(z + (rng() - 0.5) * 2.2, 2.5, 18); }
+    if (pts.length < 3) return pts;
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const zs = pts.reduce((a, p) => a + p.z, 0) / pts.length;
+    statics('capil', finishSpec(new THREE.TubeGeometry(curve, pts.length * 3, rad, 8, false), zs));
+    return pts;
+  };
+  for (let t = 0; t < 120; t++) {
+    const r = Math.sqrt(rng()) * REG * 0.95, th = rng() * TAU;
+    const pts = thread(r * Math.cos(th), r * Math.sin(th), rng() * TAU, 150 + rng() * rng() * 900, 1.5 + rng() * 1.2);
+    if (pts.length > 6 && rng() < 0.4) { const p = pts[(rng() * pts.length) | 0]; thread(p.x, p.y, rng() * TAU, 80 + rng() * 260, 1.2 + rng() * 0.8); }
+  }
+  if (ctx.near) thread(ctx.near[0] - 140, ctx.near[1] + 20, 0.2, 320, 2.2);
+}
+function commonExtras(ctx, S) {
+  const { rng, statics } = ctx;
+  // air bubbles trapped under the coverslip (flattened between the glasses) and small floating ones
+  const h = MOUNT - 1;
+  for (let i = 0; i < 12; i++) {
+    const Rb = i < 4 ? lerp(60, 230, rng()) : lerp(14, 45, rng());
+    const r = Math.sqrt(rng()) * REG * 0.9, th = rng() * TAU;
+    const prof = [[0.01, -h / 2], [Rb - h / 2, -h / 2]];
+    for (let k = 1; k < 14; k++) { const a = -Math.PI / 2 + k / 14 * Math.PI; prof.push([Rb - h / 2 + Math.cos(a) * h / 2, Math.sin(a) * h / 2]); }
+    prof.push([Rb - h / 2, h / 2], [0.01, h / 2]);
+    const g = new THREE.LatheGeometry(prof.map(p => new THREE.Vector2(p[0], p[1])), 96);
+    g.rotateX(Math.PI / 2); g.translate(r * Math.cos(th), r * Math.sin(th), h / 2 + 0.5);
+    statics('bubble', finishSpec(g, h / 2 + 0.5));
+  }
+  for (let i = 0; i < 26; i++) { const r = Math.sqrt(rng()) * REG * 0.9, th = rng() * TAU, z = lerp(4, 20, rng()); statics('sbubble', finishSpec(sphereAt(10, lerp(1.5, 7, rng() * rng()), [r * Math.cos(th), r * Math.sin(th), z]), z)); }
+  // dust and debris, some resting on the coverslip
+  const dgs = [];
+  for (let i = 0; i < 260; i++) {
+    const r = Math.sqrt(rng()) * REG * 0.97, th = rng() * TAU, s = lerp(0.8, 6, rng() * rng()), z = rng() < 0.3 ? MOUNT + 0.5 : lerp(0.5, 4, rng());
+    let g = new THREE.IcosahedronGeometry(1, 1); g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
+    const P = g.attributes.position, o = rng() * 99;
+    for (let k = 0; k < P.count; k++) { const x = P.getX(k), y = P.getY(k), zz = P.getZ(k), f = s * (0.55 + 0.9 * noise3(x * 1.3 + o, y * 1.3, zz * 1.3)); P.setXYZ(k, x * f * (1 + rng() * 0.0) + r * Math.cos(th), y * f * 0.8 + r * Math.sin(th), zz * f * 0.5 + z); }
+    g.computeVertexNormals(); dgs.push(finishSpec(g, z));
+  }
+  statics('dust', mergeGeometries(dgs));
+  // hyphal fragments with septa
+  for (let i = 0; i < (S.hyphae || 0); i++) {
+    const r = Math.sqrt(rng()) * REG * 0.85, th = rng() * TAU;
+    let x = r * Math.cos(th), y = r * Math.sin(th), ang = rng() * TAU; const rad = lerp(2.2, 3.4, rng()), len = lerp(70, 300, rng());
+    const pts = []; for (let s = 0; s <= len; s += 20) { pts.push(new THREE.Vector3(x, y, rad + 0.4)); ang += (rng() - 0.5) * 0.18; x += Math.cos(ang) * 20; y += Math.sin(ang) * 20; }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    statics('hypha', finishSpec(new THREE.TubeGeometry(curve, pts.length * 3, rad, 12, false), rad + 0.4));
+    const L = curve.getLength();
+    for (let d = lerp(15, 30, rng()); d < L - 5; d += lerp(22, 38, rng())) {
+      const t = d / L, p = curve.getPointAt(t), tg = curve.getTangentAt(t);
+      const cg = new THREE.CylinderGeometry(rad * 0.96, rad * 0.96, 0.6, 16, 1, false);
+      cg.applyMatrix4(new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tg), new THREE.Vector3(1, 1, 1)));
+      statics('hypha', finishSpec(cg, p.z));
+    }
+  }
+}
+
+// ---------------------------------------------------------------- slide builder
+const slides = new Map();
+function buildSlide(si) {
+  if (slides.has(si)) return slides.get(si);
+  const sp = SPECIES[si], S = SLIDES[sp.key], rng = mulberry32(7000 + si * 131);
+  const scene = new THREE.Scene();
+  const mats = S.parts.map(specMat);
+  // variants
+  const variants = [];
+  for (let v = 0; v < S.nVar; v++) {
+    const vr = mulberry32(9000 + si * 97 + v * 13), o = S.variant(vr, v);
+    const geos = S.parts.map((_, p) => S.lods.map(det => S.part(p, o, det)));
+    const bb = geos[0][2].boundingBox || (geos[0][2].computeBoundingBox(), geos[0][2].boundingBox);
+    variants.push({ geos, zLie: -bb.min.z, zSide: Math.max(-bb.min.y, bb.max.y) });
+  }
+  const avgLie = variants.reduce((a, v) => a + v.zLie, 0) / variants.length;
+  // spatial hash for spore placement
+  const cell = S.cell, hash = new Map();
+  const hk = (ix, iy, l) => ix * 92837111 + iy * 689287 + l;
+  const fits = (x, y, l, rad) => {
+    const ix = Math.floor(x / cell), iy = Math.floor(y / cell);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const arr = hash.get(hk(ix + a, iy + b, l)); if (!arr) continue;
+      for (let k = 0; k < arr.length; k += 3) if ((arr[k] - x) ** 2 + (arr[k + 1] - y) ** 2 < (arr[k + 2] + rad) ** 2) return false;
+    }
+    return true;
+  };
+  const insert = (x, y, l, rad) => { const k = hk(Math.floor(x / cell), Math.floor(y / cell), l); let arr = hash.get(k); if (!arr) hash.set(k, arr = []); arr.push(x, y, rad); };
+  const inst = [];
+  const lying = (x, y, layer, floatZ) => {
+    const v = (rng() * S.nVar) | 0, s = 0.92 + 0.16 * rng(), V = variants[v];
+    if (floatZ != null) {
+      const q = new THREE.Quaternion(gauss(rng), gauss(rng), gauss(rng), gauss(rng)).normalize();
+      inst.push({ x, y, z: floatZ, q, s, v, amp: 0.2 + 0.1 * rng() }); return;
+    }
+    const side = rng() < (S.sideFrac || 0);
+    const roll = side ? (rng() < 0.5 ? -1 : 1) * Math.PI / 2 + (rng() - 0.5) * 0.2 : (rng() - 0.5) * (S.rollJit ?? 0.5);
+    const yaw = rng() * TAU, sr = Math.abs(Math.sin(roll));
+    const z0 = lerp(V.zLie, V.zSide, Math.min(1, sr)) * s;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), yaw).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), roll));
+    inst.push({ x, y, z: z0 + layer * V.zLie * 1.9 * s, q, s, v, amp: layer ? 0.05 : 0.03 });
+  };
+  // statics
+  const groups = {};
+  const statics = (key, g) => { (groups[key] ||= []).push(g); };
+  const forced = [];
+  const ctx = { rng, statics, forced };
+  // clumps, and a pleasant starting spot next to one
+  const N = Math.round(S.density * Math.PI * REG * REG);
+  const avgClump = 60, nCl = Math.max(4, Math.round(N * S.clumpFrac / avgClump));
+  const clumps = [];
+  for (let c = 0; c < nCl; c++) {
+    const r = Math.sqrt(rng()) * REG * 0.9, th = rng() * TAU;
+    const size = Math.round(Math.exp(rng() * Math.log(240)) + 4), sig = Math.sqrt(size) * cell * 0.55;
+    clumps.push({ x: r * Math.cos(th), y: r * Math.sin(th), size, sig });
+  }
+  const mid = clumps.filter(c => c.size > 25 && c.size < 140 && Math.hypot(c.x, c.y) < REG * 0.6);
+  const sc = mid.length ? mid[0] : clumps[0];
+  const sa = rng() * TAU, start = [sc.x + Math.cos(sa) * sc.sig * 1.6, sc.y + Math.sin(sa) * sc.sig * 1.6];
+  ctx.near = start;
+  if (S.extras) S.extras(ctx);
+  commonExtras(ctx, S);
+  for (const f of forced) {
+    const v = (rng() * S.nVar) | 0;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), f.yaw).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.roll));
+    inst.push({ x: f.x, y: f.y, z: f.z, q, s: 0.95 + 0.1 * rng(), v, amp: f.amp });
+  }
+  for (const c of clumps) for (let k = 0; k < c.size; k++) {
+    const x = c.x + gauss(rng) * c.sig, y = c.y + gauss(rng) * c.sig, rad = cell * 0.48;
+    for (let l = 0; l < 3; l++) if (fits(x, y, l, rad)) { insert(x, y, l, rad); lying(x, y, l); break; }
+  }
+  const rest = Math.max(0, N - inst.length);
+  for (let i = 0; i < rest; i++) {
+    const r = Math.sqrt(rng()) * REG, th = rng() * TAU, x = r * Math.cos(th), y = r * Math.sin(th);
+    if (rng() < 0.12) { lying(x, y, 0, lerp(avgLie * 2.2, MOUNT - 3, rng())); continue; }
+    const rad = cell * 0.48; if (fits(x, y, 0, rad)) { insert(x, y, 0, rad); lying(x, y, 0); }
+  }
+  // pack instance data
+  const n = inst.length, mats16 = new Float32Array(n * 16), xy = new Float32Array(n * 2), seeds = new Float32Array(n * 2), vari = new Uint8Array(n);
+  const m4 = new THREE.Matrix4(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
+  inst.forEach((it, i) => {
+    m4.compose(pv.set(it.x, it.y, it.z), it.q, sv.set(it.s, it.s, it.s)); m4.toArray(mats16, i * 16);
+    xy[i * 2] = it.x; xy[i * 2 + 1] = it.y; seeds[i * 2] = rng(); seeds[i * 2 + 1] = it.amp; vari[i] = it.v;
+  });
+  const vCount = new Array(S.nVar).fill(0); for (let i = 0; i < n; i++) vCount[vari[i]]++;
+  // instanced meshes: [part][variant][lod]
+  const meshes = S.parts.map((_, p) => variants.map((V, v) => V.geos[p].map((geo, l) => {
+    if (!geo) return null;
+    const cap = l === 0 ? Math.max(1, vCount[v]) : Math.max(1, Math.min(vCount[v], 7000));
+    const im = new THREE.InstancedMesh(geo, mats[p], cap);
+    im.frustumCulled = false; im.count = 0; im.visible = false;
+    im.userData.seed = new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2);
+    im.geometry = geo.clone(); im.geometry.setAttribute('aSeed', im.userData.seed);
+    im.userData.cap = cap;
+    scene.add(im); return im;
+  })));
+  for (const [k, list] of Object.entries(groups)) {
+    const m = new THREE.Mesh(mergeGeometries(list), specMat(PM[k])); m.frustumCulled = false; scene.add(m);
+  }
+  const slide = { si, scene, meshes, n, mats16, xy, seeds, vari, nVar: S.nVar, start, focus0: avgLie, last: null };
+  slides.set(si, slide);
+  return slide;
+}
+function selectInstances(sl, oi, cx, cy) {
+  const o = OBJ[oi], lod = o.mag <= 100 ? 0 : o.mag <= 400 ? 1 : 2, all = o.mag <= 100;
+  const R = o.fov * 0.5 * 1.18 + 40, R2 = R * R;
+  const cnt = sl.meshes.map(pm => pm.map(() => 0));
+  for (const pm of sl.meshes) for (const vm of pm) vm.forEach((m, l) => { if (m) m.visible = l === lod; });
+  for (let i = 0; i < sl.n; i++) {
+    if (!all) { const dx = sl.xy[i * 2] - cx, dy = sl.xy[i * 2 + 1] - cy; if (dx * dx + dy * dy > R2) continue; }
+    const v = sl.vari[i];
+    for (let p = 0; p < sl.meshes.length; p++) {
+      const m = sl.meshes[p][v][lod]; if (!m) continue;
+      const c = cnt[p][v]; if (c >= m.userData.cap) continue;
+      m.instanceMatrix.array.set(sl.mats16.subarray(i * 16, i * 16 + 16), c * 16);
+      m.userData.seed.array[c * 2] = sl.seeds[i * 2]; m.userData.seed.array[c * 2 + 1] = sl.seeds[i * 2 + 1];
+      cnt[p][v] = c + 1;
+    }
+  }
+  sl.meshes.forEach((pm, p) => pm.forEach((vm, v) => { const m = vm[lod]; if (!m) return; m.count = cnt[p][v]; m.instanceMatrix.needsUpdate = true; m.userData.seed.needsUpdate = true; }));
+  sl.last = { oi, cx, cy };
+}
+
+// ============================================================================ microscope optics
+// total magnification = objective × eyepiece; field of view = field number / objective
+const OBJ = [
+  { mag: 40, obj: '4×', na: 0.10, fov: 4500, k: 0.1, div: 25, u: 30, sub: '4× · NA 0.10' },
+  { mag: 100, obj: '10×', na: 0.25, fov: 1800, k: 0.26, div: 10, u: 8, sub: '10× · NA 0.25' },
+  { mag: 400, obj: '40×', na: 0.65, fov: 450, k: 0.55, div: 2.5, u: 0.9, sub: '40× · NA 0.65' },
+  { mag: 1000, obj: '100× oil', na: 1.25, fov: 180, k: 0.75, div: 1, u: 0.45, sub: '100× oil · NA 1.25' },
+  { mag: 2000, obj: '100× oil, 20× ep', na: 1.25, fov: 110, k: 0.75, div: 0.5, u: 0.45, sub: '100× oil · 20× ep' },
+];
+const EDGES = [0.5, 1.5, 3.5, 7, 14, Infinity], REP = [1.0, 2.5, 5.2, 10.5, 20];
+const mcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
+mcam.position.set(0, 0, 200); mcam.lookAt(0, 0, 0);
+const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const QUAD_VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const blurMat = new THREE.ShaderMaterial({
+  uniforms: { tSrc: { value: null }, uDir: { value: new THREE.Vector2() }, uSigma: { value: 1 } },
+  vertexShader: QUAD_VS,
+  fragmentShader: /* glsl */`
+  uniform sampler2D tSrc; uniform vec2 uDir; uniform float uSigma; varying vec2 vUv;
+  void main(){
+    float stride = max(1.0, uSigma * 2.6 / 12.0);
+    vec3 acc = vec3(0.0); float ws = 0.0;
+    for (int i = -12; i <= 12; i++) {
+      float o = float(i) * stride; float w = exp(-0.5 * o * o / max(uSigma * uSigma, 0.01));
+      acc += w * texture2D(tSrc, vUv + uDir * o).rgb; ws += w;
+    }
+    gl_FragColor = vec4(acc / ws, 1.0);
+  }`,
+  depthTest: false, depthWrite: false,
+});
+const WHITE = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); WHITE.needsUpdate = true;
+const compU = { tC: { value: WHITE }, uLamp: { value: new THREE.Vector3(1.0, 0.972, 0.915) }, uDark: { value: 0 }, uDpx: { value: 800 }, uRetOn: { value: 1 }, uRetLen: { value: 400 }, uRetDiv: { value: 4 } };
+for (let i = 0; i < 10; i++) compU['t' + i] = { value: WHITE };
+const compMat = new THREE.ShaderMaterial({
+  uniforms: compU, vertexShader: QUAD_VS,
+  fragmentShader: /* glsl */`
+  uniform sampler2D tC, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9;
+  uniform vec3 uLamp; uniform float uDark, uDpx, uRetOn, uRetLen, uRetDiv;
+  varying vec2 vUv;
+  vec3 T(vec2 uv){
+    return texture2D(tC, uv).rgb * texture2D(t0, uv).rgb * texture2D(t1, uv).rgb * texture2D(t2, uv).rgb * texture2D(t3, uv).rgb * texture2D(t4, uv).rgb
+         * texture2D(t5, uv).rgb * texture2D(t6, uv).rgb * texture2D(t7, uv).rgb * texture2D(t8, uv).rgb * texture2D(t9, uv).rgb;
+  }
+  vec3 srgb(vec3 c){ c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+  void main(){
+    vec2 p = vUv * 2.0 - 1.0; float r = length(p);
+    float px = 2.0 / uDpx;
+    if (r > 1.0 + px) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    // lateral chromatic aberration grows toward the edge of the field
+    float ca = 0.0035 * r * r;
+    vec3 t = vec3(T(0.5 + (vUv - 0.5) * (1.0 + ca)).r, T(vUv).g, T(0.5 + (vUv - 0.5) * (1.0 - ca)).b);
+    float ill = 1.0 - 0.13 * r * r - 0.06 * pow(r, 6.0);
+    ill *= 1.0 - 0.1 * smoothstep(0.3, 1.1, dot(p, normalize(vec2(-0.55, 0.83))) + 0.2 * r);
+    vec3 col = t * uLamp * ill;
+    // dust on the eyepiece lens: soft, fixed, never in focus
+    col *= 1.0 - 0.035 * exp(-dot(p - vec2(0.31, -0.42), p - vec2(0.31, -0.42)) * 140.0) - 0.025 * exp(-dot(p - vec2(-0.52, 0.18), p - vec2(-0.52, 0.18)) * 260.0) - 0.02 * exp(-dot(p - vec2(0.06, 0.63), p - vec2(0.06, 0.63)) * 400.0);
+    // eyepiece micrometer reticle
+    if (uRetOn > 0.5) {
+      vec2 q = (vUv - 0.5) * uDpx;
+      float L = uRetLen, ret = 0.0;
+      if (abs(q.x) < L * 0.5 + 1.0) {
+        ret = 1.0 - smoothstep(0.45, 1.1, abs(q.y));
+        float xi = (q.x + L * 0.5) / uRetDiv, i = floor(xi + 0.5), dx = abs(xi - i) * uRetDiv;
+        float len = mod(i, 10.0) < 0.5 ? 0.026 * uDpx : (mod(i, 5.0) < 0.5 ? 0.017 * uDpx : 0.01 * uDpx);
+        if (i >= 0.0 && i <= 100.0) ret = max(ret, (1.0 - smoothstep(0.4, 1.0, dx)) * step(0.0, q.y) * (1.0 - smoothstep(len - 1.0, len, q.y)));
+      }
+      col *= 1.0 - 0.82 * ret;
+    }
+    col *= uDark;
+    // field stop: a sharp circular edge with a faint colour fringe
+    col = mix(col, col * vec3(0.8, 0.93, 1.22), smoothstep(0.955, 1.0, r) * 0.7);
+    col *= 1.0 - smoothstep(1.0 - 1.5 * px, 1.0 + px * 0.5, r);
+    gl_FragColor = vec4(srgb(col), 1.0);
+  }`,
+  depthTest: false, depthWrite: false,
+});
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat); quad.frustumCulled = false; postScene.add(quad);
+const rtOpts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false };
+let RTS = 0, rtA, rtB, rtC, halfTmp, half = [];
+function ensureRTs(S) {
+  if (S === RTS) return;
+  [rtA, rtB, rtC, halfTmp, ...half].forEach(r => r && r.dispose());
+  RTS = S;
+  rtA = new THREE.WebGLRenderTarget(S, S, rtOpts); rtB = new THREE.WebGLRenderTarget(S, S, rtOpts); rtC = new THREE.WebGLRenderTarget(S, S, rtOpts);
+  const h = Math.max(64, S >> 1);
+  halfTmp = new THREE.WebGLRenderTarget(h, h, rtOpts);
+  half = []; for (let i = 0; i < 10; i++) half.push(new THREE.WebGLRenderTarget(h, h, rtOpts));
+}
+function blur(src, dst, dx, dy, sigma) {
+  blurMat.uniforms.tSrc.value = src.texture; blurMat.uniforms.uDir.value.set(dx, dy); blurMat.uniforms.uSigma.value = sigma;
+  quad.material = blurMat; renderer.setRenderTarget(dst); renderer.render(postScene, postCam);
+}
+
+// ============================================================================ state & UI
+let si = clamp(parseInt(Q.get('s') ?? '0', 10) || 0, 0, SPECIES.length - 1);
+let oi = clamp(parseInt(Q.get('m') ?? '3', 10), 0, OBJ.length - 1);
+let slide = null;
+const stage = { x: 0, y: 0 };
+let focus = 4, hunt = { t0: -10, amp: 0 }, dark = 0, darkTarget = 1, pendingSwap = null, retOn = true;
+const $ = id => document.getElementById(id);
+const focusEl = $('focus');
+const L = { x: 0, y: 0, w: 1, h: 1 }, C = { x: 0, y: 0, D: 100, cx: 0, cy: 0 };
+
+const spNav = $('species');
+SPECIES.forEach((s, i) => { const b = document.createElement('button'); b.className = 'pill'; b.textContent = s.latin.split(' ')[0]; b.title = s.latin; b.onclick = () => setSpecies(i); spNav.appendChild(b); });
+const magNav = $('mags');
+OBJ.forEach((o, i) => { const b = document.createElement('button'); b.className = 'pill'; b.innerHTML = `${o.mag}×<small>${o.sub}</small>`; b.onclick = () => setMag(i); magNav.appendChild(b); });
+function syncButtons() {
+  [...spNav.children].forEach((b, i) => b.classList.toggle('on', i === si));
+  [...magNav.children].forEach((b, i) => b.classList.toggle('on', i === oi));
+}
+function setCard() {
+  const s = SPECIES[si];
+  $('cCommon').textContent = s.common; $('cLatin').textContent = s.latin;
+  $('cFacts').innerHTML = s.facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+}
+function updateReadout() {
+  const o = OBJ[oi];
+  const fov = o.fov >= 1000 ? (o.fov / 1000).toFixed(1) + ' mm' : o.fov + ' µm';
+  const f = focus.toFixed(1);
+  $('readout').innerHTML = `<b>${o.mag}×</b> &nbsp;·&nbsp; field ⌀ ${fov} &nbsp;·&nbsp; 1 div = ${o.div} µm &nbsp;·&nbsp; focus ${f} µm`;
+}
+function setMag(i, instant = false) {
+  if (i === oi && !instant) return;
+  const swap = () => { oi = i; if (slide) selectInstances(slide, oi, stage.x, stage.y); hunt = { t0: performance.now() / 1000, amp: OBJ[oi].u * (2.5 + Math.random() * 1.5) * (Math.random() < 0.5 ? -1 : 1) }; syncButtons(); updateReadout(); };
+  if (instant) { swap(); return; }
+  pendingSwap = swap; darkTarget = 0;
+}
+let lfade = $('lfade');
+function setSpecies(i, instant = false) {
+  if (i === si && !instant) return;
+  const swap = () => {
+    si = i;
+    const grp = getMush(si);
+    if (current) mushScene.remove(current);
+    current = grp; mushScene.add(grp); renderer.shadowMap.needsUpdate = true;
+    const v = SPECIES[si].view;
+    orbit.target.set(...v.target); orbit.tDist = orbit.dist = v.dist * (Q.has('d') ? parseFloat(Q.get('d')) : 1); orbit.tPitch = orbit.pitch = v.pitch;
+    mushScene.fog = new THREE.Fog(0x000000, v.dist * 0.98, v.dist * 1.45);
+    slide = buildSlide(si);
+    stage.x = slide.start[0]; stage.y = slide.start[1];
+    focus = Q.has('f') ? parseFloat(Q.get('f')) : slide.focus0; focusEl.value = focus;
+    selectInstances(slide, oi, stage.x, stage.y);
+    setCard(); syncButtons(); updateReadout();
+    hunt = { t0: performance.now() / 1000, amp: OBJ[oi].u * 3 };
+  };
+  if (instant) { swap(); return; }
+  lfade.style.opacity = 1; $('card').style.opacity = 0; darkTarget = 0;
+  pendingSwap = () => { swap(); setTimeout(() => { lfade.style.opacity = 0; $('card').style.opacity = 1; }, 60); };
+}
+
+// ---------------------------------------------------------------- layout
+let W = 1, H = 1, portrait = false;
+function layout() {
+  W = innerWidth; H = innerHeight; portrait = W < H * 1.05;
+  if (CAPTURE) {
+    renderer.setSize(W, H, false);
+    Object.assign(L, { x: 0, y: 0, w: W, h: H });
+    const D = Math.round(Math.min(W, H) * 0.8);
+    Object.assign(C, { D, cx: W / 2, cy: H / 2 + 4, x: W / 2 - D / 2, y: H / 2 + 4 - D / 2 });
+    Object.assign(lfade.style, { left: 0, top: 0, width: W + 'px', height: H + 'px', transition: 'none' });
+    mcamL.aspect = W / H; mcamL.updateProjectionMatrix();
+    ensureRTs(clamp(Math.round(D * DPR), 256, 1280));
+    return;
+  }
+  document.body.classList.toggle('portrait', portrait);
+  renderer.setSize(W, H, false);
+  const card = $('card').style, sp = spNav.style, mg = magNav.style, ro = $('readout').style, fw = $('fwrap').style, lf = lfade.style;
+  if (!portrait) {
+    Object.assign(L, { x: 0, y: 0, w: W * 0.5, h: H });
+    const mw = W * 0.5, D = Math.min(mw * 0.8, H * 0.7);
+    Object.assign(C, { D, cx: W * 0.5 + mw * 0.47, cy: H * 0.47 });
+    card.left = 'clamp(16px, 3vw, 36px)'; card.top = '78px'; card.bottom = '';
+    sp.left = '16px'; sp.width = (W * 0.5 - 32) + 'px'; sp.bottom = '18px'; sp.top = '';
+    fw.left = (C.cx + D / 2 + 26) + 'px'; fw.top = (C.cy - 105) + 'px';
+  } else {
+    const lh = Math.round(H * 0.44);
+    Object.assign(L, { x: 0, y: 0, w: W, h: lh });
+    const D = Math.min(W * 0.88, (H - lh) * 0.66);
+    Object.assign(C, { D, cx: W / 2, cy: lh + 30 + D / 2 + 24 });
+    card.left = '16px'; card.top = '56px'; card.bottom = '';
+    sp.left = '8px'; sp.width = (W - 16) + 'px'; sp.bottom = ''; sp.top = (lh - (spNav.offsetHeight || 34) - 6) + 'px';
+    fw.left = (W / 2 - 110) + 'px'; fw.top = (C.cy + D / 2 + 58) + 'px';
+  }
+  C.x = C.cx - C.D / 2; C.y = C.cy - C.D / 2;
+  mg.left = (C.cx - 260) + 'px'; mg.width = '520px'; mg.top = (C.cy + C.D / 2 + 16) + 'px';
+  if (portrait) { mg.left = '8px'; mg.width = (W - 16) + 'px'; }
+  ro.left = (C.cx - 300) + 'px'; ro.width = '600px'; ro.top = (C.cy - C.D / 2 - 30) + 'px';
+  Object.assign(lf, { left: L.x + 'px', top: L.y + 'px', width: L.w + 'px', height: L.h + 'px' });
+  mcamL.aspect = L.w / L.h; mcamL.updateProjectionMatrix();
+  ensureRTs(clamp(Math.round(C.D * DPR), 256, 1280));
+}
+addEventListener('resize', layout);
+
+// ---------------------------------------------------------------- input
+const inScope = (x, y) => Math.hypot(x - C.cx, y - C.cy) < C.D / 2;
+const inLeft = (x, y) => x >= L.x && x < L.x + L.w && y >= L.y && y < L.y + L.h;
+let drag = null;
+canvas.addEventListener('pointerdown', e => {
+  const mode = inScope(e.clientX, e.clientY) ? 'pan' : inLeft(e.clientX, e.clientY) ? 'orbit' : null;
+  if (!mode) return;
+  drag = { mode, x: e.clientX, y: e.clientY, id: e.pointerId }; canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = mode === 'pan' ? 'grabbing' : 'grabbing';
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag) { canvas.style.cursor = inScope(e.clientX, e.clientY) ? 'grab' : inLeft(e.clientX, e.clientY) ? 'ew-resize' : 'default'; return; }
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.mode === 'pan') {
+    const k = OBJ[oi].fov / C.D;
+    stage.x -= dx * k; stage.y += dy * k;
+    const r = Math.hypot(stage.x, stage.y), lim = REG - OBJ[oi].fov * 0.25;
+    if (r > lim) { stage.x *= lim / r; stage.y *= lim / r; }
+  } else {
+    orbit.tYaw -= dx * 0.006; orbit.tPitch = clamp(orbit.tPitch + dy * 0.004, -0.05, 0.9); orbit.idle = 0;
+  }
+});
+const endDrag = () => { drag = null; canvas.style.cursor = 'default'; };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (inScope(e.clientX, e.clientY)) {
+    const o = OBJ[oi], step = Math.max(o.u, 0.35) * 0.012;
+    setFocus(focus - e.deltaY * step);
+  } else if (inLeft(e.clientX, e.clientY)) {
+    const v = SPECIES[si].view; orbit.tDist = clamp(orbit.tDist * Math.exp(e.deltaY * 0.001), v.dist * 0.5, v.dist * 1.5);
+  }
+}, { passive: false });
+function setFocus(f) { focus = clamp(f, -4, 26); focusEl.value = focus; updateReadout(); }
+focusEl.addEventListener('input', () => { focus = parseFloat(focusEl.value); updateReadout(); });
+addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') setSpecies((si + 1) % SPECIES.length);
+  else if (e.key === 'ArrowLeft') setSpecies((si + SPECIES.length - 1) % SPECIES.length);
+  else if (e.key >= '1' && e.key <= '5') setMag(+e.key - 1);
+  else if (e.key === 'ArrowUp') setFocus(focus + Math.max(OBJ[oi].u, 0.3) * 0.5);
+  else if (e.key === 'ArrowDown') setFocus(focus - Math.max(OBJ[oi].u, 0.3) * 0.5);
+  else if (e.key === 'r' || e.key === 'R') retOn = !retOn;
+});
+
+// ============================================================================ render
+function renderScope(time) {
+  const sl = slide; if (!sl) return;
+  const o = OBJ[oi], S = RTS;
+  if (o.mag > 100 && sl.last && Math.hypot(sl.last.cx - stage.x, sl.last.cy - stage.y) > o.fov * 0.12) selectInstances(sl, oi, stage.x, stage.y);
+  mcam.left = stage.x - o.fov / 2; mcam.right = stage.x + o.fov / 2; mcam.top = stage.y + o.fov / 2; mcam.bottom = stage.y - o.fov / 2;
+  mcam.position.set(0, 0, 200); mcam.updateProjectionMatrix();
+  // focus hunting after an objective change: a damped wobble around the set focus
+  const ht = time - hunt.t0, hv = ht < 2 ? hunt.amp * Math.exp(-ht * 3.2) * Math.cos(ht * 7.5) : 0;
+  const f = focus + hv; SU.uFocus.value = f; SU.uTime.value = time;
+  renderer.setScissorTest(false);
+  renderer.setClearColor(0xffffff, 1);
+  const ppu = S / o.fov;
+  for (let i = 0; i < 10; i++) compU['t' + i].value = WHITE;
+  if (o.mag <= 100) {
+    SU.uZmin.value = -1e9; SU.uZmax.value = 1e9;
+    const sig = 0.5 * Math.abs(f - sl.focus0) * o.k * ppu;
+    if (sig > 0.4) {
+      renderer.setRenderTarget(rtA); renderer.clear(); renderer.render(sl.scene, mcam);
+      blur(rtA, rtB, 1 / S, 0, sig); blur(rtB, rtC, 0, 1 / S, sig);
+    } else { renderer.setRenderTarget(rtC); renderer.clear(); renderer.render(sl.scene, mcam); }
+  } else {
+    const u = o.u;
+    SU.uZmin.value = f - 0.5 * u; SU.uZmax.value = f + 0.5 * u;
+    renderer.setRenderTarget(rtC); renderer.clear(); renderer.render(sl.scene, mcam);
+    let j = 0;
+    for (const side of [-1, 1]) for (let k = 0; k < 5; k++) {
+      const lo = EDGES[k] * u, hi = EDGES[k + 1] * u;
+      const zmin = side > 0 ? f + lo : f - hi, zmax = side > 0 ? f + hi : f - lo;
+      if (zmax < -2 || zmin > MOUNT + 3) { j++; continue; }
+      SU.uZmin.value = zmin; SU.uZmax.value = zmax;
+      renderer.setRenderTarget(rtA); renderer.clear(); renderer.render(sl.scene, mcam);
+      const sig = (0.5 * REP[k] * u * o.k + 0.1) * ppu;
+      blur(rtA, halfTmp, 1 / S, 0, sig); blur(halfTmp, half[j], 0, 2 / S, sig * 0.5);
+      compU['t' + j].value = half[j].texture; j++;
+    }
+  }
+  compU.tC.value = rtC.texture;
+  compU.uDpx.value = C.D * DPR;
+  compU.uRetLen.value = 100 * o.div / o.fov * C.D * DPR;
+  compU.uRetDiv.value = o.div / o.fov * C.D * DPR;
+  compU.uRetOn.value = retOn ? 1 : 0;
+  compU.uDark.value = dark;
+  quad.material = compMat;
+  renderer.setRenderTarget(null);
+  renderer.setViewport(C.x, H - C.y - C.D, C.D, C.D);
+  renderer.setScissor(C.x, H - C.y - C.D, C.D, C.D); renderer.setScissorTest(true);
+  renderer.render(postScene, postCam);
+}
+function renderMush(dt) {
+  if (!current) return;
+  orbit.idle += dt;
+  if (!drag && orbit.idle > 2.5) orbit.tYaw += dt * 0.08;
+  const k = 1 - Math.exp(-dt * 6);
+  orbit.yaw = lerp(orbit.yaw, orbit.tYaw, k); orbit.pitch = lerp(orbit.pitch, orbit.tPitch, k); orbit.dist = lerp(orbit.dist, orbit.tDist, k);
+  const t = orbit.target;
+  mcamL.position.set(t.x + Math.sin(orbit.yaw) * Math.cos(orbit.pitch) * orbit.dist, t.y + Math.sin(orbit.pitch) * orbit.dist, t.z + Math.cos(orbit.yaw) * Math.cos(orbit.pitch) * orbit.dist);
+  mcamL.lookAt(t);
+  renderer.setRenderTarget(null);
+  renderer.setViewport(L.x, H - L.y - L.h, L.w, L.h);
+  renderer.setScissor(L.x, H - L.y - L.h, L.w, L.h); renderer.setScissorTest(true);
+  renderer.render(mushScene, mcamL);
+}
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  const time = now / 1000;
+  // objective / slide changes go dark while the turret turns
+  if (pendingSwap && dark < 0.02) { const s = pendingSwap; pendingSwap = null; s(); darkTarget = 1; }
+  dark += (darkTarget - dark) * (1 - Math.exp(-dt * (darkTarget > dark ? 5 : 16)));
+  if (pendingSwap && dark < 0.05) dark = 0;
+  renderer.setScissorTest(false); renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 1); renderer.clear();
+  renderScope(time);
+  renderMush(dt);
+  requestAnimationFrame(frame);
+}
+
+// ============================================================================ capture film
+// Deterministic: the recorder calls __frame(i) once per 1/30 s. Each species: the mushroom turning, a push in
+// and fade, then the eyepiece stepping through the objectives (dark turret turn + focus hunt at each change).
+const FILM = (Q.get('film') || '0,2,3').split(',').map(Number);
+const FILM_OFF = { 0: [30, 140], 2: [-150, 150] };   // per-species stage offset (µm) to centre a clean patch of spores
+const MUSH_T = 3.8, HOLDS = [1.2, 1.3, 1.6, 1.8, 2.0], SEG = MUSH_T + HOLDS.reduce((a, b) => a + b, 0);
+const capEl = { c1: document.querySelector('#cap .c1'), c2: document.querySelector('#cap .c2'), cap: $('cap'), mb: document.querySelector('#magl b'), ms: document.querySelector('#magl small'), mag: $('magl') };
+let filmSp = -1, filmOi = -1;
+function filmFrame(i) {
+  const T = i / 30, n = Math.floor(T / SEG), done = n >= FILM.length;
+  const seg = Math.min(n, FILM.length - 1), t = T - seg * SEG;
+  if (FILM[seg] !== filmSp) { filmSp = FILM[seg]; filmOi = -1; setSpecies(filmSp, true); }
+  const sp = SPECIES[filmSp];
+  renderer.setScissorTest(false); renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 1); renderer.clear();
+  if (t < MUSH_T) {
+    // mushroom: slow turn, gentle push, then a quick dive toward the gills and a fade to black
+    const v = sp.view, dive = sstep(MUSH_T - 0.85, MUSH_T, t);
+    orbit.target.set(...v.target);
+    orbit.yaw = orbit.tYaw = 0.35 + t * 0.16;
+    orbit.pitch = orbit.tPitch = v.pitch - dive * 0.08;
+    orbit.dist = orbit.tDist = v.dist * (0.8 - t * 0.03) * (1 - 0.42 * dive);
+    renderMush(0);
+    lfade.style.opacity = Math.max(seg > 0 ? 1 - sstep(0, 0.45, t) : 0, sstep(MUSH_T - 0.45, MUSH_T, t));
+    capEl.c1.textContent = sp.common; capEl.c2.textContent = sp.latin;
+    capEl.cap.style.opacity = Math.min(sstep(0.1, 0.5, t), 1 - sstep(MUSH_T - 0.4, MUSH_T, t)) + (seg === 0 && t < 0.5 ? 1 : 0);
+    capEl.mag.style.opacity = 0;
+  } else {
+    // eyepiece: objectives in turn, slide drifting slowly under the lens
+    lfade.style.opacity = 0;
+    let u = t - MUSH_T, k = 0;
+    while (k < HOLDS.length - 1 && u >= HOLDS[k]) { u -= HOLDS[k]; k++; }
+    if (k !== filmOi) {
+      filmOi = k; oi = k; selectInstances(slide, oi, stage.x, stage.y);
+      hunt = { t0: T, amp: OBJ[oi].u * 2.4 * (k % 2 ? -1 : 1) };
+    }
+    const o = OBJ[oi], hold = HOLDS[k], ang = 0.9 + filmSp * 1.7;
+    const drift = o.fov * 0.05 * (u - hold / 2);
+    const off = (window.__off || FILM_OFF)[filmSp] || [0, 0];
+    stage.x = slide.start[0] + off[0] + Math.cos(ang) * drift; stage.y = slide.start[1] + off[1] + Math.sin(ang) * drift;
+    const last = k === HOLDS.length - 1;
+    const dIn = k === 0 ? sstep(0, 0.4, u) : sstep(0, 0.16, u), dOut = last ? 1 - sstep(hold - 0.45, hold, u) : 1 - sstep(hold - 0.12, hold, u);
+    dark = Math.min(dIn, dOut);
+    renderScope(T);
+    capEl.c1.textContent = 'spores of ' + sp.common.split(' · ')[0].toLowerCase(); capEl.c2.textContent = sp.latin;
+    const capA = Math.min(sstep(0, 0.4, t - MUSH_T), last ? 1 - sstep(hold - 0.4, hold, u) : 1);
+    capEl.cap.style.opacity = capA; capEl.mag.style.opacity = capA;
+    capEl.mb.textContent = o.mag + '×';
+    capEl.ms.textContent = 'field ⌀ ' + (o.fov >= 1000 ? (o.fov / 1000).toFixed(1) + ' mm' : o.fov + ' µm');
+  }
+  return { t: T, done: done || T >= SEG * FILM.length - 1 / 60 };
+}
+
+// ============================================================================ boot
+layout();
+if (CAPTURE) {
+  setTimeout(() => {
+    FILM.forEach(i => { getMush(i); buildSlide(i); });
+    retOn = true;
+    window.__frame = filmFrame; window.__frames = Math.round(SEG * FILM.length * 30);
+    window.__ready = true;
+  }, 30);
+} else setTimeout(() => {
+  setSpecies(si, true); setMag(oi, true);
+  dark = 0; darkTarget = 1;
+  $('loading').classList.add('done');
+  requestAnimationFrame(frame);
+  // warm the other species in the background so switching is quick
+  let k = 1;
+  const warm = () => { if (k >= SPECIES.length) return; const i = (si + k++) % SPECIES.length; getMush(i); buildSlide(i); setTimeout(warm, 200); };
+  setTimeout(warm, 1500);
+}, 30);
+</script>
+</body>
+</html>
