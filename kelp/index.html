@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Vibecodevember - Day 16 - Kelp</title>
+<title>Vibecodevember - Day 17 - Kelp</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -12,8 +12,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #020807; color: var(--ink); }
   body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
-  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
-  canvas.drag { cursor: grabbing; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: zoom-in; }
   .scrim { position: fixed; left: 0; right: 0; bottom: 0; height: 150px; pointer-events: none; background: linear-gradient(to top, rgba(0,6,5,.42), transparent); }
   .bar { position: fixed; left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 3vw, 36px); pointer-events: none; text-shadow: 0 0 10px rgba(0,0,0,.55); }
   .brand { white-space: nowrap; font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; color: var(--ink); opacity: .85; }
@@ -53,10 +52,10 @@
 <body>
 <canvas id="c"></canvas>
 <div class="scrim"></div>
-<header class="bar"><span class="brand">Vibecodevember · Day 16</span><span class="name">Kelp</span></header>
+<header class="bar"><span class="brand">Vibecodevember · Day 17</span><span class="name">Kelp</span></header>
 <div id="hud">
   <div id="depth"><span class="lbl">Depth</span><span id="depthv">24.0 m</span></div>
-  <div id="hint"><b>drag</b> to look around · <b>tap</b> to exhale</div>
+  <div id="hint"><b>scroll</b> or <b>pinch</b> to zoom · <b>tap</b> to exhale</div>
 </div>
 <button id="snd">sound off</button>
 <div id="loading">descending…</div>
@@ -79,6 +78,7 @@ const COARSE = matchMedia('(pointer: coarse)').matches;
 const FLOOR = -44;
 const START_HIP = Q.has('depth') ? -(+Q.get('depth')) - 0.73 : -40.5;
 const VFOV = 50;
+const RISE = Q.has('rise') ? +Q.get('rise') : 1;
 const CUR = new THREE.Vector3(1, 0, 0.35).normalize();          // slow along-shore current
 const SURGE = new THREE.Vector3(0.8, 0, -0.6).normalize();       // back-and-forth swell surge
 const SPERP = new THREE.Vector3(-SURGE.z, 0, SURGE.x);
@@ -124,7 +124,7 @@ const v3 = (v) => `vec3(${v.x.toFixed(5)}, ${v.y.toFixed(5)}, ${v.z.toFixed(5)})
 
 // ============================================================================ light textures
 // Caustic network, rendered each frame into a tileable texture (R: surface net, G/B: broad focusing for the shafts)
-const causRT = new THREE.WebGLRenderTarget(512, 512, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, depthBuffer: false });
+const causRT = new THREE.WebGLRenderTarget(512, 512, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, depthBuffer: false });
 // Floating canopy coverage, baked once: 160 m square around the ascent line
 const CAN_N = 512, CAN_SPAN = 160;
 const canopyTex = (() => {
@@ -529,12 +529,14 @@ function boulder(x, z, s) {
     for (let s = 0; s < nst; s++) {
       const reaches = rng() < reachP;
       const hEnd = reaches ? H : H * (0.22 + 0.72 * Math.pow(rng(), 0.7));
-      const a0 = rng() * 6.28, rmax = 0.12 + rng() * 0.3, phw = rng() * 10;
+      const a0 = rng() * 6.28, rmax = 0.22 + rng() * 0.7, phw = rng() * 10;
+      const sLean = new THREE.Vector3(rng() - 0.5, 0, rng() - 0.5).multiplyScalar(2.2);
       const pts = [], hs = [];
       const at = (h) => {
         const f = h / H, ax = pl.x + lean.x * f * f, az = pl.z + lean.z * f * f;
-        const r = 0.04 + rmax * Math.pow(f, 0.8), a = a0 + twist * h;
-        return new THREE.Vector3(ax + Math.cos(a) * r + Math.sin(h * 0.5 + phw) * 0.08, yb + 0.3 + h, az + Math.sin(a) * r + Math.cos(h * 0.4 + phw) * 0.08);
+        const r = 0.04 + rmax * Math.pow(f, 0.7), a = a0 + twist * h;
+        return new THREE.Vector3(ax + Math.cos(a) * r + sLean.x * f * f + Math.sin(h * 0.37 + phw) * 0.18, yb + 0.3 + h,
+                                 az + Math.sin(a) * r + sLean.z * f * f + Math.cos(h * 0.29 + phw) * 0.18);
       };
       for (let h = 0; h <= hEnd + 1e-6; h += 0.4) { pts.push(at(h)); hs.push(h); }
       if (pts.length < 2) continue;
@@ -554,7 +556,7 @@ function boulder(x, z, s) {
       // blades: alternate sides in a slowly turning plane, younger & crowded toward the growing tip
       // blades: on alternating sides that wander around the stipe, set at a shallow angle so they stream
       // up and down-current along the frond and overlap like shingles (the "feather boa" of a real frond)
-      const sp = pl.near ? 0.2 : 0.62;
+      const sp = pl.near ? 0.26 : 0.66;
       let ang = rng() * 6.28;
       for (let h = 0.6 + rng() * 0.5; h < hEnd - 0.08; h += sp * (0.7 + rng() * 0.6)) {
         const i = Math.min(Math.floor(h / 0.4), nV - 2), f = h / 0.4 - i;
@@ -564,10 +566,10 @@ function boulder(x, z, s) {
         const out = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
         out.addScaledVector(axis, -out.dot(axis)).normalize();
         const tipD = hEnd - h, young = smooth(1.4, 0.05, tipD) * (reaches ? 0.25 : 1);
-        const e = (0.28 + rng() * 0.38) * (1 - 0.4 * young);           // emergence angle from the stipe
+        const e = (0.35 + rng() * 0.8) * (1 - 0.4 * young);            // emergence angle from the stipe: some lie close, some splay
         const dir = axis.clone().multiplyScalar(Math.cos(e)).addScaledVector(out, Math.sin(e)).normalize();
-        const L = (0.6 + rng() * 0.45 + 0.15 * smooth(2, 15, h)) * (1 - 0.7 * young) * (pl.near ? 1 : 1.3);
-        const W = (0.085 + rng() * 0.07) * (1 - 0.45 * young) * (pl.near ? 1 : 1.45);
+        const L = (0.55 + rng() * 0.5 + 0.15 * smooth(2, 15, h)) * (1 - 0.7 * young) * (pl.near ? 1 : 1.3);
+        const W = (0.07 + rng() * 0.06) * (1 - 0.45 * young) * (pl.near ? 1 : 1.45);
         pushBlade(T, P, dir, out, L, W, wOf(h), ps, 1 - young);
       }
       // apical scimitar blade on fronds still growing
@@ -613,12 +615,14 @@ void main(){
   vec3 V = normalize(cameraPosition - vP);
   float part = vInfo.z, age = vInfo.y, tone = vInfo.x;
   // rugose blade: transverse corrugations + a faint midrib-free wrinkle field
-  float cor = sin(vUv.y * 95.0 + vUv.x * 2.2 + sin(vUv.x * 6.0 + vUv.y * 23.0) * 1.4) * (1.0 - part);
-  N = normalize(N + normalize(vT) * cor * 0.28);
+  float cor = sin(vUv.y * 70.0 + vUv.x * 1.6 + sin(vUv.x * 5.0 + vUv.y * 17.0) * 1.6) * (1.0 - part);
+  N = normalize(N + normalize(vT) * cor * 0.2);
+  float stri = 0.5 + 0.5 * sin(vUv.x * 40.0 + sin(vUv.y * 9.0) * 1.5);                       // fine lengthwise striations
   vec3 dark = vec3(0.15, 0.085, 0.02), gold = vec3(0.46, 0.28, 0.055), pale = vec3(0.52, 0.36, 0.09);
   vec3 alb = mix(dark, gold, smoothstep(0.0, 0.3, vUv.y));
   alb = mix(alb, pale, smoothstep(0.6, 1.0, vUv.y) * 0.6 + abs(vUv.x) * 0.15);
-  alb *= 0.8 + 0.4 * tone;
+  alb *= (0.8 + 0.4 * tone) * (0.92 + 0.12 * stri * (1.0 - part));
+  alb = mix(alb, vec3(0.55, 0.45, 0.2), smoothstep(0.88, 1.0, vUv.y) * 0.5 * (1.0 - part));   // worn, paler tips
   alb = mix(alb, vec3(0.38, 0.30, 0.09), (1.0 - age) * 0.5);                      // young blades: lighter, greener
   alb = mix(alb, vec3(0.30, 0.22, 0.07), part);                                   // gas bladder / stipe
   float sh = shadowAt(vP, 1.0);
@@ -659,12 +663,12 @@ function bladeTemplate(NX, NY, bulb) {
   const pos = [], uv = [], part = [], idx = [];
   for (let j = 0; j < NY; j++) {
     const v = j / (NY - 1);
-    const hw = 0.5 * Math.pow(Math.sin(Math.PI * Math.pow(v, 0.55)), 1.1) * (0.2 + 0.8 * smooth(0, 0.12, v)) + 0.015 * (1 - v);
+    const hw = 0.5 * Math.pow(Math.sin(Math.PI * Math.pow(v, 0.5)), 1.2) * (0.15 + 0.85 * smooth(0, 0.14, v)) + 0.012 * (1 - v);
     for (let i = 0; i < NX; i++) {
       const u = i / (NX - 1) * 2 - 1;
-      // ruffled, wavy margins (the blade is longer at its edges than along the middle) and a gentle cup
-      const ruf = 0.32 * u * u * Math.sin(v * 44 + u * 0.9) * smooth(0.06, 0.25, v) + 0.06 * Math.sin(v * 9.0) * u;
-      pos.push(u * hw, v, ruf - 0.18 * u * u); uv.push(u, v); part.push(0);
+      // margins gently rippled (a touch longer than the midline), a slow twist and a shallow cup
+      const ruf = 0.13 * u * u * Math.sin(v * 31 + u * 0.7) * smooth(0.08, 0.3, v) + 0.1 * Math.sin(v * 4.3 + 0.5) * u;
+      pos.push(u * hw, v, ruf - 0.1 * u * u); uv.push(u, v); part.push(0);
     }
   }
   for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
@@ -692,11 +696,11 @@ varying vec3 vP; varying vec3 vN; varying vec3 vT; varying vec2 vUv; varying vec
 void main(){
   float seed = aMisc.x, w = aMisc.y, ps = aMisc.z;
   vec3 B = aBase + swayDisp(aBase, w, ps);
-  vec3 fl = flowDir(aBase, ps);
+  vec3 fl = flowDir(aBase, ps) + vec3(0.0, (fract(seed * 5.13) - 0.62) * 0.55, 0.0);
   float L = aSize.x, W = aSize.y;
   vec3 p, n, T;
   // blade streams from its emergence direction toward the local water flow, bending more toward the tip
-  float bk = 1.9 + 1.6 * fract(seed * 3.17);
+  float bk = 0.9 + 2.2 * fract(seed * 3.17);
   if (aPart < 0.5) {
     float v = uv.y, s = v * L;
     vec3 dmid = normalize(aDir + fl * bk * s * 0.5);
@@ -714,7 +718,7 @@ void main(){
   } else {
     T = aDir;
     vec3 side = normalize(cross(aDir, aHint)); vec3 nrm = cross(side, aDir);
-    p = B + aDir * (0.018 + position.y * 0.022) + (side * position.x + nrm * position.z) * 0.012;
+    p = B + aDir * (0.02 + position.y * 0.026) + (side * position.x + nrm * position.z) * 0.0145;
     n = normalize(side * normal.x + aDir * normal.y + nrm * normal.z);
   }
   vP = p; vN = n; vT = T; vUv = uv; vInfo = vec3(fract(seed * 0.731), aMisc.w, aPart);
@@ -725,7 +729,7 @@ const bladeMeshes = [];
 const bladeMats = [0, 1].map(() => new THREE.ShaderMaterial({ uniforms: { ...U }, vertexShader: bladeVS, fragmentShader: kelpFS, side: THREE.DoubleSide }));
 tiers.forEach((T, k) => {
   const b = T.blades, n = b.misc.length / 4;
-  const tmpl = k === 0 ? bladeTemplate(5, 15, true) : bladeTemplate(3, 9, false);
+  const tmpl = k === 0 ? bladeTemplate(5, 17, true) : bladeTemplate(3, 9, false);
   const bands = new Map();
   for (let i = 0; i < n; i++) { const key = Math.floor((b.base[i * 3 + 1] - FLOOR) / BAND); if (!bands.has(key)) bands.set(key, []); bands.get(key).push(i); }
   for (const ids of bands.values()) {
@@ -753,37 +757,57 @@ tiers.forEach((T, k) => {
 // One continuous body: an anatomical signed-distance field (ellipsoids + round cones, smoothly blended)
 // meshed with surface nets in the rest pose, then skinned to a skeleton. Local frame: +y up, +z chest, +x diver's left.
 const MARG = 0.06;
-const PR = [[], [], [], [], []];                                   // 0 torso, 1 leg L, 2 leg R, 3 arm L, 4 arm R
-function E(g, c, r) { PR[g].push({ t: 0, c, r, lo: [c[0] - r[0] - MARG, c[1] - r[1] - MARG, c[2] - r[2] - MARG], hi: [c[0] + r[0] + MARG, c[1] + r[1] + MARG, c[2] + r[2] + MARG] }); }
-function C(g, a, b, r1, r2) {
+const PR = [[], [], [], [], [], [], []];                           // 0 torso, 1 leg L, 2 leg R, 3 arm L, 4 arm R, 5 hand L, 6 hand R
+// o: { k: blend radius (default per group), sub: carve instead of add }
+function E(g, c, r, o) { PR[g].push({ t: 0, c, r, lo: [c[0] - r[0] - MARG, c[1] - r[1] - MARG, c[2] - r[2] - MARG], hi: [c[0] + r[0] + MARG, c[1] + r[1] + MARG, c[2] + r[2] + MARG], ...o }); }
+function C(g, a, b, r1, r2, o) {
   const ba = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ba[0] * ba[0] + ba[1] * ba[1] + ba[2] * ba[2], rr = r1 - r2, m = Math.max(r1, r2) + MARG;
   PR[g].push({ t: 1, a, ba, l2, rr, a2: l2 - rr * rr, il2: 1 / l2, r1, r2,
-    lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m], hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m] });
+    lo: [Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.min(a[2], b[2]) - m], hi: [Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m, Math.max(a[2], b[2]) + m], ...o });
+}
+function B(g, c, b, r, o) {
+  const m = r + MARG;
+  PR[g].push({ t: 2, c, b, r, lo: [c[0] - b[0] - m, c[1] - b[1] - m, c[2] - b[2] - m], hi: [c[0] + b[0] + m, c[1] + b[1] + m, c[2] + b[2] + m], ...o });
 }
 const LR = (f) => { f(1, 1, 3); f(-1, 2, 4); };                    // (side sign, leg group, arm group)
 // torso
-E(0, [0, -0.015, -0.005], [0.158, 0.105, 0.1]);                    // pelvis
-LR((s) => E(0, [s * 0.068, -0.06, -0.05], [0.082, 0.095, 0.072])); // glutes
-E(0, [0, 0.14, 0.012], [0.136, 0.13, 0.09]);                       // abdomen
-E(0, [0, 0.21, 0.0], [0.132, 0.09, 0.086]);                        // waist
-E(0, [0, 0.30, 0.012], [0.15, 0.12, 0.102]);                       // lower ribs
-E(0, [0, 0.395, 0.008], [0.166, 0.11, 0.106]);                     // chest
-LR((s) => E(0, [s * 0.068, 0.41, 0.056], [0.078, 0.058, 0.045]));  // pectorals
-E(0, [0, 0.37, -0.034], [0.172, 0.12, 0.074]);                     // lats
-E(0, [0, 0.45, -0.04], [0.15, 0.08, 0.068]);                       // upper back
+// lean male swimmer, arms overhead: barrel ribcage, flat broad pecs, lats fanning from the armpits to the waist (V-taper),
+// flat abdomen, narrow hips
+E(0, [0, -0.02, -0.012], [0.138, 0.1, 0.09]);                                         // pelvis
+LR((s) => E(0, [s * 0.062, -0.065, -0.042], [0.07, 0.085, 0.062]));                   // glutes
+E(0, [0, 0.06, 0.004], [0.132, 0.085, 0.08]);                                         // lower abdomen (flat)
+E(0, [0, 0.17, 0.002], [0.13, 0.12, 0.084]);                                          // waist: straight-sided, not pinched
+LR((s) => E(0, [s * 0.106, 0.23, 0.012], [0.04, 0.09, 0.058], { k: 0.03 }));          // obliques / serratus
+E(0, [0, 0.36, -0.004], [0.158, 0.145, 0.096]);                                       // ribcage, broad
+E(0, [0, 0.455, -0.008], [0.165, 0.08, 0.092]);                                       // upper chest
+LR((s) => E(0, [s * 0.07, 0.45, 0.058], [0.07, 0.04, 0.028], { k: 0.03 }));          // pectoral mass, flattened by the raised arms
+LR((s) => C(0, [s * 0.012, 0.418, 0.07], [s * 0.118, 0.475, 0.048], 0.018, 0.016, { k: 0.02 }));   // its lower border: a straight line rising to the armpit
+LR((s) => C(0, [s * 0.14, 0.49, -0.03], [s * 0.1, 0.19, -0.025], 0.052, 0.03, { k: 0.035 }));     // latissimus: the V
+LR((s) => E(0, [s * 0.074, 0.45, -0.056], [0.058, 0.07, 0.044], { k: 0.03 }));        // shoulder blades
+LR((s) => C(0, [s * 0.026, 0.1, -0.068], [s * 0.026, 0.4, -0.076], 0.022, 0.018, { k: 0.02 }));   // spinal erectors
 LR((s) => C(0, [0, 0.53, -0.022], [s * 0.15, 0.495, -0.02], 0.055, 0.042));   // trapezius
 LR((s) => C(0, [s * 0.172, 0.48, -0.012], [s * 0.152, 0.585, -0.024], 0.05, 0.042));   // deltoids, raised
 C(0, [0, 0.49, -0.012], [0, 0.665, -0.004], 0.062, 0.054);         // neck (hooded)
 E(0, [0, 0.748, -0.006], [0.083, 0.109, 0.1]);                     // cranium in hood
-E(0, [0, 0.675, 0.03], [0.064, 0.052, 0.066]);                     // jaw
-E(0, [0, 0.646, 0.07], [0.031, 0.026, 0.028]);                     // chin
-LR((s) => E(0, [s * 0.046, 0.706, 0.058], [0.03, 0.026, 0.03]));   // cheekbones
-E(0, [0, 0.664, 0.088], [0.025, 0.011, 0.014]);                    // lips
+// face inside the hood opening: the mask hides the eyes and nose, so the jaw, cheeks, mouth and chin carry it
+E(0, [0, 0.672, 0.022], [0.06, 0.055, 0.068]);                                         // mandible
+E(0, [0, 0.69, 0.058], [0.036, 0.026, 0.034], { k: 0.012 });                           // maxilla
+LR((s) => E(0, [s * 0.04, 0.693, 0.056], [0.03, 0.032, 0.032], { k: 0.014 }));        // cheeks
+LR((s) => E(0, [s * 0.046, 0.716, 0.054], [0.028, 0.022, 0.03], { k: 0.012 }));       // cheekbones
+C(0, [-0.017, 0.6685, 0.0868], [0.017, 0.6685, 0.0868], 0.0054, 0.0054, { k: 0.007 }); // upper lip
+E(0, [0, 0.6692, 0.0895], [0.009, 0.0048, 0.0045], { k: 0.005 });                      // its tubercle
+C(0, [-0.014, 0.658, 0.0852], [0.014, 0.658, 0.0852], 0.0062, 0.0062, { k: 0.007 });   // lower lip
+LR((s) => E(0, [s * 0.0225, 0.6635, 0.088], [0.0045, 0.0045, 0.0045], { k: 0.003, sub: true }));   // mouth corners
+B(0, [0, 0.6632, 0.097], [0.019, 0.0006, 0.012], 0.0004, { k: 0.0018, sub: true });               // lips sealed on the breath-hold
+E(0, [0, 0.638, 0.071], [0.022, 0.019, 0.022], { k: 0.01 });                           // chin
+E(0, [0, 0.6495, 0.0915], [0.013, 0.0028, 0.004], { k: 0.003, sub: true });            // fold above the chin
+C(0, [0, 0.738, 0.084], [0, 0.708, 0.097], 0.008, 0.0095, { k: 0.008 });              // nose, inside the mask's pocket
+E(0, [0, 0.702, 0.092], [0.013, 0.007, 0.01], { k: 0.006 });                           // nostril wings
 // legs
 LR((s, g) => {
-  C(g, [s * 0.088, -0.06, 0.0], [s * 0.094, -0.5, 0.012], 0.08, 0.049);       // femur
+  C(g, [s * 0.084, -0.07, 0.0], [s * 0.094, -0.5, 0.012], 0.072, 0.049);      // femur
   E(g, [s * 0.094, -0.27, 0.028], [0.066, 0.17, 0.06]);                       // quadriceps
-  E(g, [s * 0.122, -0.31, 0.004], [0.044, 0.14, 0.05]);                       // vastus lateralis
+  E(g, [s * 0.118, -0.31, 0.004], [0.04, 0.14, 0.048]);                       // vastus lateralis
   E(g, [s * 0.09, -0.24, -0.03], [0.06, 0.16, 0.055]);                        // hamstrings
   E(g, [s * 0.056, -0.16, 0.0], [0.047, 0.1, 0.058]);                         // adductors
   E(g, [s * 0.094, -0.49, 0.03], [0.03, 0.036, 0.02]);                        // patella
@@ -802,12 +826,37 @@ LR((s, _g, g) => {
   E(g, [s * 0.146, 0.665, -0.032], [0.032, 0.095, 0.03]);                   // triceps
   C(g, [s * 0.114, 0.82, -0.012], [s * 0.05, 1.07, 0.0], 0.035, 0.024);
   E(g, [s * 0.097, 0.9, -0.008], [0.037, 0.075, 0.034]);                     // forearm
-  const hz = s > 0 ? 0.024 : 0.0;
-  E(g, [s * 0.006, 1.155, hz], [0.042, 0.078, 0.014]);                       // flat gloved hand, fingers up, stacked
-  C(g, [s * 0.036, 1.1, hz + 0.004], [s * 0.04, 1.15, hz + 0.006], 0.01, 0.0085);   // thumb tucked along the side
 });
+// gloved hands in the streamline grip: the right hand flat (palm facing where the chest faces), the left stacked on
+// its back, fingers together and extended, each thumb hooked round the edge. Meshed separately at fine resolution.
+function hand(g, s, cx, cz, ts, tz) {
+  const wr = [s * 0.05, 1.07, 0], dw = [-s * 0.25, 0.97, 0];
+  C(g, [wr[0] - dw[0] * 0.04, wr[1] - dw[1] * 0.04, 0], [cx * 0.6 + wr[0] * 0.4, 1.094, cz * 0.6], 0.03, 0.028, { k: 0.01 });   // glove cuff over the sleeve
+  B(g, [cx, 1.122, cz], [0.034, 0.038, 0.0075], 0.0095, { k: 0.012 });                     // palm
+  E(g, [cx + ts * 0.022, 1.103, cz + 0.007], [0.017, 0.025, 0.011], { k: 0.01 });          // thenar pad
+  E(g, [cx, 1.162, cz + 0.001], [0.04, 0.009, 0.011], { k: 0.008 });                        // knuckle line
+  const F = [[0.0285, 1.166, [0.042, 0.025, 0.02], 0.0098], [0.0095, 1.169, [0.046, 0.028, 0.022], 0.0102],
+             [-0.0095, 1.166, [0.044, 0.027, 0.021], 0.0097], [-0.0285, 1.158, [0.035, 0.021, 0.019], 0.0088]];
+  for (const [ox, y0, segs, r0] of F) {
+    let p = [cx + ts * ox, y0, cz], ang = 0, r = r0;
+    for (const L of segs) {
+      ang += 0.07;                                                      // a relaxed curl toward the palm
+      const q = [p[0] - ts * ox * 0.07, p[1] + Math.cos(ang) * L, p[2] + Math.sin(ang) * L];
+      C(g, p, q, r, r * 0.93, { k: 0.0026 }); p = q; r *= 0.93;
+    }
+  }
+  const t0 = [cx + ts * 0.026, 1.09, cz + 0.006], t1 = [cx + ts * 0.039, 1.118, cz + 0.013 + tz * 0.5];
+  const t2 = [cx + ts * 0.042, 1.143, cz + 0.017 + tz], t3 = [cx + ts * 0.04, 1.164, cz + 0.019 + tz];
+  C(g, t0, t1, 0.0125, 0.011, { k: 0.008 }); C(g, t1, t2, 0.011, 0.0102, { k: 0.003 }); C(g, t2, t3, 0.0102, 0.009, { k: 0.003 });
+}
+hand(6, -1, -0.005, 0.0115, 1, 0.0);          // right hand, underneath
+hand(5, 1, 0.005, -0.0115, -1, 0.012);        // left hand stacked on its back, thumb hooking round
 const sminK = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
 function primD(p, x, y, z) {
+  if (p.t === 2) {
+    const qx = Math.abs(x - p.c[0]) - p.b[0], qy = Math.abs(y - p.c[1]) - p.b[1], qz = Math.abs(z - p.c[2]) - p.b[2];
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - p.r;
+  }
   if (p.t === 0) {
     const X = (x - p.c[0]) / p.r[0], Y = (y - p.c[1]) / p.r[1], Z = (z - p.c[2]) / p.r[2];
     const k0 = Math.sqrt(X * X + Y * Y + Z * Z), X1 = X / p.r[0], Y1 = Y / p.r[1], Z1 = Z / p.r[2];
@@ -822,20 +871,25 @@ function primD(p, x, y, z) {
   if (Math.sign(yy) * p.a2 * y2 < k) return Math.sqrt(x2 + y2) * p.il2 - p.r1;
   return (Math.sqrt(x2 * p.a2 * p.il2) + yy * p.rr) * p.il2 - p.r1;
 }
-const GK = [0.042, 0.036, 0.036, 0.05, 0.05];
+const GK = [0.042, 0.036, 0.036, 0.05, 0.05, 0.006, 0.006];
 function groupD(g, x, y, z) {
   let d = 1;
   for (const p of PR[g]) {
     if (x < p.lo[0] || x > p.hi[0] || y < p.lo[1] || y > p.hi[1] || z < p.lo[2] || z > p.hi[2]) continue;
-    d = sminK(d, primD(p, x, y, z), GK[g]);
+    const e = primD(p, x, y, z), k = p.k || GK[g];
+    d = p.sub ? -sminK(-d, e, k) : sminK(d, e, k);
   }
   return d;
 }
 const GD = new Float32Array(5);
 const faceOpen = (x, y, z) => smooth(1.06, 0.96, Math.hypot(x / 0.054, (y - 0.672) / 0.062)) * smooth(0.02, 0.04, z);
+const torsoD = (x, y, z) => groupD(0, x, y, z) - (y > 0.55 ? 0.004 * (1 - faceOpen(x, y, z)) : 0);   // 4 mm hood shell
+const headD = (x, y, z) => Math.max(torsoD(x, y, z) - 0.0012, 0.6 - y);                               // fine head, a hair proud of the body
+const handsD = (x, y, z) => Math.max(Math.min(groupD(5, x, y, z), groupD(6, x, y, z)), 1.03 - y);
 function bodyD(x, y, z) {
   for (let g = 0; g < 5; g++) GD[g] = groupD(g, x, y, z);
   if (y > 0.55) GD[0] -= 0.004 * (1 - faceOpen(x, y, z));
+  GD[0] = Math.max(GD[0], y - 0.705);                                    // the head itself comes from the fine mesh
   const kh = 0.035 * smooth(-0.24, -0.04, y) + 1e-4;
   const ka = 0.045 * smooth(0.42, 0.5, y) * (1 - smooth(0.6, 0.66, y)) + 1e-4;
   let d = sminK(GD[0], GD[1], kh); d = sminK(d, GD[2], kh);
@@ -887,9 +941,9 @@ function surfaceNets(f, lo, hi, h) {
   }
   return { pos, idx };
 }
-const diverGeo = (() => {
-  const H = COARSE ? 0.0085 : 0.0065;
-  const { pos, idx } = surfaceNets(bodyD, [-0.27, -1.18, -0.16], [0.27, 1.3, 0.16], H);
+function meshSDF(F, lo, hi, H) {
+  const { pos, idx } = surfaceNets(F, lo, hi, H);
+  const bodyD = F;
   const nV = pos.length / 3, nor = new Float32Array(nV * 3), e = H * 0.4;
   // project onto the true surface, then take SDF gradient normals
   for (let v = 0; v < nV; v++) {
@@ -916,7 +970,10 @@ const diverGeo = (() => {
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.setIndex(idx);
   return g;
-})();
+}
+const diverGeo = meshSDF(bodyD, [-0.27, -1.18, -0.16], [0.27, 1.1, 0.16], COARSE ? 0.0085 : 0.0065);
+const headGeo = meshSDF(headD, [-0.105, 0.6, -0.12], [0.105, 0.88, 0.125], COARSE ? 0.003 : 0.0021);
+const handGeo = meshSDF(handsD, [-0.09, 1.03, -0.05], [0.09, 1.26, 0.065], COARSE ? 0.0022 : 0.0015);
 // skeleton (joint positions in the rest pose)
 const J = {
   pelvis: [0, 0, 0], spine: [0, 0.07, 0], chest: [0, 0.3, 0], neck: [0, 0.53, -0.01], head: [0, 0.645, 0], top: [0, 0.86, 0],
@@ -955,12 +1012,13 @@ for (const [name, par, j] of BONES) {
     chains.push([['chest', [s * 0.06, 0.5, -0.012], J['sh' + k], 0.07], ['upper' + k, J['sh' + k], J['el' + k], 0.04], ['fore' + k, J['el' + k], J['wr' + k], 0.03], ['hand' + k, J['wr' + k], J['tip' + k], 0]]);
   });
   // chain order: 0 torso, 1 leg L, 2 leg R, 3 arm L, 4 arm R  (same as SDF groups)
-  const P = diverGeo.attributes.position, n = P.count;
+  const bodyChain = (x, y, z) => { let g = 0, best = 1e9; for (let k = 0; k < 5; k++) { const d = groupD(k, x, y, z); if (d < best) { best = d; g = k; } } return g; };
+  const skinGeo = (geo, pick) => {
+  const P = geo.attributes.position, n = P.count;
   const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4), mat = new Float32Array(n);
   for (let v = 0; v < n; v++) {
     const x = P.getX(v), y = P.getY(v), z = P.getZ(v);
-    let g = 0, best = 1e9;
-    for (let k = 0; k < 5; k++) { const d = groupD(k, x, y, z); if (d < best) { best = d; g = k; } }
+    const g = pick(x, y, z);
     const ch = chains[g];
     let bi = 0, bs = 0, bl = 1, bd = 1e9;
     ch.forEach(([, a, b], i) => {
@@ -974,15 +1032,14 @@ for (const [name, par, j] of BONES) {
     else if (bi < ch.length - 1 && bl - bs < ch[bi][3]) { const f = 0.5 * smooth(0, 1, 1 - (bl - bs) / ch[bi][3]); add(bi + 1, f); add(bi, 1 - f); }
     else add(bi, 1);
     let q = 0; for (const [name, f] of w) { if (q < 4) { si[v * 4 + q] = BI[name]; sw[v * 4 + q] = f; q++; } }
-    // material: 0 neoprene, 1 skin (face opening of the hood), 2 rubber foot pocket
-    let m = 0;
-    if (g === 0 && y > 0.62 && y < 0.735 && z > 0.035) { const ex = x / 0.056, ey = (y - 0.68) / 0.058; if (ex * ex + ey * ey < 1) m = 1; }
-    if ((g === 1 || g === 2) && y < -0.905) m = 2;
-    mat[v] = m;
   }
-  diverGeo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
-  diverGeo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
-  diverGeo.setAttribute('aMat', new THREE.BufferAttribute(mat, 1));
+  geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+  geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+  geo.setAttribute('aMat', new THREE.BufferAttribute(mat, 1));        // body materials are resolved per pixel from the rest pose
+  };
+  skinGeo(diverGeo, bodyChain);
+  skinGeo(headGeo, () => 0);
+  skinGeo(handGeo, (x, y, z) => (groupD(5, x, y, z) < groupD(6, x, y, z) ? 3 : 4));
 }
 const suitVS = /* glsl */`
 #include <skinning_pars_vertex>
@@ -1035,20 +1092,24 @@ void main(){
     m = (e < 0.985 && front > 0.5) ? 1.0 : (r.y < -0.906 ? 2.0 : 0.0);
     rimE = (1.0 - smoothstep(0.0, 0.07, abs(e - 1.01))) * front;
     // panel layout: matte nylon-lined side panels on the torso and down the outside of each leg, glossy smooth-skin elsewhere
-    float side = abs(r.x) - (0.112 + 0.012 * sin(r.y * 9.0));
+    float side = abs(r.x) > 0.07 ? 0.42 * abs(r.x) - abs(r.z + 0.006) : -1.0;      // a stripe down each flank, constant angular width
     float torsoPanel = step(-0.02, r.y) * step(r.y, 0.46);
     float lo = legOuter(r) - 0.035;
     float legPanel = step(r.y, -0.12) * step(-0.86, r.y);
     float dSide = mix(1.0, side, torsoPanel), dLeg = mix(1.0, lo, legPanel);
     lined = max(step(0.0, dSide) * torsoPanel, step(0.0, dLeg) * legPanel);
+    float glove = step(1.042, r.y);
+    lined = max(lined, glove);
     float sd = min(abs(dSide), abs(dLeg));
     sd = min(sd, abs(r.y + 0.03 - 0.01 * r.z / 0.1) + step(0.2, abs(r.x)));               // jacket hem
     sd = min(sd, abs(r.y + 0.885) + step(r.y, -0.95));                                       // ankle cuffs
+    sd = min(sd, abs(r.y - 1.044) + step(1.08, r.y));                                        // glove cuff edge
     seam = 1.0 - smoothstep(0.0012, 0.0032, sd);
     // height field: taped seams, orange-peel smooth-skin, twill on lined panels, compression folds at the joints
     h += seam * 0.0006;
-    h += fine * (1.0 - lined) * (vnoise(r.xy * 900.0) + vnoise(r.zy * 900.0 + 7.0)) * 0.00006;
-    h += fine * lined * sin((r.x + r.y + r.z) * 2400.0) * 0.00004;
+    h += fine * (1.0 - lined) * (vnoise(r.xy * 650.0) + vnoise(r.zy * 650.0 + 7.0)) * 0.00013;            // orange peel
+    h += (vnoise(r.xy * 22.0 + r.z * 9.0) + vnoise(r.zy * 18.0 + 3.0)) * 0.0007;                          // the suit is never perfectly taut
+    h += fine * lined * (1.0 - glove) * sin((r.x + r.y + r.z) * 2400.0) * 0.00004;
     float knee = (1.0 - smoothstep(0.0, 0.07, abs(r.y + 0.52))) * step(r.z, -0.005) * step(r.y, -0.2);
     float hip = (1.0 - smoothstep(0.0, 0.05, abs(r.y + 0.07 - abs(r.x) * 0.25))) * step(0.02, r.z) * step(r.y, 0.05);
     h += (knee + hip * 0.5) * sin(r.y * 380.0 + sin(r.x * 90.0) * 2.0) * 0.0005 * smoothstep(0.004, 0.001, foot);
@@ -1059,9 +1120,13 @@ void main(){
   if (m == 0.0) {
     if (uKind < 0.5) {
       // smooth-skin: glossy black rubber with a wet film; lined: soft charcoal knit
-      alb = mix(vec3(0.016, 0.017, 0.02), vec3(0.05, 0.052, 0.058), lined);
-      rough = mix(0.16 + 0.06 * vnoise(r.xy * 40.0), 0.72, lined);
-      envK = mix(0.85, 0.15, lined);
+      float glove = step(1.042, r.y);
+      // heathered knit on the lined panels: individual fibres, faded out with distance
+      float heather = mix(0.5, vnoise(r.xy * 1400.0 + r.z * 300.0) * 0.6 + vnoise(r.zy * 520.0) * 0.4, fine);
+      vec3 knit = vec3(0.042, 0.044, 0.05) * (0.7 + 0.6 * heather);
+      alb = mix(vec3(0.02, 0.021, 0.024), mix(knit, vec3(0.024, 0.025, 0.028), glove), lined);
+      rough = mix(0.3 + 0.12 * vnoise(r.xy * 35.0), mix(0.85, 0.5, glove), lined);
+      envK = mix(0.42, 0.06, lined);
       alb = mix(alb, vec3(0.085, 0.09, 0.095), seam * 0.8); rough = mix(rough, 0.55, seam);
       alb *= 1.0 - rimE * 0.3;
     } else { alb = vec3(0.02, 0.021, 0.024); rough = 0.2; envK = 0.8; }
@@ -1072,8 +1137,8 @@ void main(){
     if (uKind < 0.5) {
       float cheek = smoothstep(0.03, 0.0, length(vec2(abs(r.x) - 0.036, r.y - 0.692)));
       alb = mix(alb, vec3(0.6, 0.3, 0.27), cheek * 0.45);                                 // cold-flushed cheeks
-      float lipU = (1.0 - smoothstep(0.0035, 0.008, abs(r.y - 0.6675))) * (1.0 - smoothstep(0.015, 0.024, abs(r.x)));
-      float lipL = (1.0 - smoothstep(0.004, 0.009, abs(r.y - 0.6585))) * (1.0 - smoothstep(0.014, 0.022, abs(r.x)));
+      float lipU = (1.0 - smoothstep(0.0035, 0.008, abs(r.y - 0.6685))) * (1.0 - smoothstep(0.015, 0.024, abs(r.x)));
+      float lipL = (1.0 - smoothstep(0.004, 0.009, abs(r.y - 0.6575))) * (1.0 - smoothstep(0.014, 0.022, abs(r.x)));
       alb = mix(alb, vec3(0.46, 0.2, 0.19), max(lipU, lipL)); rough = mix(rough, 0.22, max(lipU, lipL));
       alb *= 1.0 - 0.6 * (1.0 - smoothstep(0.0, 0.0014, abs(r.y - 0.6632 + 0.0015 * r.x * r.x / 0.0004))) * (1.0 - smoothstep(0.011, 0.02, abs(r.x)));
       float e = length(vec2(r.x / 0.054, (r.y - 0.672) / 0.062));
@@ -1115,16 +1180,23 @@ void main(){
   float a = max(rough * rough, 0.002);
   col += E * D_GGX(max(dot(N, H), 0.0), a) * ndl * F * 0.25 / max(nv, 0.2);
   col += envCol(reflect(-V, N), vP) * F * (1.0 - rough) * envK;
+  if (uKind < 0.5 && m == 0.0) col += lined * pow(1.0 - nv, 3.0) * (ambE(vP, N) * 0.06 + E * ndl * 0.04);
   gl_FragColor = enc(applyWater(col, vP));
 }`;
 const diver = new THREE.Group();
-const bodyMesh = new THREE.SkinnedMesh(diverGeo, new THREE.ShaderMaterial({ uniforms: { ...U, uKind: { value: 0 } }, vertexShader: suitVS, fragmentShader: suitFS }));
+const bodyMat = new THREE.ShaderMaterial({ uniforms: { ...U, uKind: { value: 0 } }, vertexShader: suitVS, fragmentShader: suitFS });
+const bodyMesh = new THREE.SkinnedMesh(diverGeo, bodyMat);
 bodyMesh.frustumCulled = false;
 bodyMesh.add(bone.pelvis);
 diver.add(bodyMesh);
 bodyMesh.updateMatrixWorld(true);
-bodyMesh.bind(new THREE.Skeleton(bones));
+const skeleton = new THREE.Skeleton(bones);
+bodyMesh.bind(skeleton);
 caster(bodyMesh);
+for (const g of [headGeo, handGeo]) {
+  const m = new THREE.SkinnedMesh(g, bodyMat); m.frustumCulled = false;
+  diver.add(m); m.updateMatrixWorld(true); m.bind(skeleton, bodyMesh.bindMatrix); caster(m);
+}
 const rigidMat = new THREE.ShaderMaterial({ uniforms: { ...U, uKind: { value: 1 } }, vertexShader: rigidVS, fragmentShader: suitFS, side: THREE.DoubleSide });
 const withMat = (g, m) => { g.setAttribute('aMat', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count).fill(m), 1)); if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 2).fill(0), 2)); return g; };
 const rigid = (g, parent) => { const m = new THREE.Mesh(g, rigidMat); m.frustumCulled = false; parent.add(m); caster(m); return m; };
@@ -1162,7 +1234,7 @@ const rigid = (g, parent) => { const m = new THREE.Mesh(g, rigidMat); m.frustumC
   frame.computeVertexNormals();
   const fm = rigid(withMat(frame, 4), bone.head);
   fm.position.set(0, 0.083, 0.09); fm.rotation.x = -0.08;
-  const nose = rigid(withMat(blob(2), 4), bone.head); nose.scale.set(0.015, 0.02, 0.013); nose.position.set(0, 0.056, 0.1); nose.rotation.x = 0.45;
+  const nose = rigid(withMat(blob(2), 4), bone.head); nose.scale.set(0.019, 0.025, 0.017); nose.position.set(0, 0.063, 0.1); nose.rotation.x = 0.4;
   for (const s of [1, -1]) {
     const lg = new THREE.ShapeGeometry(new THREE.Shape(lens(s).getPoints(32)));
     const lp = lg.attributes.position;
@@ -1372,10 +1444,10 @@ const reflCam = new THREE.PerspectiveCamera();
 const _bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 
 const shaftMat = new THREE.ShaderMaterial({
-  uniforms: { ...U, tDepth: { value: null }, uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uSteps: { value: COARSE ? 18 : 24 } },
+  uniforms: { ...U, tDepth: { value: null }, uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uSteps: { value: COARSE ? 22 : 32 }, uFrame: { value: 0 } },
   vertexShader: QV,
   fragmentShader: WATER + LIGHT + /* glsl */`
-  uniform sampler2D tDepth; uniform mat4 uProjInv; uniform mat4 uCamWorld; uniform float uSteps;
+  uniform sampler2D tDepth; uniform mat4 uProjInv; uniform mat4 uCamWorld; uniform float uSteps; uniform float uFrame;
   varying vec2 vUv;
   float shadow1(vec3 P){
     vec3 s = (uShadowMat * vec4(P, 1.0)).xyz;
@@ -1397,7 +1469,7 @@ const shaftMat = new THREE.ShaderMaterial({
     vec3 ro = cameraPosition; vec3 rd = normalize(wp - ro);
     float tEnd = min(length(wp - ro), 40.0);
     if (rd.y > 0.0) tEnd = min(tEnd, -ro.y / rd.y);
-    float j = ign(gl_FragCoord.xy);
+    float j = fract(ign(gl_FragCoord.xy + vec2(5.588238, 3.13) * mod(uFrame, 64.0)) + uFrame * 0.618034);
     vec3 acc = vec3(0.0);
     for (int i = 0; i < 40; i++) {
       if (float(i) >= uSteps) break;
@@ -1428,11 +1500,11 @@ const compMat = new THREE.ShaderMaterial({
     // depth-aware upsample of the half-res shafts: ignore neighbours on the other side of a silhouette
     vec2 p = vUv / uTexel; vec2 c0 = floor(p) + 0.5;
     vec3 s = vec3(0.0); float ws = 0.0;
-    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
       vec2 c = c0 + vec2(float(i), float(j));
       vec4 t = texture2D(tShaft, c * uTexel);
       vec2 d = c - p;
-      float w = exp(-dot(d, d) * 0.9) * exp(-abs(t.a - z) / (0.03 * z + 0.05)) + 1e-6;
+      float w = exp(-dot(d, d) * 0.35) * exp(-abs(t.a - z) / (0.03 * z + 0.05)) + 1e-6;
       s += t.rgb * w; ws += w;
     }
     gl_FragColor = vec4((dec(texture2D(tScene, vUv).rgb) + s / ws) * uExpo, 1.0);
@@ -1455,6 +1527,7 @@ const finalMat = new THREE.ShaderMaterial({
     col = pow(col, vec3(1.0 / 2.2));
     float vig = smoothstep(1.05, 0.3, length(c * vec2(uRes.x / uRes.y, 1.0) * 0.9));
     col *= mix(0.62, 1.0, vig);
+    col += (h(gl_FragCoord.xy + fract(uTime * 3.7) * 300.0) - 0.5) / 255.0;          // dither before the 8-bit target
     gl_FragColor = vec4(col, 1.0);
   }`,
   depthWrite: false, depthTest: false,
@@ -1572,16 +1645,16 @@ sndBtn.addEventListener('click', (e) => {
 // Bifin ascent: slow, long kicks driven from the hips, knees bending late in the up-kick,
 // fins flexing hard behind the foot. Kicks fade out ~9 m and the diver glides the last metres on buoyancy.
 const D = { t: 0, y: START_HIP, v: 0.95, phi: 0.6, amp: 1, surf: -1, look: 0.06, exhaled: false, fade: 0, bubQ: 0, cycle: 0 };
-const CAM = { p: new THREE.Vector3(), t: new THREE.Vector3(), init: false, yaw: 0, yawT: 0, pitchOff: 0, pitchOffT: 0 };
+const CAM = { p: new THREE.Vector3(), t: new THREE.Vector3(), init: false, yaw: 0, yawT: 0, pitchOff: 0, pitchOffT: 0, zoom: 1, zoomT: 1 };
 // The kick is a wave that starts at the hip: the thigh leads, the shin trails it (so the knee bends
 // passively at the start of each down-kick and snaps straight at the end), the foot trails the shin,
 // and the fin (spring model below) trails the foot. Angles are absolute segment angles; joints are differences.
 const smax = (x, k) => 0.5 * (x + Math.sqrt(x * x + k * k));
 const legAng = (p, amp) => {
   const thigh = -0.31 * amp * Math.sin(p) - 0.03 * amp;
-  const shin = -0.40 * amp * Math.sin(p - 0.85) - 0.03 * amp;
-  const foot = -0.44 * amp * Math.sin(p - 1.65) - 0.03 * amp;
-  const knee = 0.035 + smax(shin - thigh + 0.07 * amp, 0.1);
+  const shin = -0.36 * amp * Math.sin(p - 0.7) - 0.03 * amp;
+  const foot = -0.38 * amp * Math.sin(p - 1.3) - 0.03 * amp;
+  const knee = 0.035 + smax(shin - thigh + 0.08 * amp, 0.17);
   const ankle = 0.04 + (foot - (thigh + knee)) * 0.75;
   return { hip: thigh, knee, ankle };
 };
@@ -1603,10 +1676,10 @@ function simStep(h) {
     D.amp += (ampT - D.amp) * (1 - Math.exp(-h / 2.2));
     D.phi += 2 * Math.PI * (0.5 + 0.08 * D.amp) * h * (0.4 + 0.6 * smooth(0.02, 0.3, D.amp));
     // thrust peaks in the power phase of each leg (two per cycle), drag ~ v², buoyancy rises as the lungs re-expand
-    const thrust = 1.3 * D.amp * (0.75 + 0.5 * Math.pow(Math.abs(Math.sin(D.phi - 0.5)), 2));
+    const thrust = 1.3 * D.amp * (0.88 + 0.24 * Math.pow(Math.abs(Math.cos(D.phi - 0.25)), 2));
     const buoy = 0.05 + 0.32 * smooth(14, 1, depth);
     D.v += (thrust + buoy - 1.25 * D.v * Math.abs(D.v)) * h * 0.85;
-    D.y += D.v * h;
+    D.y += D.v * h * (RISE > 1 ? 1.6 + (RISE - 1.6) * smooth(0.5, 6, depth) : 1);   // ?rise=N: compressed ascent for video, eased back to real speed near the surface
     if (!D.exhaled && depth < 2.4) { D.exhaled = true; D.bubQ += 60; bubbleSound(18); }
     if (D.y + 0.86 > 0.04) { D.surf = D.t; U.uRip.value.set(0.12, 0, U.uTime.value, 1); }
   } else {
@@ -1620,30 +1693,35 @@ function simStep(h) {
     const f = fins[k], a = legAng(D.phi + (k ? Math.PI : 0), D.amp);
     const tz = footTipZ(a), vz = (tz - f.prevTipZ) / h; f.prevTipZ = tz;
     const target = Math.max(-0.65, Math.min(0.65, 0.5 * vz));
-    const w1 = 13, z1 = 0.45, w2 = 9, z2 = 0.35;
+    const w1 = 10, z1 = 0.65, w2 = 7, z2 = 0.55;
     f.B1v += (w1 * w1 * (target - f.B1) - 2 * z1 * w1 * f.B1v) * h; f.B1 += f.B1v * h;
     f.B2v += (w2 * w2 * (f.B1 - f.B2) - 2 * z2 * w2 * f.B2v) * h; f.B2 += f.B2v * h;
   });
 }
 function pose() {
   const p = D.phi, depth = Math.max(0, -(D.y + 0.73)), t = D.t;
-  const amp = D.amp * (1 + 0.035 * Math.sin(t * 0.41) + 0.025 * Math.sin(t * 0.93 + 1.3));
+  const amp = D.amp * (1 + 0.03 * Math.sin(t * 0.31));
   diver.position.set(0, D.y, 0);
-  diver.rotation.x = 0.03 + 0.008 * Math.sin(p * 2 - 0.9) * amp;            // a slight pitch with each power phase
+  // the whole body rolls gently about its long axis with each kick (the hips drive it, the shoulders follow late),
+  // plus a slight pitch on each power phase and a faint lateral flex
+  // In sync with the legs: the left leg's down-kick is fastest at phi = 0, the right's at phi = pi.
+  // The hip of the driving leg rolls forward into its kick (cos phi), the shoulders follow a beat later.
+  // one smooth roll per kick cycle, small: the hips lead it, the body follows, nothing at double frequency
+  const bodyRoll = -0.05 * Math.cos(p - 0.35) * amp;
+  diver.rotation.y = Math.PI / 2 + bodyRoll;
+  diver.rotation.x = 0.03;
   diver.rotation.z = 0.004 * Math.sin(t * 0.17);
-  // trained bifin technique: a quiet streamline. The pelvis rolls a few degrees toward the leg that is driving,
-  // the ribcage answers a little, and the legs are counter-rotated so the fins keep kicking in their own plane.
-  const roll = 0.065 * Math.sin(p - 0.35) * amp;
-  bone.pelvis.rotation.set(0.018 * Math.sin(p * 2 - 0.6) * amp, roll, 0);
-  bone.spine.rotation.set(-0.01 * Math.sin(p * 2 - 1.0) * amp, -roll * 0.45, 0);
-  bone.chest.rotation.set(0, -roll * 0.3, 0);
+  const roll = -0.03 * Math.cos(p - 0.1) * amp;
+  bone.pelvis.rotation.set(0, roll, 0);
+  bone.spine.rotation.set(0, -roll * 0.4, 0);
+  bone.chest.rotation.set(0, -roll * 0.25, 0);
   const lookT = D.surf >= 0 ? -0.12 : depth < 5 ? -0.18 * smooth(5, 2, depth) : 0.04;
   D.look += (lookT - D.look) * 0.02;
-  bone.neck.rotation.set(D.look * 0.45, roll * 0.25, 0);                   // head and arms stay on line
+  bone.neck.rotation.set(D.look * 0.45, -bodyRoll * 0.25 + roll * 0.15, 0);          // the head steadies a little against the roll
   bone.head.rotation.set(D.look * 0.55 + 0.006 * Math.sin(t * 0.6), 0.02 * Math.sin(t * 0.21), 0);
   [['L', 0], ['R', Math.PI]].forEach(([k, off]) => {
     const a = legAng(p + off, amp);
-    bone['thigh' + k].rotation.set(a.hip, -roll, 0);
+    bone['thigh' + k].rotation.set(a.hip, -roll * 0.6, 0);
     bone['shin' + k].rotation.set(a.knee, 0, 0);
     bone['foot' + k].rotation.set(a.ankle, 0, 0);
     bone['upper' + k].rotation.set(0, 0, 0);
@@ -1655,25 +1733,40 @@ function pose() {
 
 // ============================================================================ interaction
 let drag = null;
+const pts = new Map();
+let pinch = null;
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
-  drag = { x: e.clientX, y: e.clientY, yaw: CAM.yawT, pitch: CAM.pitchOffT, moved: 0 };
-  canvas.setPointerCapture(e.pointerId); canvas.classList.add('drag');
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  canvas.setPointerCapture(e.pointerId);
+  if (pts.size === 2) {
+    const [a, b] = [...pts.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: CAM.zoomT }; drag = null;
+  } else if (pts.size === 1) drag = { x: e.clientX, y: e.clientY, yaw: CAM.yawT, pitch: CAM.pitchOffT, moved: 0 };
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (!pts.has(e.pointerId)) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && pts.size >= 2) {
+    const [a, b] = [...pts.values()];
+    CAM.zoomT = THREE.MathUtils.clamp(pinch.z * pinch.d / Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), 0.3, 2.4);
+    return;
+  }
   if (!drag) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
-  CAM.yawT = THREE.MathUtils.clamp(drag.yaw - dx / innerWidth * 2.4, -1.2, 1.2);
-  CAM.pitchOffT = THREE.MathUtils.clamp(drag.pitch + dy / innerHeight * 1.2, -0.35, 0.45);
+  drag.moved = Math.max(drag.moved, Math.hypot(e.clientX - drag.x, e.clientY - drag.y));
 });
-const endDrag = () => {
-  if (!drag) return;
-  if (drag.moved < 6 && D.surf < 0) { D.bubQ += 46; bubbleSound(14); }
-  drag = null; canvas.classList.remove('drag');
+const endDrag = (e) => {
+  pts.delete(e.pointerId);
+  if (pts.size < 2) pinch = null;
+  if (drag && pts.size === 0 && drag.moved < 6 && D.surf < 0) { D.bubQ += 46; bubbleSound(14); }
+  if (pts.size === 0) drag = null;
 };
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  CAM.zoomT = THREE.MathUtils.clamp(CAM.zoomT * Math.exp(e.deltaY * 0.0012), 0.3, 2.4);
+}, { passive: false });
 
 // ============================================================================ frame
 const depthEl = document.getElementById('depthv');
@@ -1704,16 +1797,17 @@ function tick(dt, draw = true) {
   const nearS = smooth(9, 1.5, depth);
   CAM.yaw += (CAM.yawT - CAM.yaw) * Math.min(1, dt * 3);
   CAM.pitchOff += (CAM.pitchOffT - CAM.pitchOff) * Math.min(1, dt * 3);
-  _tgt.set(0, D.y - 0.25 + 0.45 * nearS, 0);
-  const az = 0.6 + CAM.yaw + 0.12 * Math.sin(t * 0.05), dist = view.dist * (1 - 0.18 * nearS);
-  const el = 0.16 + 0.42 * nearS + CAM.pitchOff;
+  CAM.zoom += (CAM.zoomT - CAM.zoom) * Math.min(1, dt * 5);
+  _tgt.set(0, D.y - 0.25 + 0.45 * nearS + Math.max(0, 1 - CAM.zoom) * 1.3, 0);   // zooming in drifts toward the head and hands
+  const az = 0.6 + CAM.yaw + 0.12 * Math.sin(t * 0.05), dist = view.dist * (1 - 0.18 * nearS) * CAM.zoom;
+  const el = THREE.MathUtils.clamp(0.16 + 0.42 * nearS + CAM.pitchOff, -0.9, 1.35);
   _cp.set(Math.sin(az) * Math.cos(el) * dist, -Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(_tgt);
-  _cp.y = Math.min(_cp.y, -3.6);
-  if (CLOSE) { const cy = +(Q.get('close') || 0.1); _tgt.set(0, D.y + cy, 0); const cd = +(Q.get('cd') || 1.3); _cp.set(Math.sin(az) * cd, D.y + cy - 0.15 * cd, Math.cos(az) * cd); }
+  _cp.y = Math.min(_cp.y, -0.4 - 3.2 * Math.min(1, CAM.zoom));
+  if (CLOSE) { const cy = +(Q.get('close') || 0.1); const az = Q.has('az') ? +Q.get('az') : 0.6 + CAM.yaw; _tgt.set(0, D.y + cy, 0); const cd = +(Q.get('cd') || 1.3); _cp.set(Math.sin(az) * cd, D.y + cy - 0.15 * cd, Math.cos(az) * cd); }
   // handheld drift
   _cp.x += Math.sin(t * 0.31) * 0.04 + Math.sin(t * 0.73) * 0.015; _cp.y += Math.sin(t * 0.43) * 0.035; _cp.z += Math.sin(t * 0.27 + 1) * 0.03;
   if (!CAM.init || CLOSE) { CAM.p.copy(_cp); CAM.t.copy(_tgt); CAM.init = true; }
-  const kp = 1 - Math.exp(-dt / 0.9), kt = 1 - Math.exp(-dt / 0.45);
+  const kp = 1 - Math.exp(-dt * RISE / 0.9), kt = 1 - Math.exp(-dt * RISE / 0.45);   // a compressed ascent needs a tighter follow
   CAM.p.lerp(_cp, kp); CAM.t.lerp(_tgt, kt);
   camera.position.copy(CAM.p); camera.lookAt(CAM.t);
   const camDepth = -camera.position.y;
@@ -1772,7 +1866,7 @@ function render(dt) {
   // 4. the scene
   renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.render(scene, camera);
   // 5. light shafts
-  shaftMat.uniforms.tDepth.value = sceneRT.depthTexture;
+  shaftMat.uniforms.tDepth.value = sceneRT.depthTexture; shaftMat.uniforms.uFrame.value++;
   shaftMat.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
   shaftMat.uniforms.uCamWorld.value.copy(camera.matrixWorld);
   if (!Q.has('noshaft')) { renderer.setRenderTarget(shaftRT); renderer.render(shaftScene, camera); }
@@ -1788,7 +1882,7 @@ if (!CAPTURE) requestAnimationFrame((t) => { last = t; requestAnimationFrame(fra
 else {
   let frames = 0;
   window.__frame = (i) => { while (frames < i) { tick(1 / 30, frames === i - 1); frames++; } return D.t; };
-  window.__info = () => ({ verts: diverGeo.attributes.position.count, blades: tiers.map((T) => T.blades.misc.length / 4), meshes: bladeMeshes.length, load: performance.now() });
+  window.__info = () => ({ depth: -(D.y + 0.73), surf: D.surf, t: D.t, verts: diverGeo.attributes.position.count, blades: tiers.map((T) => T.blades.misc.length / 4), meshes: bladeMeshes.length, load: performance.now() });
   window.__ready = true;
 }
 </script>
