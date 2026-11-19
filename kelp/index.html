@@ -168,12 +168,13 @@ uniform sampler2D tCanopy;
 #define CUR_V ${v3(CUR)}
 #define SURGE_V ${v3(SURGE)}
 #define SPERP_V ${v3(SPERP)}
-// green-blue coastal water: red dies in the first metres, blue a little faster than green (dissolved organics)
-#define KD vec3(0.40, 0.066, 0.082)
-#define SIG vec3(0.45, 0.092, 0.108)
+// clear blue-teal Pacific water over a kelp bed: blue carries furthest, green nearly as far, red fades over the
+// first ten metres (gentler than raw physics: a diver's camera white-balances some of the red back)
+#define KD vec3(0.22, 0.062, 0.046)
+#define SIG vec3(0.27, 0.078, 0.056)
 #define SUNC vec3(3.5, 3.25, 2.85)
 #define SKYC vec3(0.85, 1.25, 1.85)
-#define WATC vec3(0.06, 0.42, 0.50)
+#define WATC vec3(0.025, 0.30, 0.58)
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y); }
@@ -487,7 +488,7 @@ function boulder(x, z, s) {
   rockGeos.push(g);
 }
 {
-  const NPLANT = COARSE ? 70 : 110;
+  const NPLANT = COARSE ? 95 : 150;
   const plants = [];
   let tries = 0;
   while (plants.length < NPLANT && tries++ < 30000) {
@@ -498,8 +499,8 @@ function boulder(x, z, s) {
     if (z > 9) continue;
     const dens = 0.35 + 0.5 * smooth(0.42, 0.62, canopyNoise(x, z)) + 0.45 * smooth(18, 5, r0);
     if (rng() > dens) continue;
-    if (plants.some((p) => Math.hypot(p.x - x, p.z - z) < 1.6)) continue;
-    plants.push({ x, z, near: r0 < 10.5 });
+    if (plants.some((p) => Math.hypot(p.x - x, p.z - z) < 1.35)) continue;
+    plants.push({ x, z, near: r0 < 13 });
   }
   for (const pl of plants) {
     const T = tiers[pl.near ? 0 : 1];
@@ -523,9 +524,9 @@ function boulder(x, z, s) {
     // stipe bundle
     const H = -0.07 - (yb + 0.3);
     const lean = CUR.clone().multiplyScalar(1 + rng() * 3).add(new THREE.Vector3(rng() - 0.5, 0, rng() - 0.5).multiplyScalar(2.5));
-    const nst = pl.near ? 7 + Math.floor(rng() * 5) : 2 + Math.floor(rng() * 3);
+    const nst = pl.near ? 10 + Math.floor(rng() * 6) : 3 + Math.floor(rng() * 3);
     const twist = (rng() < 0.5 ? -1 : 1) * (0.08 + rng() * 0.1);
-    const reachP = 0.45 + 0.5 * smooth(0.45, 0.6, canopyNoise(pl.x, pl.z));
+    const reachP = 0.55 + 0.4 * smooth(0.45, 0.6, canopyNoise(pl.x, pl.z));
     for (let s = 0; s < nst; s++) {
       const reaches = rng() < reachP;
       const hEnd = reaches ? H : H * (0.22 + 0.72 * Math.pow(rng(), 0.7));
@@ -556,7 +557,7 @@ function boulder(x, z, s) {
       // blades: alternate sides in a slowly turning plane, younger & crowded toward the growing tip
       // blades: on alternating sides that wander around the stipe, set at a shallow angle so they stream
       // up and down-current along the frond and overlap like shingles (the "feather boa" of a real frond)
-      const sp = pl.near ? 0.26 : 0.66;
+      const sp = pl.near ? 0.19 : 0.5;
       let ang = rng() * 6.28;
       for (let h = 0.6 + rng() * 0.5; h < hEnd - 0.08; h += sp * (0.7 + rng() * 0.6)) {
         const i = Math.min(Math.floor(h / 0.4), nV - 2), f = h / 0.4 - i;
@@ -568,8 +569,8 @@ function boulder(x, z, s) {
         const tipD = hEnd - h, young = smooth(1.4, 0.05, tipD) * (reaches ? 0.25 : 1);
         const e = (0.35 + rng() * 0.8) * (1 - 0.4 * young);            // emergence angle from the stipe: some lie close, some splay
         const dir = axis.clone().multiplyScalar(Math.cos(e)).addScaledVector(out, Math.sin(e)).normalize();
-        const L = (0.55 + rng() * 0.5 + 0.15 * smooth(2, 15, h)) * (1 - 0.7 * young) * (pl.near ? 1 : 1.3);
-        const W = (0.07 + rng() * 0.06) * (1 - 0.45 * young) * (pl.near ? 1 : 1.45);
+        const L = (0.65 + rng() * 0.6 + 0.2 * smooth(2, 15, h)) * (1 - 0.7 * young) * (pl.near ? 1 : 1.3);
+        const W = (0.085 + rng() * 0.075) * (1 - 0.45 * young) * (pl.near ? 1 : 1.45);
         pushBlade(T, P, dir, out, L, W, wOf(h), ps, 1 - young);
       }
       // apical scimitar blade on fronds still growing
@@ -618,25 +619,41 @@ void main(){
   float cor = sin(vUv.y * 70.0 + vUv.x * 1.6 + sin(vUv.x * 5.0 + vUv.y * 17.0) * 1.6) * (1.0 - part);
   N = normalize(N + normalize(vT) * cor * 0.2);
   float stri = 0.5 + 0.5 * sin(vUv.x * 40.0 + sin(vUv.y * 9.0) * 1.5);                       // fine lengthwise striations
-  vec3 dark = vec3(0.15, 0.085, 0.02), gold = vec3(0.46, 0.28, 0.055), pale = vec3(0.52, 0.36, 0.09);
+  vec3 dark = vec3(0.3, 0.13, 0.015), gold = vec3(0.78, 0.43, 0.05), pale = vec3(0.86, 0.58, 0.1);
   vec3 alb = mix(dark, gold, smoothstep(0.0, 0.3, vUv.y));
   alb = mix(alb, pale, smoothstep(0.6, 1.0, vUv.y) * 0.6 + abs(vUv.x) * 0.15);
   alb *= (0.8 + 0.4 * tone) * (0.92 + 0.12 * stri * (1.0 - part));
   alb = mix(alb, vec3(0.55, 0.45, 0.2), smoothstep(0.88, 1.0, vUv.y) * 0.5 * (1.0 - part));   // worn, paler tips
-  alb = mix(alb, vec3(0.38, 0.30, 0.09), (1.0 - age) * 0.5);                      // young blades: lighter, greener
+  alb = mix(alb, vec3(0.55, 0.38, 0.08), (1.0 - age) * 0.5);                      // young blades: lighter, greener
   alb = mix(alb, vec3(0.30, 0.22, 0.07), part);                                   // gas bladder / stipe
   float sh = shadowAt(vP, 1.0);
-  vec3 E = sunE(vP, sh);
+  // caustics: the dispersed net, sharpened (thin blades catch the focused lines crisply), kept at the same mean
+  vec2 cq = surfPt(vP); float cd = max(-vP.y, 0.0), ck = min(1.0, causK(cd) * 1.7), cl = causLod(cd) * 0.45;
+  vec2 dsp = SUN_W.xz * (0.004 + cd * 0.003);
+  vec3 cc = vec3(causTex((cq - dsp) * 1.15, cl).r, causTex(cq * 1.15, cl).r, causTex((cq + dsp) * 1.15, cl).r);
+  cc = pow(cc, vec3(1.8)) * 0.62;
+  vec3 E = sunAtten(vP) * canopyT(cq) * mix(vec3(1.0), cc, ck) * sh;
   float ndl = dot(N, SUN_W);
   vec3 A = ambE(vP, N);
-  vec3 col = alb * (E * max(ndl, 0.0) + A);
+  // the diver's camera white-balances: on nearby kelp the blue-green cast of the light is mostly neutralised,
+  // which is what makes kelp read gold against blue water in photographs
+  const vec3 LW = vec3(0.3, 0.5, 0.2);
+  vec3 Ew = mix(E, vec3(dot(E, LW)), 0.85), Aw = mix(A, vec3(dot(A, LW)), 0.85);
+  vec3 col = alb * (Ew * max(ndl, 0.0) + Aw);
+  vec3 Ab = ambE(vP, -N); Ab = mix(Ab, vec3(dot(Ab, LW)), 0.85);
   // thin, oily-amber tissue lets light through; thinner in the corrugation valleys and toward the margins
   float back = max(-ndl, 0.0);
   float vl = pow(max(dot(-V, SUN_W), 0.0), 3.0);
-  vec3 trans = vec3(0.78, 0.47, 0.07) * (0.85 + 0.3 * tone) * (0.8 + 0.25 * cor + 0.5 * vUv.x * vUv.x);
-  col += trans * (E * back * (0.25 + 1.3 * vl) + ambE(vP, -N) * 0.16) * (1.0 - part * 0.7);
+  vec3 trans = vec3(1.15, 0.62, 0.08) * (0.85 + 0.3 * tone) * (0.8 + 0.25 * cor + 0.5 * vUv.x * vUv.x);
+  col += trans * (Ew * back * (0.3 + 1.6 * vl) + Ab * 0.2) * (1.0 - part * 0.7);
   vec3 H = normalize(SUN_W + V);
-  col += E * pow(max(dot(N, H), 0.0), 60.0) * 0.08 + envCol(reflect(-V, N), vP) * 0.04;
+  // wet mucilage film: a sharp sun glint (sparkling where caustic lines cross the corrugations) and the bright
+  // water/Snell's window above mirrored at grazing angles
+  float nv = max(dot(N, V), 1e-3), nh = max(dot(N, H), 0.0);
+  float Fr = 0.03 + 0.97 * pow(1.0 - nv, 5.0);
+  float a2 = 0.022, dd = nh * nh * (a2 - 1.0) + 1.0;
+  col += E * (a2 / (3.14159 * dd * dd)) * max(ndl, 0.0) * (0.04 + Fr) * 0.9 / max(nv, 0.25);
+  col += envCol(reflect(-V, N), vP) * (0.02 + Fr) * 0.9;
   gl_FragColor = enc(applyWater(col, vP));
 }`;
 const stipeMat = new THREE.ShaderMaterial({
@@ -703,11 +720,20 @@ void main(){
   float bk = 0.9 + 2.2 * fract(seed * 3.17);
   if (aPart < 0.5) {
     float v = uv.y, s = v * L;
-    vec3 dmid = normalize(aDir + fl * bk * s * 0.5);
-    T = normalize(aDir + fl * bk * s);
-    vec3 C = B + aDir * 0.035 + dmid * s;
+    // each blade also answers its own little eddies: a slow swing on its own phase and rate, a drifting
+    // swirl in the water around it, and the current easing and freshening so the blade lifts and settles
+    float f1 = 0.32 + 0.36 * fract(seed * 1.91), f2 = 0.27 + 0.3 * fract(seed * 2.73);
+    vec3 sx = normalize(cross(aDir, aHint));
+    vec3 eddy = (sx * sin(uTime * f1 + seed * 6.1) + aHint * sin(uTime * f2 + seed * 3.7 + aBase.y * 0.3)) * 0.42
+              + vec3(sin(uTime * 0.23 + aBase.x * 0.5 + aBase.y * 0.21), 0.25 * sin(uTime * 0.31 + seed * 2.0), cos(uTime * 0.19 + aBase.z * 0.5 - aBase.y * 0.15)) * 0.26;
+    fl += eddy;
+    bk *= 0.75 + 0.5 * (0.5 + 0.5 * sin(uTime * (0.35 + 0.3 * fract(seed * 4.1)) + seed * 11.0));
+    vec3 dir = normalize(aDir + eddy * 0.3);                     // the blade pivots a little at its stalk
+    vec3 dmid = normalize(dir + fl * bk * s * 0.5);
+    T = normalize(dir + fl * bk * s);
+    vec3 C = B + dir * 0.035 + dmid * s;
     vec3 side = normalize(cross(T, aHint)); vec3 nrm = cross(side, T);
-    float tw = (fract(seed * 7.3) - 0.5) * 1.4 * v + sin(uTime * 0.9 + seed * 5.0) * 0.35 * v;
+    float tw = (fract(seed * 7.3) - 0.5) * 1.4 * v + (sin(uTime * 0.9 + seed * 5.0) * 0.35 + sin(uTime * 0.37 + seed * 2.3) * 0.45) * v;
     vec3 sd = side * cos(tw) + nrm * sin(tw), nr = nrm * cos(tw) - side * sin(tw);
     // travelling flutter wave down the blade
     float ph = s * 6.0 - uTime * 2.6 + seed * 6.0;
@@ -819,11 +845,12 @@ tiers.forEach((T, k) => {
       float d = length(vP - cameraPosition);
       a = clamp((a - 0.5) / max(fwidth(a), 0.04) * 0.5 + 0.5, 0.0, 1.0);
       if (a < 0.01) discard;
-      vec3 alb = vec3(0.30, 0.19, 0.045) * vS.w;
+      vec3 alb = vec3(0.42, 0.26, 0.05) * vS.w;
       vec3 V = normalize(cameraPosition - vP);
       vec3 E = sunE(vP, 1.0);
       float vl = pow(max(dot(-V, SUN_W), 0.0), 3.0);
-      vec3 col = alb * (E * 0.25 + ambE(vP, V)) + vec3(0.78, 0.47, 0.07) * E * (0.06 + 0.5 * vl);
+      vec3 Ew = mix(E, vec3(dot(E, vec3(0.3, 0.5, 0.2))), 0.6), Aw = ambE(vP, V); Aw = mix(Aw, vec3(dot(Aw, vec3(0.3, 0.5, 0.2))), 0.6);
+      vec3 col = alb * (Ew * 0.25 + Aw) + vec3(1.0, 0.62, 0.1) * Ew * (0.06 + 0.5 * vl);
       gl_FragColor = vec4(enc(applyWater(col, vP)).rgb, a);
     }`,
   });
@@ -855,42 +882,43 @@ LR((s) => E(0, [s * 0.062, -0.065, -0.042], [0.07, 0.085, 0.062]));             
 E(0, [0, 0.06, 0.004], [0.132, 0.085, 0.08]);                                         // lower abdomen (flat)
 E(0, [0, 0.17, 0.002], [0.13, 0.12, 0.084]);                                          // waist: straight-sided, not pinched
 LR((s) => E(0, [s * 0.106, 0.23, 0.012], [0.04, 0.09, 0.058], { k: 0.03 }));          // obliques / serratus
-E(0, [0, 0.36, -0.004], [0.158, 0.145, 0.096]);                                       // ribcage, broad
-E(0, [0, 0.455, -0.008], [0.165, 0.08, 0.092]);                                       // upper chest
-LR((s) => E(0, [s * 0.07, 0.45, 0.058], [0.07, 0.04, 0.028], { k: 0.03 }));          // pectoral mass, flattened by the raised arms
-LR((s) => C(0, [s * 0.012, 0.418, 0.07], [s * 0.118, 0.475, 0.048], 0.018, 0.016, { k: 0.02 }));   // its lower border: a straight line rising to the armpit
-LR((s) => C(0, [s * 0.14, 0.49, -0.03], [s * 0.1, 0.19, -0.025], 0.052, 0.03, { k: 0.035 }));     // latissimus: the V
-LR((s) => E(0, [s * 0.074, 0.45, -0.056], [0.058, 0.07, 0.044], { k: 0.03 }));        // shoulder blades
+E(0, [0, 0.36, -0.006], [0.152, 0.15, 0.09]);                                         // ribcage: broad, but shallow front to back so it doesn't read as a barrel
+E(0, [0, 0.44, -0.015], [0.13, 0.08, 0.08]);                                          // upper chest, sloping back toward the raised arms
+LR((s) => E(0, [s * 0.07, 0.445, 0.046], [0.066, 0.05, 0.016], { k: 0.06 }));          // pectorals, stretched flat
+LR((s) => C(0, [s * 0.075, 0.47, 0.034], [s * 0.14, 0.565, -0.008], 0.024, 0.02, { k: 0.065 }));   // and their tendon ramping up into each arm
+LR((s) => C(0, [s * 0.148, 0.48, -0.028], [s * 0.105, 0.2, -0.026], 0.045, 0.03, { k: 0.05 }));      // latissimus: one long sweep from the armpit to the waist
+LR((s) => E(0, [s * 0.08, 0.44, -0.06], [0.055, 0.075, 0.035], { k: 0.05 }));         // shoulder blades, rotated up with the arms
 LR((s) => C(0, [s * 0.026, 0.1, -0.068], [s * 0.026, 0.4, -0.076], 0.022, 0.018, { k: 0.02 }));   // spinal erectors
-LR((s) => C(0, [0, 0.53, -0.022], [s * 0.15, 0.495, -0.02], 0.055, 0.042));   // trapezius
-LR((s) => C(0, [s * 0.172, 0.48, -0.012], [s * 0.152, 0.585, -0.024], 0.05, 0.042));   // deltoids, raised
+LR((s) => C(0, [0, 0.53, -0.025], [s * 0.13, 0.52, -0.022], 0.05, 0.04, { k: 0.065 }));     // trapezius, bunched between the neck and the raised shoulders
+LR((s) => C(0, [s * 0.15, 0.51, -0.018], [s * 0.142, 0.61, -0.022], 0.036, 0.034, { k: 0.065 }));     // deltoids, raised beside the head
 C(0, [0, 0.49, -0.012], [0, 0.665, -0.004], 0.062, 0.054);         // neck (hooded)
 E(0, [0, 0.748, -0.006], [0.083, 0.109, 0.1]);                     // cranium in hood
 // face inside the hood opening: the mask hides the eyes and nose, so the jaw, cheeks, mouth and chin carry it
 E(0, [0, 0.672, 0.022], [0.06, 0.055, 0.068]);                                         // mandible
 E(0, [0, 0.69, 0.058], [0.036, 0.026, 0.034], { k: 0.012 });                           // maxilla
-LR((s) => E(0, [s * 0.04, 0.693, 0.056], [0.03, 0.032, 0.032], { k: 0.014 }));        // cheeks
+LR((s) => E(0, [s * 0.04, 0.69, 0.046], [0.03, 0.034, 0.03], { k: 0.016 }));         // cheeks, set back so the mouth and chin lead
 LR((s) => E(0, [s * 0.046, 0.716, 0.054], [0.028, 0.022, 0.03], { k: 0.012 }));       // cheekbones
-C(0, [-0.017, 0.6685, 0.0868], [0.017, 0.6685, 0.0868], 0.0054, 0.0054, { k: 0.007 }); // upper lip
-E(0, [0, 0.6692, 0.0895], [0.009, 0.0048, 0.0045], { k: 0.005 });                      // its tubercle
-C(0, [-0.014, 0.658, 0.0852], [0.014, 0.658, 0.0852], 0.0062, 0.0062, { k: 0.007 });   // lower lip
-LR((s) => E(0, [s * 0.0225, 0.6635, 0.088], [0.0045, 0.0045, 0.0045], { k: 0.003, sub: true }));   // mouth corners
-B(0, [0, 0.6632, 0.097], [0.019, 0.0006, 0.012], 0.0004, { k: 0.0018, sub: true });               // lips sealed on the breath-hold
-E(0, [0, 0.638, 0.071], [0.022, 0.019, 0.022], { k: 0.01 });                           // chin
-E(0, [0, 0.6495, 0.0915], [0.013, 0.0028, 0.004], { k: 0.003, sub: true });            // fold above the chin
+// lips: soft, closed on the breath-hold. Ellipsoids so they taper into the corners; the upper lip with a shallow
+// cupid's bow and philtrum, the lower a little fuller; the mouth line curves back toward the corners
+E(0, [0, 0.6678, 0.081], [0.021, 0.0058, 0.0085], { k: 0.008 });                         // upper lip
+LR((s) => E(0, [s * 0.0055, 0.6688, 0.0836], [0.0065, 0.0036, 0.0055], { k: 0.004 }));   // cupid's bow peaks
+E(0, [0, 0.676, 0.0898], [0.0028, 0.0065, 0.0018], { k: 0.003, sub: true });              // philtrum groove
+E(0, [0, 0.6585, 0.0792], [0.019, 0.0062, 0.0088], { k: 0.009 });                         // lower lip
+E(0, [0, 0.633, 0.07], [0.022, 0.02, 0.018], { k: 0.016 });                              // chin: rounded, just behind the lower lip
+LR((s) => C(0, [s * 0.022, 0.626, 0.066], [s * 0.05, 0.642, 0.03], 0.009, 0.011, { k: 0.016 }));   // soft jawline into the hood
+            // fold above the chin
 C(0, [0, 0.738, 0.084], [0, 0.708, 0.097], 0.008, 0.0095, { k: 0.008 });              // nose, inside the mask's pocket
 E(0, [0, 0.702, 0.092], [0.013, 0.007, 0.01], { k: 0.006 });                           // nostril wings
 // legs
 LR((s, g) => {
-  C(g, [s * 0.084, -0.07, 0.0], [s * 0.094, -0.5, 0.012], 0.072, 0.049);      // femur
-  E(g, [s * 0.094, -0.27, 0.028], [0.066, 0.17, 0.06]);                       // quadriceps
-  E(g, [s * 0.118, -0.31, 0.004], [0.04, 0.14, 0.048]);                       // vastus lateralis
-  E(g, [s * 0.09, -0.24, -0.03], [0.06, 0.16, 0.055]);                        // hamstrings
-  E(g, [s * 0.056, -0.16, 0.0], [0.047, 0.1, 0.058]);                         // adductors
-  E(g, [s * 0.094, -0.49, 0.03], [0.03, 0.036, 0.02]);                        // patella
-  C(g, [s * 0.094, -0.5, 0.012], [s * 0.095, -0.915, -0.02], 0.047, 0.029);   // tibia
-  E(g, [s * 0.098, -0.63, -0.03], [0.047, 0.11, 0.047]);                      // calf
-  E(g, [s * 0.082, -0.62, -0.025], [0.04, 0.09, 0.042]);                      // medial calf
+  // a swimmer's legs in 3 mm neoprene: long smooth tapers, the muscles only broad swellings melted into them
+  C(g, [s * 0.084, -0.07, 0.0], [s * 0.094, -0.5, 0.012], 0.07, 0.047);       // femur
+  E(g, [s * 0.094, -0.28, 0.016], [0.058, 0.18, 0.05], { k: 0.06 });           // quadriceps
+  E(g, [s * 0.09, -0.25, -0.02], [0.055, 0.17, 0.05], { k: 0.06 });             // hamstrings
+  E(g, [s * 0.062, -0.15, 0.0], [0.045, 0.09, 0.05], { k: 0.06 });             // adductors
+  E(g, [s * 0.094, -0.49, 0.026], [0.026, 0.03, 0.014], { k: 0.03 });          // patella
+  C(g, [s * 0.094, -0.5, 0.012], [s * 0.095, -0.915, -0.02], 0.045, 0.028);   // tibia
+  E(g, [s * 0.095, -0.64, -0.016], [0.044, 0.13, 0.038], { k: 0.06 });         // calf
   // closed foot pocket, foot pointed in line with the shin
   C(g, [s * 0.095, -0.912, -0.018], [s * 0.095, -1.13, -0.004], 0.03, 0.017);
   E(g, [s * 0.095, -1.02, -0.014], [0.036, 0.1, 0.024]);
@@ -899,10 +927,10 @@ LR((s, g) => {
 // arms extended overhead in streamline: upper arms squeezing the hood, one hand stacked on the other
 LR((s, _g, g) => {
   C(g, [s * 0.162, 0.53, -0.022], [s * 0.114, 0.82, -0.012], 0.042, 0.034);
-  E(g, [s * 0.14, 0.67, 0.0], [0.03, 0.085, 0.03]);                         // biceps
-  E(g, [s * 0.146, 0.665, -0.032], [0.032, 0.095, 0.03]);                   // triceps
+  E(g, [s * 0.14, 0.67, 0.0], [0.028, 0.09, 0.026], { k: 0.06 });           // biceps
+  E(g, [s * 0.146, 0.665, -0.028], [0.03, 0.1, 0.027], { k: 0.06 });        // triceps
   C(g, [s * 0.114, 0.82, -0.012], [s * 0.05, 1.07, 0.0], 0.035, 0.024);
-  E(g, [s * 0.097, 0.9, -0.008], [0.037, 0.075, 0.034]);                     // forearm
+  E(g, [s * 0.097, 0.9, -0.008], [0.035, 0.08, 0.032], { k: 0.06 });        // forearm
 });
 // gloved hands in the streamline grip: the right hand flat (palm facing where the chest faces), the left stacked on
 // its back, fingers together and extended, each thumb hooked round the edge. Meshed separately at fine resolution.
@@ -948,7 +976,7 @@ function primD(p, x, y, z) {
   if (Math.sign(yy) * p.a2 * y2 < k) return Math.sqrt(x2 + y2) * p.il2 - p.r1;
   return (Math.sqrt(x2 * p.a2 * p.il2) + yy * p.rr) * p.il2 - p.r1;
 }
-const GK = [0.042, 0.036, 0.036, 0.05, 0.05, 0.006, 0.006];
+const GK = [0.055, 0.05, 0.05, 0.06, 0.06, 0.006, 0.006];
 function groupD(g, x, y, z) {
   let d = 1;
   for (const p of PR[g]) {
@@ -959,7 +987,7 @@ function groupD(g, x, y, z) {
   return d;
 }
 const GD = new Float32Array(5);
-const faceOpen = (x, y, z) => smooth(1.06, 0.96, Math.hypot(x / 0.054, (y - 0.672) / 0.062)) * smooth(0.02, 0.04, z);
+const faceOpen = (x, y, z) => smooth(1.06, 0.96, Math.hypot(x / 0.054, (y - 0.668) / 0.068)) * smooth(0.02, 0.04, z);
 const torsoD = (x, y, z) => groupD(0, x, y, z) - (y > 0.55 ? 0.004 * (1 - faceOpen(x, y, z)) : 0);   // 4 mm hood shell
 const headD = (x, y, z) => Math.max(torsoD(x, y, z) - 0.0012, 0.6 - y);                               // fine head, a hair proud of the body
 const handsD = (x, y, z) => Math.max(Math.min(groupD(5, x, y, z), groupD(6, x, y, z)), 1.03 - y);
@@ -968,7 +996,7 @@ function bodyD(x, y, z) {
   if (y > 0.55) GD[0] -= 0.004 * (1 - faceOpen(x, y, z));
   GD[0] = Math.max(GD[0], y - 0.705);                                    // the head itself comes from the fine mesh
   const kh = 0.035 * smooth(-0.24, -0.04, y) + 1e-4;
-  const ka = 0.045 * smooth(0.42, 0.5, y) * (1 - smooth(0.6, 0.66, y)) + 1e-4;
+  const ka = 0.06 * smooth(0.4, 0.5, y) * (1 - smooth(0.6, 0.66, y)) + 1e-4;
   let d = sminK(GD[0], GD[1], kh); d = sminK(d, GD[2], kh);
   d = sminK(d, GD[3], ka); d = sminK(d, GD[4], ka);
   return d;
@@ -1018,7 +1046,7 @@ function surfaceNets(f, lo, hi, h) {
   }
   return { pos, idx };
 }
-function meshSDF(F, lo, hi, H) {
+function meshSDF(F, lo, hi, H, smoothW, smoothIt = 0) {
   const { pos, idx } = surfaceNets(F, lo, hi, H);
   const bodyD = F;
   const nV = pos.length / 3, nor = new Float32Array(nV * 3), e = H * 0.4;
@@ -1042,13 +1070,55 @@ function meshSDF(F, lo, hi, H) {
     const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
     if (fx * (nor[a] + nor[b] + nor[c]) + fy * (nor[a + 1] + nor[b + 1] + nor[c + 1]) + fz * (nor[a + 2] + nor[b + 2] + nor[c + 2]) < 0) { const tmp = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = tmp; }
   }
+  if (smoothW) fairMesh(pos, nor, idx, smoothW, smoothIt);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.setIndex(idx);
   return g;
 }
-const diverGeo = meshSDF(bodyD, [-0.27, -1.18, -0.16], [0.27, 1.1, 0.16], COARSE ? 0.0085 : 0.0065);
+// Taubin (lambda|mu) fairing: irons out the creases where the blended primitives meet, without shrinking the body,
+// then area-weighted normals from the faired mesh, relaxed a few times so the shading is as smooth as the shape
+function fairMesh(pos, nor, idx, wAt, iters) {
+  const nV = pos.length / 3, deg = new Uint16Array(nV);
+  const edges = new Set();
+  for (let t = 0; t < idx.length; t += 3) for (let e = 0; e < 3; e++) {
+    const a = idx[t + e], b = idx[t + (e + 1) % 3]; const key = a < b ? a * nV + b : b * nV + a;
+    if (!edges.has(key)) { edges.add(key); deg[a]++; deg[b]++; }
+  }
+  const off = new Uint32Array(nV + 1); for (let v = 0; v < nV; v++) off[v + 1] = off[v] + deg[v];
+  const nb = new Uint32Array(off[nV]), fill = new Uint32Array(nV);
+  for (const key of edges) { const a = Math.floor(key / nV), b = key - a * nV; nb[off[a] + fill[a]++] = b; nb[off[b] + fill[b]++] = a; }
+  const W = new Float32Array(nV); for (let v = 0; v < nV; v++) W[v] = wAt(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]);
+  const tmp = new Float32Array(pos.length);
+  const step = (src, f) => {
+    for (let v = 0; v < nV; v++) {
+      let x = 0, y = 0, z = 0; const n = off[v + 1] - off[v];
+      for (let j = off[v]; j < off[v + 1]; j++) { const u = nb[j] * 3; x += src[u]; y += src[u + 1]; z += src[u + 2]; }
+      const k = n ? f * W[v] : 0, v3 = v * 3;
+      tmp[v3] = src[v3] + k * (x / n - src[v3]); tmp[v3 + 1] = src[v3 + 1] + k * (y / n - src[v3 + 1]); tmp[v3 + 2] = src[v3 + 2] + k * (z / n - src[v3 + 2]);
+    }
+    for (let i = 0; i < src.length; i++) src[i] = tmp[i];
+  };
+  for (let i = 0; i < iters; i++) { step(pos, 0.5); step(pos, -0.53); }
+  const fn = new Float32Array(pos.length);
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2];
+    const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
+    const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+    for (const q of [a, b, c]) { fn[q] += fx; fn[q + 1] += fy; fn[q + 2] += fz; }
+  }
+  const norm = (arr) => { for (let v = 0; v < nV; v++) { const l = Math.hypot(arr[v * 3], arr[v * 3 + 1], arr[v * 3 + 2]) || 1; arr[v * 3] /= l; arr[v * 3 + 1] /= l; arr[v * 3 + 2] /= l; } };
+  norm(fn);
+  for (let i = 0; i < 2; i++) { step(fn, 0.5); norm(fn); }
+  // keep the SDF normals where the mesh was not faired (seams with the fine head and hand meshes)
+  for (let v = 0; v < nV; v++) { const w = W[v], v3 = v * 3; for (let c = 0; c < 3; c++) nor[v3 + c] = nor[v3 + c] * (1 - w) + fn[v3 + c] * w; }
+  norm(nor);
+}
+// not near the open edges where the fine head and hand meshes take over
+const fairW = (x, y) => (1 - smooth(0.6, 0.68, y) * smooth(0.125, 0.095, Math.abs(x))) * smooth(1.03, 0.97, y);
+const diverGeo = meshSDF(bodyD, [-0.27, -1.18, -0.16], [0.27, 1.1, 0.16], COARSE ? 0.0085 : 0.0065, fairW, COARSE ? 20 : 30);
 const headGeo = meshSDF(headD, [-0.105, 0.6, -0.12], [0.105, 0.88, 0.125], COARSE ? 0.003 : 0.0021);
 const handGeo = meshSDF(handsD, [-0.09, 1.03, -0.05], [0.09, 1.26, 0.065], COARSE ? 0.0022 : 0.0015);
 // skeleton (joint positions in the rest pose)
@@ -1164,7 +1234,7 @@ void main(){
   float fine = 1.0 - smoothstep(0.0006, 0.0025, foot);
   float h = 0.0, lined = 0.0, seam = 0.0, rimE = 0.0;
   if (uKind < 0.5) {
-    float e = length(vec2(r.x / 0.054, (r.y - 0.672) / 0.062));
+    float e = length(vec2(r.x / 0.054, (r.y - 0.668) / 0.068));
     float front = smoothstep(0.028, 0.045, r.z);
     m = (e < 0.985 && front > 0.5) ? 1.0 : (r.y < -0.906 ? 2.0 : 0.0);
     rimE = (1.0 - smoothstep(0.0, 0.07, abs(e - 1.01))) * front;
@@ -1174,24 +1244,25 @@ void main(){
     float lo = legOuter(r) - 0.035;
     float legPanel = step(r.y, -0.12) * step(-0.86, r.y);
     float dSide = mix(1.0, side, torsoPanel), dLeg = mix(1.0, lo, legPanel);
-    lined = max(step(0.0, dSide) * torsoPanel, step(0.0, dLeg) * legPanel);
+    // one-piece open-cell smooth-skin: the panels differ only by a glued, blind-stitched seam, not by material
     float glove = step(1.042, r.y);
-    lined = max(lined, glove);
+    lined = glove;
     float sd = min(abs(dSide), abs(dLeg));
     sd = min(sd, abs(r.y + 0.03 - 0.01 * r.z / 0.1) + step(0.2, abs(r.x)));               // jacket hem
     sd = min(sd, abs(r.y + 0.885) + step(r.y, -0.95));                                       // ankle cuffs
     sd = min(sd, abs(r.y - 1.044) + step(1.08, r.y));                                        // glove cuff edge
     seam = 1.0 - smoothstep(0.0012, 0.0032, sd);
     // height field: taped seams, orange-peel smooth-skin, twill on lined panels, compression folds at the joints
-    h += seam * 0.0006;
-    h += fine * (1.0 - lined) * (vnoise(r.xy * 650.0) + vnoise(r.zy * 650.0 + 7.0)) * 0.00013;            // orange peel
-    h += (vnoise(r.xy * 22.0 + r.z * 9.0) + vnoise(r.zy * 18.0 + 3.0)) * 0.0007;                          // the suit is never perfectly taut
+    h -= seam * 0.0005;                                                                   // seams sit in a shallow groove
+    float skinM = m == 1.0 ? 0.0 : 1.0;
+    h += skinM * fine * (1.0 - lined) * (vnoise(r.xy * 650.0 + r.z * 470.0) + vnoise(r.zy * 650.0 + r.x * 520.0 + 7.0)) * 0.00013;   // orange peel (both lookups vary in every direction: no streaks)
+    h += skinM * (vnoise(r.xy * 22.0 + r.z * 9.0) + vnoise(r.zy * 18.0 + r.x * 14.0 + 3.0)) * 0.0007;                          // the suit is never perfectly taut
     h += fine * lined * (1.0 - glove) * sin((r.x + r.y + r.z) * 2400.0) * 0.00004;
     float knee = (1.0 - smoothstep(0.0, 0.07, abs(r.y + 0.52))) * step(r.z, -0.005) * step(r.y, -0.2);
     float hip = (1.0 - smoothstep(0.0, 0.05, abs(r.y + 0.07 - abs(r.x) * 0.25))) * step(0.02, r.z) * step(r.y, 0.05);
     h += (knee + hip * 0.5) * sin(r.y * 380.0 + sin(r.x * 90.0) * 2.0) * 0.0005 * smoothstep(0.004, 0.001, foot);
     // face: pores and the lip line
-    h += (m == 1.0 ? 1.0 : 0.0) * fine * vnoise(r.xy * 2400.0) * 0.00004;
+    h += (m == 1.0 ? 1.0 : 0.0) * fine * vnoise(r.xy * 2400.0) * 0.000012;
   }
   N = bumpN(N, vP, h, 1.0);
   if (m == 0.0) {
@@ -1201,10 +1272,12 @@ void main(){
       // heathered knit on the lined panels: individual fibres, faded out with distance
       float heather = mix(0.5, vnoise(r.xy * 1400.0 + r.z * 300.0) * 0.6 + vnoise(r.zy * 520.0) * 0.4, fine);
       vec3 knit = vec3(0.042, 0.044, 0.05) * (0.7 + 0.6 * heather);
-      alb = mix(vec3(0.02, 0.021, 0.024), mix(knit, vec3(0.024, 0.025, 0.028), glove), lined);
-      rough = mix(0.3 + 0.12 * vnoise(r.xy * 35.0), mix(0.85, 0.5, glove), lined);
-      envK = mix(0.42, 0.06, lined);
-      alb = mix(alb, vec3(0.085, 0.09, 0.095), seam * 0.8); rough = mix(rough, 0.55, seam);
+      // satin, not gloss: the cell skin scatters a broad soft sheen, with faint mottling where it has been stretched
+      float mott = vnoise(r.xy * 40.0 + r.z * 13.0) * 0.6 + vnoise(r.zy * 90.0) * 0.4;
+      alb = mix(vec3(0.019, 0.02, 0.022) * (0.9 + 0.2 * mott), vec3(0.024, 0.025, 0.028), lined);
+      rough = mix(0.46 + 0.12 * mott, 0.55, lined);
+      envK = mix(0.22, 0.06, lined);
+      alb *= 1.0 - seam * 0.45; rough = mix(rough, 0.7, seam);
       alb *= 1.0 - rimE * 0.3;
     } else { alb = vec3(0.02, 0.021, 0.024); rough = 0.2; envK = 0.8; }
   } else if (m == 1.0) {                   // wet, cold skin
@@ -1214,11 +1287,15 @@ void main(){
     if (uKind < 0.5) {
       float cheek = smoothstep(0.03, 0.0, length(vec2(abs(r.x) - 0.036, r.y - 0.692)));
       alb = mix(alb, vec3(0.6, 0.3, 0.27), cheek * 0.45);                                 // cold-flushed cheeks
-      float lipU = (1.0 - smoothstep(0.0035, 0.008, abs(r.y - 0.6685))) * (1.0 - smoothstep(0.015, 0.024, abs(r.x)));
-      float lipL = (1.0 - smoothstep(0.004, 0.009, abs(r.y - 0.6575))) * (1.0 - smoothstep(0.014, 0.022, abs(r.x)));
-      alb = mix(alb, vec3(0.46, 0.2, 0.19), max(lipU, lipL)); rough = mix(rough, 0.22, max(lipU, lipL));
-      alb *= 1.0 - 0.6 * (1.0 - smoothstep(0.0, 0.0014, abs(r.y - 0.6632 + 0.0015 * r.x * r.x / 0.0004))) * (1.0 - smoothstep(0.011, 0.02, abs(r.x)));
-      float e = length(vec2(r.x / 0.054, (r.y - 0.672) / 0.062));
+      // vermilion: soft-edged and following the lip shapes (bow on top, fuller below), only a little darker and redder than the skin
+      float bow = 0.0011 * (1.0 - smoothstep(0.0, 0.006, abs(abs(r.x) - 0.0055)));
+      float lipU = 1.0 - smoothstep(0.75, 1.15, length(vec2(r.x / 0.019, (r.y - 0.6662 - bow * 0.0) / (0.0048 + bow))) );
+      lipU *= step(0.6628, r.y);
+      float lipL = (1.0 - smoothstep(0.75, 1.15, length(vec2(r.x / 0.0175, (r.y - 0.6595) / 0.0058)))) * step(r.y, 0.6628);
+      float lip = max(lipU, lipL);
+      alb = mix(alb, vec3(0.5, 0.24, 0.23), lip * 0.85); rough = mix(rough, 0.24, lip);
+      alb *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.0011, abs(r.y - 0.6628 + 0.001 * r.x * r.x / 0.0004))) * (1.0 - smoothstep(0.014, 0.022, abs(r.x)));
+      float e = length(vec2(r.x / 0.054, (r.y - 0.668) / 0.068));
       alb *= 0.5 + 0.5 * smoothstep(0.98, 0.72, e);                                        // shadowed under the rolled hood edge
     }
   } else if (m == 2.0) {                   // rubber foot pocket / fin rails
@@ -1228,7 +1305,7 @@ void main(){
     float tw = step(0.5, fract((floor(q.x) + floor(q.y)) * 0.25));
     alb = vec3(0.03, 0.032, 0.036) * (0.75 + 0.5 * tw); rough = mix(0.12, 0.3, tw); f0 = 0.05; envK = 1.0;
   } else if (m == 4.0) {                   // silicone mask frame / strap
-    alb = vec3(0.012, 0.012, 0.014); rough = 0.38;
+    alb = vec3(0.03, 0.031, 0.034); rough = 0.42;
   } else if (m == 5.0) {                   // tempered glass lens, the eye faintly visible behind it
     alb = vec3(0.004, 0.006, 0.007); rough = 0.03; f0 = 0.06; envK = 1.3;
     vec2 q = vR.xy - vec2(sign(vR.x) * 0.036, 0.001);
@@ -1239,7 +1316,7 @@ void main(){
     eye = mix(eye, vec3(0.005), smoothstep(0.0022, 0.0017, pupil) * step(lid, 1.0));
     alb += eye * 0.09;
   } else if (m == 6.0) {                   // lead weights
-    alb = vec3(0.18, 0.19, 0.2); rough = 0.55; f0 = 0.15;
+    alb = vec3(0.06, 0.062, 0.066); rough = 0.75; f0 = 0.05;          // dull, oxidised lead
   } else {                                 // belt rubber
     alb = vec3(0.025, 0.026, 0.03); rough = 0.55;
   }
@@ -1311,7 +1388,20 @@ const rigid = (g, parent) => { const m = new THREE.Mesh(g, rigidMat); m.frustumC
   frame.computeVertexNormals();
   const fm = rigid(withMat(frame, 4), bone.head);
   fm.position.set(0, 0.083, 0.09); fm.rotation.x = -0.08;
-  const nose = rigid(withMat(blob(2), 4), bone.head); nose.scale.set(0.019, 0.025, 0.017); nose.position.set(0, 0.063, 0.1); nose.rotation.x = 0.4;
+  // nose pocket moulded round the nose: narrow at the bridge, flaring to the nostrils, a sloped ridge and a soft tip
+  const ng = blob(3), np = ng.attributes.position, tv = new THREE.Vector3();
+  for (let i = 0; i < np.count; i++) {
+    tv.fromBufferAttribute(np, i);
+    const t = (tv.y + 1) * 0.5;                                        // 0 at the nostrils, 1 at the bridge
+    const wdt = 0.0155 * (1 - 0.5 * t) * (1 + 0.15 * Math.max(0, -tv.y - 0.4));
+    const fwd = Math.max(tv.z, 0) * (0.009 + 0.007 * (1 - t)) + Math.min(tv.z, 0) * 0.008;   // flat back against the face, ridge in front
+    const ridge = 1 - 0.35 * Math.abs(tv.x) * Math.max(tv.z, 0);      // a ridge, not a dome
+    let y = tv.y * 0.022; if (tv.y < -0.55) y = -0.0121 - (tv.y + 0.55) * 0.01;   // flattened underside
+    tv.set(tv.x * wdt * ridge, y, fwd + 0.002 * (1 - t) * Math.max(tv.z, 0));
+    np.setXYZ(i, tv.x, tv.y, tv.z);
+  }
+  ng.computeVertexNormals();
+  const nose = rigid(withMat(ng, 4), bone.head); nose.position.set(0, 0.066, 0.098); nose.rotation.x = 0.22;
   for (const s of [1, -1]) {
     const lg = new THREE.ShapeGeometry(new THREE.Shape(lens(s).getPoints(32)));
     const lp = lg.attributes.position;
@@ -1567,9 +1657,9 @@ const shaftMat = new THREE.ShaderMaterial({
 });
 const shaftScene = pass(shaftMat);
 const compMat = new THREE.ShaderMaterial({
-  uniforms: { tScene: { value: null }, tShaft: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uExpo: { value: 1 }, uNF: { value: new THREE.Vector2(0.05, 900) } },
+  uniforms: { tScene: { value: null }, tShaft: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uExpo: { value: 1 }, uWB: { value: new THREE.Vector3(1, 1, 1) }, uNF: { value: new THREE.Vector2(0.05, 900) } },
   vertexShader: QV,
-  fragmentShader: `uniform sampler2D tScene; uniform sampler2D tShaft; uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uExpo; uniform vec2 uNF; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tScene; uniform sampler2D tShaft; uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uExpo; uniform vec3 uWB; uniform vec2 uNF; varying vec2 vUv;
   vec3 dec(vec3 e){ e = min(e, vec3(0.97)); return e / (1.0 - max(e.r, max(e.g, e.b))); }
   void main(){
     float zn = texture2D(tDepth, vUv).r * 2.0 - 1.0;
@@ -1584,7 +1674,11 @@ const compMat = new THREE.ShaderMaterial({
       float w = exp(-dot(d, d) * 0.35) * exp(-abs(t.a - z) / (0.03 * z + 0.05)) + 1e-6;
       s += t.rgb * w; ws += w;
     }
-    gl_FragColor = vec4((dec(texture2D(tScene, vUv).rgb) + s / ws) * uExpo, 1.0);
+    // camera white balance for underwater: lift the red the water has eaten, so kelp reads gold against blue water
+    vec3 c = (dec(texture2D(tScene, vUv).rgb) + s / ws) * uExpo;
+    float lum = dot(c, vec3(0.3, 0.5, 0.2));
+    c *= mix(uWB, vec3(1.0), smoothstep(0.5, 1.6, lum));
+    gl_FragColor = vec4(max(mix(vec3(dot(c, vec3(0.3, 0.5, 0.2))), c, 1.22), 0.0), 1.0);   // a touch of saturation, as a graded dive photo   // spare the highlights: the bright surface stays cyan
   }`,
   depthWrite: false, depthTest: false,
 });
@@ -1723,6 +1817,7 @@ sndBtn.addEventListener('click', (e) => {
 // fins flexing hard behind the foot. Kicks fade out ~9 m and the diver glides the last metres on buoyancy.
 const D = { t: 0, y: START_HIP, v: 0.95, phi: 0.6, amp: 1, surf: -1, look: 0.06, exhaled: false, fade: 0, bubQ: 0, cycle: 0 };
 const CAM = { p: new THREE.Vector3(), t: new THREE.Vector3(), init: false, yaw: 0, yawT: 0, pitchOff: 0, pitchOffT: 0, zoom: 1, zoomT: 1 };
+if (Q.has('zoom')) CAM.zoom = CAM.zoomT = +Q.get('zoom');          // e.g. ?zoom=1.5 for a wider recording
 // The kick is a wave that starts at the hip: the thigh leads, the shin trails it (so the knee bends
 // passively at the start of each down-kick and snaps straight at the end), the foot trails the shin,
 // and the fin (spring model below) trails the foot. Angles are absolute segment angles; joints are differences.
@@ -1875,7 +1970,7 @@ function tick(dt, draw = true) {
   CAM.yaw += (CAM.yawT - CAM.yaw) * Math.min(1, dt * 3);
   CAM.pitchOff += (CAM.pitchOffT - CAM.pitchOff) * Math.min(1, dt * 3);
   CAM.zoom += (CAM.zoomT - CAM.zoom) * Math.min(1, dt * 5);
-  _tgt.set(0, D.y - 0.25 + 0.45 * nearS + Math.max(0, 1 - CAM.zoom) * 1.3, 0);   // zooming in drifts toward the head and hands
+  _tgt.set(0, D.y - 0.25 + 0.45 * nearS + Math.max(0, 1 - CAM.zoom) * 1.3 + Math.max(0, CAM.zoom - 1) * 0.9 * (1 - nearS), 0);   // zooming in drifts toward the head and hands
   const az = 0.6 + CAM.yaw + 0.12 * Math.sin(t * 0.05), dist = view.dist * (1 - 0.18 * nearS) * CAM.zoom;
   const el = THREE.MathUtils.clamp(0.16 + 0.42 * nearS + CAM.pitchOff, -0.9, 1.35);
   _cp.set(Math.sin(az) * Math.cos(el) * dist, -Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(_tgt);
@@ -1889,7 +1984,8 @@ function tick(dt, draw = true) {
   camera.position.copy(CAM.p); camera.lookAt(CAM.t);
   const camDepth = -camera.position.y;
   U.uEyeY.value = camera.position.y;
-  compMat.uniforms.uExpo.value = 0.95 * Math.exp(0.02 * camDepth);
+  compMat.uniforms.uExpo.value = 0.95 * Math.exp(0.02 * camDepth) * (0.68 + 0.32 * smooth(1, 9, camDepth));   // the clear shallows are bright: stop down so they stay blue, not milky
+  { const k = smooth(1.5, 9, camDepth); compMat.uniforms.uWB.value.set(1 + 1.15 * k, 1, 1 - 0.05 * k); }   // auto white balance: more red lifted the deeper the camera
   compMat.uniforms.uNF.value.set(camera.near, camera.far);
   finalMat.uniforms.uTime.value = t; fxaaMat.uniforms.uTime.value = t; fxaaMat.uniforms.uFade.value = D.fade;
   depthEl.textContent = (since >= 0 ? '0.0' : depth.toFixed(1)) + ' m';
