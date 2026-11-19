@@ -253,10 +253,15 @@ float shadowAt(vec3 P, float soft){
   float occ = texture2D(tShadow, s.xy).r;
   float dist = max(s.z - occ, 0.0) * uShRange;                    // metres from blocker to receiver
   float pen = (0.0005 + dist * 0.0005) * soft;                    // soft, widening penumbra (sun disk + forward scatter)
+#ifdef SH_STABLE
+  const mat2 R = mat2(1.0, 0.0, 0.0, 1.0);                         // fixed pattern: smooth, no per-pixel speckle
+#else
   float a = ign(gl_FragCoord.xy) * TAU;
   mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));
+#endif
   float sum = 0.0;
-  for (int i = 0; i < SH_TAPS; i++) sum += step(s.z - 0.0009, texture2D(tShadow, s.xy + R * PD[i] * pen).r);
+  // soft depth compare: a tap that only grazes a blocker counts partly, so dense thin fronds don't speckle
+  for (int i = 0; i < SH_TAPS; i++) sum += smoothstep(-0.0012, 0.0006, texture2D(tShadow, s.xy + R * PD[i] * pen).r - s.z + 0.0009);
   return mix(0.14, 1.0, sum / float(SH_TAPS));
 }
 float causK(float d){ return 0.12 + 0.88 * exp(-d / 11.0); }
@@ -609,7 +614,7 @@ function boulder(x, z, s) {
     boulder(x, z, 0.3 + Math.pow(rng(), 2) * 1.6);
   }
 }
-const kelpFS = '#define SH_TAPS 4\n' + WATER + LIGHT + /* glsl */`
+const kelpFS = '#define SH_TAPS 8\n#define SH_STABLE\n' + WATER + LIGHT + /* glsl */`
 varying vec3 vP; varying vec3 vN; varying vec3 vT; varying vec2 vUv; varying vec3 vInfo;   // tone, age, part
 void main(){
   vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
@@ -626,10 +631,11 @@ void main(){
   alb = mix(alb, vec3(0.55, 0.45, 0.2), smoothstep(0.88, 1.0, vUv.y) * 0.5 * (1.0 - part));   // worn, paler tips
   alb = mix(alb, vec3(0.55, 0.38, 0.08), (1.0 - age) * 0.5);                      // young blades: lighter, greener
   alb = mix(alb, vec3(0.30, 0.22, 0.07), part);                                   // gas bladder / stipe
-  float sh = shadowAt(vP, 1.0);
+  float sh = shadowAt(vP, 2.6);   // a wider penumbra: blade shadows are soft by the time they land
   // caustics: the dispersed net, sharpened (thin blades catch the focused lines crisply), kept at the same mean
   vec2 cq = surfPt(vP); float cd = max(-vP.y, 0.0), ck = min(1.0, causK(cd) * 1.7), cl = causLod(cd) * 0.45;
   vec2 dsp = SUN_W.xz * (0.004 + cd * 0.003);
+  cl = max(cl, log2(max(length(fwidth(cq)) * 1.15 / 6.2832 * 512.0, 1e-4)) + 0.5);   // never finer than the pixel: no sparkle on distant blades
   vec3 cc = vec3(causTex((cq - dsp) * 1.15, cl).r, causTex(cq * 1.15, cl).r, causTex((cq + dsp) * 1.15, cl).r);
   cc = pow(cc, vec3(1.8)) * 0.62;
   vec3 E = sunAtten(vP) * canopyT(cq) * mix(vec3(1.0), cc, ck) * sh;
@@ -651,7 +657,7 @@ void main(){
   // water/Snell's window above mirrored at grazing angles
   float nv = max(dot(N, V), 1e-3), nh = max(dot(N, H), 0.0);
   float Fr = 0.03 + 0.97 * pow(1.0 - nv, 5.0);
-  float a2 = 0.022, dd = nh * nh * (a2 - 1.0) + 1.0;
+  vec3 dN = fwidth(N); float a2 = min(0.022 + dot(dN, dN) * 1.5, 0.35), dd = nh * nh * (a2 - 1.0) + 1.0;   // widen the glint where the normal varies within a pixel
   col += E * (a2 / (3.14159 * dd * dd)) * max(ndl, 0.0) * (0.04 + Fr) * 0.9 / max(nv, 0.25);
   col += envCol(reflect(-V, N), vP) * (0.02 + Fr) * 0.9;
   gl_FragColor = enc(applyWater(col, vP));
@@ -1656,6 +1662,22 @@ const shaftMat = new THREE.ShaderMaterial({
   depthWrite: false, depthTest: false,
 });
 const shaftScene = pass(shaftMat);
+// temporal accumulation: the march is jittered every frame, so average it over ~6 frames instead of showing the noise.
+// No reprojection (the camera drifts slowly); history is dropped wherever the depth behind the pixel changed.
+const shaftHist = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }));
+let histI = 0;
+const histMat = new THREE.ShaderMaterial({
+  uniforms: { tCur: { value: null }, tHist: { value: null }, uK: { value: Q.has('noacc') ? 1 : COARSE ? 0.14 : 0.2 } },
+  vertexShader: QV,
+  fragmentShader: `uniform sampler2D tCur; uniform sampler2D tHist; uniform float uK; varying vec2 vUv;
+  void main(){
+    vec4 c = texture2D(tCur, vUv), h = texture2D(tHist, vUv);
+    float same = step(abs(h.a - c.a), 0.04 * c.a + 0.02);
+    gl_FragColor = vec4(mix(c.rgb, mix(h.rgb, c.rgb, uK), same), c.a);
+  }`,
+  depthWrite: false, depthTest: false,
+});
+const histScene = pass(histMat);
 const compMat = new THREE.ShaderMaterial({
   uniforms: { tScene: { value: null }, tShaft: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uExpo: { value: 1 }, uWB: { value: new THREE.Vector3(1, 1, 1) }, uNF: { value: new THREE.Vector2(0.05, 900) } },
   vertexShader: QV,
@@ -1723,7 +1745,7 @@ const fxaaMat = new THREE.ShaderMaterial({
     vec3 b = a * 0.5 + 0.25 * (texture2D(tColor, vUv - dir * 0.5).rgb + texture2D(tColor, vUv + dir * 0.5).rgb);
     float lb = dot(b, L);
     vec3 col = (lb < lMin || lb > lMax) ? a : b;
-    col += (h(gl_FragCoord.xy + fract(uTime * 7.13) * 400.0) - 0.5) * 0.024;
+    col += (h(gl_FragCoord.xy + fract(uTime * 7.13) * 400.0) - 0.5) * ${COARSE ? '0.008' : '0.02'};
     gl_FragColor = vec4(col * uFade, 1.0);
   }`,
   depthWrite: false, depthTest: false,
@@ -1747,7 +1769,7 @@ function adaptRes(dt) {
 function resize() {
   const w = W(), h = H();
   renderer.setSize(innerWidth, innerHeight, false);
-  sceneRT.setSize(w, h); postRT.setSize(w, h); ldrRT.setSize(w, h); fxaaMat.uniforms.uRcp.value.set(1 / w, 1 / h); shaftRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2)); reflRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+  sceneRT.setSize(w, h); postRT.setSize(w, h); ldrRT.setSize(w, h); fxaaMat.uniforms.uRcp.value.set(1 / w, 1 / h); shaftRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2)); for (const r of shaftHist) r.setSize(Math.ceil(w / 2), Math.ceil(h / 2)); reflRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
   compMat.uniforms.uTexel.value.set(1 / shaftRT.width, 1 / shaftRT.height);
   bloom.setSize(w, h);
   finalMat.uniforms.uRes.value.set(w, h);
@@ -2043,7 +2065,9 @@ function render(dt) {
   shaftMat.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
   shaftMat.uniforms.uCamWorld.value.copy(camera.matrixWorld);
   if (!Q.has('noshaft')) { renderer.setRenderTarget(shaftRT); renderer.render(shaftScene, camera); }
-  compMat.uniforms.tScene.value = sceneRT.texture; compMat.uniforms.tShaft.value = shaftRT.texture; compMat.uniforms.tDepth.value = sceneRT.depthTexture;
+  histMat.uniforms.tCur.value = shaftRT.texture; histMat.uniforms.tHist.value = shaftHist[histI].texture;
+  renderer.setRenderTarget(shaftHist[1 - histI]); renderer.render(histScene, orthoCam); histI = 1 - histI;
+  compMat.uniforms.tScene.value = sceneRT.texture; compMat.uniforms.tShaft.value = shaftHist[histI].texture; compMat.uniforms.tDepth.value = sceneRT.depthTexture;
   renderer.setRenderTarget(postRT); renderer.render(compScene, orthoCam);
   bloom.render(renderer, null, postRT, dt, false);
   finalMat.uniforms.tColor.value = postRT.texture;
