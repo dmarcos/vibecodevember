@@ -28,6 +28,9 @@
   body.shot .bar, body.shot #info, body.shot #snd, body.shot #hint, body.shot #loading { display: none !important; }
   body.capture #snd, body.capture #hint, body.capture #loading { display: none !important; }
   body.hide .bar, body.hide #info, body.hide #hint { opacity: 0; }
+  body.capture #info { display: none !important; }
+  #intro { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 1; }
+  body.intro #info, body.intro #hint { opacity: 0; }
   @media (max-width: 700px) { #hint { display: none; } .name { font-size: 20px; } .brand { letter-spacing: .2em; font-size: 9px; } #info .s { font-size: 22px; } }
 </style>
 <script type="importmap">
@@ -39,9 +42,10 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="intro"></canvas>
 <header class="bar"><span class="brand">Vibecodevember · Day 18</span><span class="name">Pendulum</span></header>
 <div id="info"><div class="s" id="mode">Spectrum</div><div class="t" id="expo">exposure 00:00</div></div>
-<div id="hint"><b>drag</b> the light · <b>space</b> new release · <b>c</b> colour · <b>h</b> hide</div>
+<div id="hint"><b>drag</b> the light · <b>space</b> new release · <b>c</b> colour · <b>v</b> camera · <b>l</b> letterbox · <b>h</b> hide</div>
 <button id="snd">sound off</button>
 <div id="loading">hanging the light…</div>
 
@@ -57,7 +61,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ============================================================================ params
 const Q = new URLSearchParams(location.search);
-const SHOT = Q.has('shot'), CAPTURE = Q.has('capture');
+const SHOT = Q.has('shot'), REC = Q.has('rec'), CAPTURE = Q.has('capture') || REC;   // rec: frame-by-frame recording, driven from outside
 if (SHOT) document.body.classList.add('shot');
 if (CAPTURE) document.body.classList.add('capture');
 const vec3Param = k => Q.has(k) ? Q.get(k).split(',').map(Number) : null;
@@ -114,8 +118,8 @@ function greyTex(size, fn, srgb, repeat = [1, 1]) {
 THREE.ShaderChunk.lights_pars_begin = THREE.ShaderChunk.lights_pars_begin.replace('max( pow( lightDistance, decayExponent ), 0.01 )', 'max( pow( lightDistance, decayExponent ), 0.12 )');
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = Q.has('exp') ? +Q.get('exp') : 1.0;
+renderer.toneMapping = THREE.AgXToneMapping;          // film-like highlight roll-off: saturated lights desaturate toward white instead of clipping
+renderer.toneMappingExposure = Q.has('exp') ? +Q.get('exp') : 1.35;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false;               // shadows are drawn once per frame, not again for the mirror or the cube camera
@@ -424,8 +428,8 @@ function rustTex(seed) {
   cg.putImageData(ci, 0, 0); hg.putImageData(hi, 0, 0); rg.putImageData(ri, 0, 0);
   const wrap = (x, y, r, fn) => { for (const dx of [-S, 0, S]) for (const dy of [-S, 0, S]) if (x + dx + r > 0 && x + dx - r < S && y + dy + r > 0 && y + dy - r < S) fn(x + dx, y + dy); };
   // rust blooms: a black-brown core, a ring of fresh orange, a soft stained halo; each sheds a drip downward
-  for (let k = 0; k < 110; k++) {
-    const x = R() * S, y = R() * S, r = 3 + R() ** 2.5 * 34, parts = 3 + (R() * 5 | 0);
+  for (let k = 0; k < 70; k++) {
+    const x = R() * S, y = R() * S, r = 3 + R() ** 2.5 * 30, parts = 3 + (R() * 5 | 0);
     for (let j = 0; j < parts; j++) {                  // a bloom is never a circle: a cluster of offset, squashed blots
       const ox = x + (R() - 0.5) * r * 1.6, oy = y + (R() - 0.5) * r * 1.6, rr = r * (0.35 + R() * 0.7), sx = 0.6 + R() * 0.8, rot = R() * TAU;
       const core = 0.35 + R() * 0.45, ring = 0.15 + R() * 0.3;
@@ -435,7 +439,7 @@ function rustTex(seed) {
         gr.addColorStop(0, `rgba(40,24,17,${core})`); gr.addColorStop(0.35, `rgba(72,36,21,${core * 0.8})`); gr.addColorStop(0.55, `rgba(150,74,32,${ring})`); gr.addColorStop(1, 'rgba(120,62,30,0)');
         cg.fillStyle = gr; cg.fillRect(-rr * 2, -rr * 2, rr * 4, rr * 4); cg.restore();
         hg.save(); hg.translate(px, py); hg.rotate(rot); hg.scale(sx, 1 / sx);
-        gr = hg.createRadialGradient(0, 0, 0, 0, 0, rr * 1.5); gr.addColorStop(0, 'rgba(255,255,255,0.4)'); gr.addColorStop(1, 'rgba(220,220,220,0)');
+        gr = hg.createRadialGradient(0, 0, 0, 0, 0, rr * 1.5); gr.addColorStop(0, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(220,220,220,0)');
         hg.fillStyle = gr; hg.fillRect(-rr * 1.5, -rr * 1.5, rr * 3, rr * 3); hg.restore();
         rg.fillStyle = 'rgba(250,250,250,0.35)'; rg.beginPath(); rg.arc(px, py, rr * 1.1, 0, TAU); rg.fill();
       });
@@ -528,6 +532,7 @@ const [cityTex, cityBlur] = (() => {
 const cubeRT = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
 const cubeCam = new THREE.CubeCamera(0.05, 120, cubeRT);
 cubeCam.position.set(0, 2.4, 0.9);
+cubeCam.children.forEach(c => c.layers.enable(5));   // the metal sees the drawing (layer 5, see TRAIL_LAYER)
 scene.add(cubeCam);
 
 // ============================================================================ materials
@@ -646,6 +651,7 @@ floorMirror.material.uniforms.tRough.value = floorRough; floorMirror.material.un
 floorMirror.getRenderTarget().texture.generateMipmaps = false;
 Object.assign(floorMirror.material, { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
 floorMirror.rotation.x = -Math.PI / 2; floorMirror.position.y = 0.003; floorMirror.renderOrder = 1;
+floorMirror.camera.layers.enable(5);                 // the mirror sees the drawing (layer 5, see TRAIL_LAYER)
 scene.add(floorMirror);
 
 // ---------------------------------------------------------------------------- walls with real window openings
@@ -1066,15 +1072,27 @@ const trailMat = new THREE.ShaderMaterial({
       gl_FragColor = vec4(c * vI * uGain, 1.);
     }`,
 });
+// The drawing is light, not a surface: it is drawn twice. This copy lives on its own layer for the floor mirror and the metal's
+// cube capture to see; the copy the audience sees (trailMain) is rendered in a pass of its own, hidden only by what really stands
+// in front of it (tested against the scene's depth), and added as light on top of the lens blur, so nothing behind it
+// (bright windows, haze) can wash it out and it never confuses the depth of field.
+const TRAIL_LAYER = 5;
 const trail = new THREE.Mesh(trailGeo, trailMat);
-trail.frustumCulled = false; trail.renderOrder = 10;
+trail.frustumCulled = false; trail.renderOrder = 10; trail.layers.set(TRAIL_LAYER);
 scene.add(trail);
+const trailMainMat = trailMat.clone();
+trailMainMat.uniforms = { ...trailU, tDepth: { value: null }, uRes: { value: new THREE.Vector2(1, 1) } };
+trailMainMat.fragmentShader = trailMat.fragmentShader.replace('uniform float uGain;', 'uniform float uGain; uniform sampler2D tDepth; uniform vec2 uRes;')
+  .replace('void main(){', 'void main(){\n      if (gl_FragCoord.z > texture2D(tDepth, gl_FragCoord.xy / uRes).r + 2e-6) discard;   // behind the stand or an arm');
+const trailMain = new THREE.Mesh(trailGeo, trailMainMat);
+trailMain.frustumCulled = false;
+const trailScene = new THREE.Scene(); trailScene.add(trailMain);
 let segHead = 0, dirtyLo = Infinity, dirtyHi = -1, wrapped = false;
 
 // the trace as a light source: binned into a 3x3 grid on the drawing plane; each cell shines from its glow's centroid (see traceLit)
 const GN = 3, GR = L1 + L2 + 0.05, GCELL = 2 * GR / GN;
 const cells = Array.from({ length: GN * GN }, () => ({ r: 0, g: 0, b: 0, x: 0, y: 0, w: 0 }));
-const K_TRACE = (Q.has('kt') ? +Q.get('kt') : 3.2) * LED_I / TAU_FADE;   // in steady state the whole trace shines ~2.6x the bare light
+const K_TRACE = (Q.has('kt') ? +Q.get('kt') : 4.0) * LED_I / TAU_FADE;   // in steady state the whole trace shines ~4x the bare light
 
 let simT = 0, exposureStart = 0;
 let lastX = 0, lastY = 0, accDt = 0, hasLast = false;
@@ -1202,7 +1220,7 @@ const volPass = new ShaderPass({
     uLP: { value: Array.from({ length: NL }, () => new THREE.Vector3()) }, uLC: { value: Array.from({ length: NL }, () => new THREE.Vector3()) },
     uLR: { value: Array.from({ length: NL }, (_, i) => i === NL - 1 ? 0.04 : 0.6) },
     tShaft: { value: null }, uShTx: { value: new THREE.Vector2() }, uMoonCol: { value: new THREE.Color(0x9fb3dc) }, uShaft: { value: Q.has('shaft') ? +Q.get('shaft') : 0.035 },
-    uSigT: { value: 0.012 }, uScat: { value: Q.has('scat') ? +Q.get('scat') : 0.0009 }, uHaze: { value: new THREE.Vector3(0.0002, 0.00025, 0.0004) },
+    uSigT: { value: 0.012 }, uScat: { value: Q.has('scat') ? +Q.get('scat') : 0.0013 }, uHaze: { value: new THREE.Vector3(0.0002, 0.00025, 0.0004) },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
   fragmentShader: /* glsl */`
@@ -1283,6 +1301,42 @@ volPass.uniforms.tShaft.value = shaftRT.texture;
 
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType }));
 composer.addPass(volPass);
+// Depth of field: a scatter-as-gather disc blur over the HDR frame, focused on the pendulum, so bright out-of-focus points
+// (the light, the city through the glass, highlights) open into round bokeh. The circle of confusion follows a thin lens.
+const dofPass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, tDepth: { value: rtS.depthTexture }, uRes: { value: new THREE.Vector2(1, 1) },
+    uFocus: { value: 8 }, uAperture: { value: Q.has('ap') ? +Q.get('ap') : 1 }, uMaxR: { value: 12 }, uNear: { value: camera.near }, uFar: { value: camera.far } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse, tDepth; uniform vec2 uRes; uniform float uFocus, uAperture, uMaxR, uNear, uFar; varying vec2 vUv;
+    float lin(float d){ float z = d * 2. - 1.; return 2. * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+    float coc(float z){ return min(uMaxR, uAperture * uMaxR * 1.6 * abs(z - uFocus) / max(z, .1)); }
+    void main(){
+      vec3 c0 = texture2D(tDiffuse, vUv).rgb; float z0 = lin(texture2D(tDepth, vUv).r), r0 = coc(z0);
+      vec3 acc = c0; float wsum = 1.;
+      const float GA = 2.39996323;
+      for (int i = 1; i < 26; i++) {
+        float fi = float(i), r = sqrt(fi / 26.) * uMaxR, a = fi * GA;
+        vec2 o = vec2(cos(a), sin(a)) * r / uRes;
+        float zi = lin(texture2D(tDepth, vUv + o).r), ri = coc(zi);
+        // a sample reaches this pixel if its own blur disc is that big; nearer samples may spill over sharper ones behind
+        float w = smoothstep(r - 1.5, r + .5, zi < z0 ? ri : min(ri, r0));
+        acc += texture2D(tDiffuse, vUv + o).rgb * w; wsum += w;
+      }
+      gl_FragColor = vec4(acc / wsum, 1.);
+    }`,
+});
+dofPass.uniforms.tDepth.value = rtS.depthTexture;
+composer.addPass(dofPass);
+// the drawing, added as light after the lens blur
+const rtT = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+const trailAddPass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, tTrail: { value: null } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: `uniform sampler2D tDiffuse, tTrail; varying vec2 vUv; void main(){ gl_FragColor = vec4(texture2D(tDiffuse, vUv).rgb + texture2D(tTrail, vUv).rgb, 1.); }`,
+});
+trailAddPass.uniforms.tTrail.value = rtT.texture;
+composer.addPass(trailAddPass);
 // Dual-Kawase bloom: a soft, round glow (a truncated separable blur turns a point of light into a square)
 class KawaseBloom extends Pass {
   constructor(levels = 6, strength = 0.2) {
@@ -1304,9 +1358,14 @@ class KawaseBloom extends Pass {
           + 2. * (texture2D(uT, vUv + vec2(-h.x, h.y)).rgb + texture2D(uT, vUv + h).rgb + texture2D(uT, vUv - h).rgb + texture2D(uT, vUv + vec2(h.x, -h.y)).rgb);
         gl_FragColor = vec4(s / 12. + texture2D(uCur, vUv).rgb, 1.); }`,
       { uT: { value: null }, uCur: { value: null }, uTx: { value: new THREE.Vector2() } });
-    this.comp = mk(`uniform sampler2D uS, uB; uniform float uK; varying vec2 vUv;
-      void main(){ gl_FragColor = vec4(texture2D(uS, vUv).rgb + texture2D(uB, vUv).rgb * uK, 1.); }`,
-      { uS: { value: null }, uB: { value: null }, uK: { value: strength } });
+    // composite: bloom with a warm halation tint (film's red layer glows around highlights) plus anamorphic streaks: only the
+    // hottest points, smeared far along the horizontal and tinted blue, the way a cylindrical lens flares
+    this.comp = mk(`uniform sampler2D uS, uB, uH; uniform float uK, uStreak; varying vec2 vUv;
+      void main(){
+        vec3 st = vec3(0.);
+        for (int i = -24; i <= 24; i++) { float x = float(i) / 24.; vec3 h = texture2D(uH, vUv + vec2(x * .3, 0.)).rgb; st += max(h - .35, 0.) * exp(-abs(x) * 5.); }
+        gl_FragColor = vec4(texture2D(uS, vUv).rgb + texture2D(uB, vUv).rgb * uK * vec3(1.12, .96, .86) + st * uStreak * vec3(.45, .65, 1.3), 1.); }`,
+      { uS: { value: null }, uB: { value: null }, uH: { value: null }, uK: { value: strength }, uStreak: { value: Q.has('streak') ? +Q.get('streak') : 0.05 } });
     this.q = new FullScreenQuad(null);
   }
   setSize(w, h) {
@@ -1323,7 +1382,7 @@ class KawaseBloom extends Pass {
       this.upM.uniforms.uT.value = low.texture; this.upM.uniforms.uCur.value = d[i].texture; this.upM.uniforms.uTx.value.set(0.5 / low.width, 0.5 / low.height);
       this.draw(renderer, this.upM, u[i]); low = u[i];
     }
-    this.comp.uniforms.uS.value = readBuffer.texture; this.comp.uniforms.uB.value = low.texture;
+    this.comp.uniforms.uS.value = readBuffer.texture; this.comp.uniforms.uB.value = low.texture; this.comp.uniforms.uH.value = d[3].texture;
     this.draw(renderer, this.comp, this.renderToScreen ? null : writeBuffer);
   }
 }
@@ -1331,10 +1390,10 @@ const bloomPass = new KawaseBloom(6, Q.has('bloom') ? +Q.get('bloom') : 0.2);
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
 const gradePass = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uBars: { value: 0 }, uFadeIn: { value: 1 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uTime, uBars, uFadeIn; uniform vec2 uRes; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     vec3 fxaa(vec2 uv, vec2 px){                     // FXAA (console variant): the scene renders without MSAA
       const vec3 W = vec3(.299, .587, .114);
@@ -1352,20 +1411,34 @@ const gradePass = new ShaderPass({
       return (lb < lo || lb > hi) ? a : b;
     }
     void main(){
-      vec3 c = fxaa(vUv, 1. / uRes);
-      // light contrast-adaptive sharpening, so anti-aliasing (and any resolution step-down) doesn't read as blur
+      // letterbox: the frame is a 2.39:1 band; outside it, black
+      if (vUv.y < uBars || vUv.y > 1. - uBars) { gl_FragColor = vec4(0., 0., 0., 1.); return; }
       vec2 px = 1. / uRes;
-      vec3 n = texture2D(tDiffuse, vUv + vec2(0., px.y)).rgb, s = texture2D(tDiffuse, vUv - vec2(0., px.y)).rgb;
-      vec3 e = texture2D(tDiffuse, vUv + vec2(px.x, 0.)).rgb, w = texture2D(tDiffuse, vUv - vec2(px.x, 0.)).rgb;
+      // the lens: a touch of barrel distortion and lateral colour fringing that grows toward the frame edge
+      vec2 cc = vUv - .5, ca = cc * vec2(uRes.x / uRes.y, 1.);
+      float k = dot(ca, ca);
+      vec2 uv = .5 + cc * (1. - .035 * k);
+      vec3 c = fxaa(uv, px);
+      vec2 fr = cc * k * .006;
+      c.r = mix(c.r, texture2D(tDiffuse, uv + fr).r, .85); c.b = mix(c.b, texture2D(tDiffuse, uv - fr).b, .85);
+      // light contrast-adaptive sharpening, so anti-aliasing (and any resolution step-down) doesn't read as blur
+      vec3 n = texture2D(tDiffuse, uv + vec2(0., px.y)).rgb, s = texture2D(tDiffuse, uv - vec2(0., px.y)).rgb;
+      vec3 e = texture2D(tDiffuse, uv + vec2(px.x, 0.)).rgb, w = texture2D(tDiffuse, uv - vec2(px.x, 0.)).rgb;
       vec3 lo = min(c, min(min(n, s), min(e, w))), hi = max(c, max(max(n, s), max(e, w)));
-      float amt = .22 * sqrt(clamp(min(dot(lo, vec3(.333)), 1. - dot(hi, vec3(.333))) / max(dot(hi, vec3(.333)), 1e-3), 0., 1.));
+      float amt = .2 * sqrt(clamp(min(dot(lo, vec3(.333)), 1. - dot(hi, vec3(.333))) / max(dot(hi, vec3(.333)), 1e-3), 0., 1.));
       c = clamp(c + (4. * c - n - s - e - w) * amt, lo, hi);
-      vec2 q = vUv - .5; q.x *= uRes.x / uRes.y;
-      c *= mix(.55, 1., smoothstep(1.1, .25, length(q)));
-      float g = hash(floor(vUv * uRes) + fract(uTime * 7.31) * 113.) - .5;
-      c += g * .03 * (1. - .6 * dot(c, vec3(.333)));
-      c += vec3(.004, .005, .007);                  // lifted, slightly cool blacks
-      gl_FragColor = vec4(c, 1.);
+      // the grade: a print-like S-curve, colour back into the mids, cool shadows and warm highlights, soft cool blacks
+      float l = dot(c, vec3(.2126, .7152, .0722));
+      c = mix(c, c * c * (3. - 2. * c), .3);
+      c = mix(vec3(l), c, 1.12);
+      c *= mix(vec3(.9, 1., 1.1), vec3(1.07, 1., .9), smoothstep(.04, .55, l));
+      c = c * .965 + vec3(.010, .013, .019);
+      // vignette (optical falloff, oval to the frame), then grain that lives in the mids
+      vec2 q = cc * vec2(1., uRes.y / uRes.x * 2.39 / (1. - 2. * uBars));
+      c *= mix(.42, 1., smoothstep(.95, .2, length(q)));
+      float g = hash(floor(vUv * uRes / 1.3) + fract(uTime * 7.31) * 113.) - .5;
+      c += g * .045 * (l * (1. - l) * 3.2 + .1);
+      gl_FragColor = vec4(max(c, 0.) * uFadeIn, 1.);
     }`,
 });
 composer.addPass(gradePass);
@@ -1396,18 +1469,20 @@ scene.traverse(o => { if (o.isMesh && o.material?.isMeshStandardMaterial) traceL
 glassMat.uniforms.uTP.value = TRACE_P; glassMat.uniforms.uTC.value = TRACE_C;
 
 // ============================================================================ sizing
+let LETTERBOX = !Q.has('nolb');
 function sizeTargets() {
   const w = innerWidth, h = innerHeight, pr = RPR;
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
   composer.setPixelRatio(pr); composer.setSize(w, h);
-  rtS.setSize(Math.round(w * pr), Math.round(h * pr));
+  rtS.setSize(Math.round(w * pr), Math.round(h * pr)); rtT.setSize(Math.round(w * pr), Math.round(h * pr)); trailMainMat.uniforms.uRes.value.set(Math.round(w * pr), Math.round(h * pr));
   floorMirror.getRenderTarget().setSize(Math.round(w * pr * 0.38), Math.round(h * pr * 0.38));
   shaftRT.setSize(Math.round(w * pr * 0.5), Math.round(h * pr * 0.5)); volPass.uniforms.uShTx.value.set(1 / (w * pr * 0.5), 1 / (h * pr * 0.5));
-  gradePass.uniforms.uRes.value.set(w * pr, h * pr);
+  gradePass.uniforms.uRes.value.set(w * pr, h * pr); dofPass.uniforms.uRes.value.set(w * pr, h * pr); dofPass.uniforms.uMaxR.value = 9 * pr * Math.min(1.4, h / 900);
+  gradePass.uniforms.uBars.value = LETTERBOX ? Math.max(0, (1 - w / 2.39 / h) / 2) : 0;
   trailU.uPx.value = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / (h * pr);
 }
 function resize() {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  camera.aspect = innerWidth / innerHeight; camera.fov = LETTERBOX ? 47 : 42; camera.updateProjectionMatrix();
   sizeTargets();
 }
 addEventListener('resize', resize);
@@ -1456,8 +1531,10 @@ canvas.addEventListener('pointerup', endGrab); canvas.addEventListener('pointerc
 // ============================================================================ sound
 // Room tone and a long reverb; the arms' swoosh follows the light's speed; a glass note sounds each time the light tops out.
 const snd = { ctx: null, on: false };
-function buildAudio() {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+let recNow = 0;                                     // in a recording the soundtrack is rendered offline against the film's own clock
+const sndNow = () => REC ? recNow : snd.ctx.currentTime;
+function buildAudio(offline) {
+  const ctx = offline || new (window.AudioContext || window.webkitAudioContext)();
   const master = ctx.createGain(); master.gain.value = 0;
   const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
   master.connect(comp).connect(ctx.destination);
@@ -1478,13 +1555,13 @@ function buildAudio() {
   const mo = ctx.createOscillator(); mo.type = 'sawtooth'; mo.frequency.value = 70; const moF = ctx.createBiquadFilter(); moF.type = 'lowpass'; moF.frequency.value = 400; const moG = ctx.createGain(); moG.gain.value = 0;
   mo.connect(moF).connect(moG).connect(master); moG.connect(verb); mo.start();      // winding motor
   Object.assign(snd, { ctx, master, swF, swG, swP, brG });
-  snd.motor = (on) => { if (!snd.on) return; const t = ctx.currentTime; moG.gain.setTargetAtTime(on ? 0.025 : 0, t, on ? 0.3 : 0.15); mo.frequency.setTargetAtTime(on ? 115 : 70, t, 1.2); };
+  snd.motor = (on) => { if (!snd.on) return; const t = sndNow(); moG.gain.setTargetAtTime(on ? 0.025 : 0, t, on ? 0.3 : 0.15); mo.frequency.setTargetAtTime(on ? 115 : 70, t, 1.2); };
   snd.click = () => {
-    if (!snd.on) return; const t = ctx.currentTime, s = ctx.createBufferSource(); s.buffer = white; const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800;
+    if (!snd.on) return; const t = sndNow(), s = ctx.createBufferSource(); s.buffer = white; const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800;
     const g = ctx.createGain(); g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04); s.connect(f).connect(g); g.connect(master); g.connect(verb); s.start(t, Math.random()); s.stop(t + 0.06);
   };
   snd.note = (freq, vel, pan) => {
-    const t = ctx.currentTime, p = ctx.createStereoPanner(); p.pan.value = pan; const dry = ctx.createGain(); dry.gain.value = 0.55;
+    const t = sndNow(), p = ctx.createStereoPanner(); p.pan.value = pan; const dry = ctx.createGain(); dry.gain.value = 0.55;
     p.connect(dry).connect(master); p.connect(verb);
     for (const [r, a, dk] of [[1, 1, 3.2], [2.0, 0.28, 1.6], [3.01, 0.12, 0.9], [4.17, 0.05, 0.5]]) {
       const o = ctx.createOscillator(); o.frequency.value = freq * r; const g = ctx.createGain();
@@ -1502,6 +1579,20 @@ function setSound(on) {
 }
 sndBtn.addEventListener('click', e => { e.stopPropagation(); setSound(!snd.on); sndBtn.blur(); });
 let autoSound = !SHOT && !CAPTURE;
+if (REC) {                                           // the whole soundtrack, rendered offline, frame-synchronous with the picture
+  const dur = +(Q.get('dur') || 37) + 4;
+  buildAudio(new OfflineAudioContext(2, Math.ceil(44100 * dur), 44100));
+  snd.on = true; snd.master.gain.setValueAtTime(0, 0); snd.master.gain.linearRampToValueAtTime(0.9, 1.5);
+  window.__audio = async () => {
+    const buf = await snd.ctx.startRendering(), n = buf.length, L = buf.getChannelData(0), Rr = buf.getChannelData(1);
+    const out = new DataView(new ArrayBuffer(44 + n * 4)), w = (o, str) => { for (let i = 0; i < str.length; i++) out.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
+    out.setUint32(24, 44100, true); out.setUint32(28, 44100 * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); w(36, 'data'); out.setUint32(40, n * 4, true);
+    for (let i = 0; i < n; i++) { out.setInt16(44 + i * 4, clamp(L[i], -1, 1) * 32767, true); out.setInt16(46 + i * 4, clamp(Rr[i], -1, 1) * 32767, true); }
+    const bytes = new Uint8Array(out.buffer); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+}
 const firstGesture = e => { if (e.target === sndBtn) return; if (autoSound && !snd.on) setSound(true); autoSound = false; };
 addEventListener('pointerdown', firstGesture, { capture: true });
 addEventListener('keydown', firstGesture, { capture: true });
@@ -1510,7 +1601,7 @@ let prevVy = 0, lastNote = -1;
 function updateSound() {
   if (!snd.on || !snd.ctx) return;
   const c1 = Math.cos(S.t1), s1 = Math.sin(S.t1), c2 = Math.cos(S.t2), s2 = Math.sin(S.t2);
-  const vx = L1 * S.w1 * c1 + L2 * S.w2 * c2, vy = L1 * S.w1 * s1 + L2 * S.w2 * s2, sp = Math.hypot(vx, vy), t = snd.ctx.currentTime;
+  const vx = L1 * S.w1 * c1 + L2 * S.w2 * c2, vy = L1 * S.w1 * s1 + L2 * S.w2 * s2, sp = Math.hypot(vx, vy), t = sndNow();
   const moving = phaseName === 'run' ? 1 : 0.25, pan = clamp(tipX() / 2.5, -0.9, 0.9);
   snd.swG.gain.setTargetAtTime(Math.min(0.5, sp * sp / 80) * moving, t, 0.05);
   snd.swF.frequency.setTargetAtTime(220 + sp * 160, t, 0.05);
@@ -1526,9 +1617,12 @@ function updateSound() {
 
 // ============================================================================ input + HUD
 addEventListener('keydown', e => {
+  if (INTRO && introT < IT.out) { introSkip = true; if (e.code === 'Space') e.preventDefault(); return; }
   if (e.code === 'Space') { e.preventDefault(); beginLift(); }
   else if (e.key === 'c' || e.key === 'C') mode = (mode + 1) % 3;
   else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('hide');
+  else if (e.key === 'v' || e.key === 'V') { director = !director; if (director) lastInteract = -1e9; else { manual = true; lastInteract = performance.now(); } }
+  else if (e.key === 'l' || e.key === 'L') { LETTERBOX = !LETTERBOX; resize(); }
 });
 const modeEl = document.getElementById('mode'), expoEl = document.getElementById('expo');
 function hud() {
@@ -1555,6 +1649,151 @@ function placeArms() {
   LP[NL - 1].copy(led.position); LC[NL - 1].set(led.color.r, led.color.g, led.color.b).multiplyScalar(led.intensity);
 }
 
+
+// ============================================================================ the director: slow cinematic shots, cut between
+// Each shot is a camera move (dolly, crane, push-in) from a to b while looking from ta to tb, with a breath of handheld
+// drift; the lens focuses on fp (default the pendulum) at aperture ap. Any drag hands the camera over; it cuts back in later.
+const SHOTS = [
+  { a: [0, 2.85, 7.2], b: [0.5, 1.9, 10.8], ta: [0, 2.85, 0], tb: [0, 2.6, 0], dur: 16, ap: 0.6 },              // opening: pull back from the diagram's frame
+  { a: [0.2, 1.45, 11.5], b: [0.5, 1.6, 8.6], ta: [0, 2.75, 0], tb: [0, 2.7, 0], dur: 22, ap: 0.7 },          // slow push-in
+  { a: [-7.5, 0.55, 6.5], b: [-4.6, 0.7, 8.3], ta: [0, 2.3, 0], tb: [0, 2.6, 0], dur: 18, ap: 0.9 },          // low dolly, left
+  { a: [1.8, 3.35, 2.5], b: [-1.4, 3.1, 2.7], ta: [0.4, 3.0, 0], tb: [-0.3, 3.0, 0], dur: 15, ap: 1.6 },      // close on the pivot
+  { a: [7.5, 7.6, 10], b: [4.6, 5.0, 7.6], ta: [0, 2.0, 0], tb: [0, 2.5, 0], dur: 18, ap: 0.55 },             // crane down
+  { a: [0.95, 0.32, 2.3], b: [-0.8, 0.38, 2.1], ta: [0, 0.5, -0.4], tb: [0, 1.5, -0.4], dur: 14, ap: 1.5, fp: [0, 0.5, -0.36] },   // floor level, tilting up the stand
+  { a: [17, 2.0, 15], b: [13, 2.7, 12.6], ta: [0, 3.6, -2], tb: [0, 3.2, -1], dur: 22, ap: 0.35 },            // wide from the far corner
+];
+if (REC) SHOTS.splice(0, SHOTS.length, { ...SHOTS[0], dur: 9 }, { ...SHOTS[3], dur: 8 }, { ...SHOTS[4], dur: 7 }, { ...SHOTS[6], dur: 9 });
+let director = !Q.has('nodir') && !SHOT, shotI = Q.has('shotn') ? +Q.get('shotn') : 0, shotT = 0, manual = false;
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _fwd = new THREE.Vector3(), _fp = new THREE.Vector3();
+function placeShot(sh, u, t) {
+  const e = sstep(0, 1, u) * 0.55 + u * 0.45;                               // mostly constant speed, eased at the ends
+  camera.position.lerpVectors(_a.fromArray(sh.a), _b.fromArray(sh.b), e);
+  controls.target.lerpVectors(_a.fromArray(sh.ta), _b.fromArray(sh.tb), e);
+  // handheld: a few incommensurate slow sines, centimetres at most
+  camera.position.x += 0.012 * Math.sin(t * 0.71) + 0.006 * Math.sin(t * 1.93);
+  camera.position.y += 0.010 * Math.sin(t * 0.53 + 1.3) + 0.005 * Math.sin(t * 2.31);
+  controls.target.x += 0.008 * Math.sin(t * 0.37 + 0.4); controls.target.y += 0.006 * Math.sin(t * 0.61 + 2.1);
+  camera.lookAt(controls.target);
+}
+function focusOn(p, ap, dt) {
+  camera.getWorldDirection(_fwd);
+  const f = Math.max(0.5, _fp.copy(p).sub(camera.position).dot(_fwd)), U = dofPass.uniforms;
+  const k = dt ? 1 - Math.exp(-dt * 3) : 1;                                // the focus puller is quick but not instant
+  U.uFocus.value += (f - U.uFocus.value) * k; U.uAperture.value += (ap - U.uAperture.value) * k;
+}
+function directCamera(dt) {
+  if (INTRO && introT < IT.out) { shotI = 0; shotT = 0; placeShot(SHOTS[0], 0, simT); focusOn(P0, SHOTS[0].ap, 0); return; }
+  const idle = performance.now() - lastInteract > 12000;
+  if (!director || !idle) {                                                 // the visitor has the camera
+    manual = true; controls.update(dt); keepInRoom(); focusOn(P0, 0.6, dt); return;
+  }
+  if (manual) { manual = false; shotI++; shotT = 0; }                       // cut back in on the next shot
+  let sh = SHOTS[shotI % SHOTS.length];
+  shotT += dt;
+  if (shotT > sh.dur) { shotI++; shotT = 0; sh = SHOTS[shotI % SHOTS.length]; }
+  placeShot(sh, shotT / sh.dur, simT);
+  focusOn(sh.fp ? _fp.fromArray(sh.fp) : P0, sh.ap, shotT < 0.05 ? 0 : dt);
+}
+
+// ============================================================================ the prologue: how a double pendulum works, in five seconds
+// No room yet: a white line diagram drawn exactly over the real pendulum (projected through the real camera), labelled.
+// Then three copies are let go half a degree apart; they swing together, then fly apart: chaos. The hall fades in around the
+// real one, whose light has been painting all along.
+const INTRO = !Q.has('nointro') && (!SHOT || Q.has('introt'));
+const IT = { build: 0, release: 1.7, explain: 1.7, out: 5.2, done: 7.0 };      // seconds
+const IEPS = 0.009;                                                            // ~half a degree
+let introT = INTRO ? 0 : IT.done, introSkip = false;
+const ghosts = INTRO ? [-1, 1].map(s => ({ t1: 2.7 + s * IEPS, t2: 2.2, w1: 0, w2: 0, trail: [] })) : [];
+const mainTrail = [];
+if (INTRO) { S.t1 = 2.7; S.t2 = 2.2; S.w1 = S.w2 = 0; phaseName = 'hold'; phaseT = HOLD - IT.release; document.body.classList.add('intro'); }
+const introCv = document.getElementById('intro'), ix = introCv.getContext('2d');
+function ghostStep(G, h) {                                                     // the same equations, for a copy
+  const s = { t1: S.t1, t2: S.t2, w1: S.w1, w2: S.w2 }, g = grab.on;
+  grab.on = false; Object.assign(S, G); rk4(h); Object.assign(G, { t1: S.t1, t2: S.t2, w1: S.w1, w2: S.w2 }); Object.assign(S, s); grab.on = g;
+}
+const _pj = new THREE.Vector3();
+function scr(x, y, z = LED_Z) {                                               // world -> CSS pixels
+  _pj.set(x, y, z).project(camera);
+  return [(_pj.x * 0.5 + 0.5) * innerWidth, (0.5 - _pj.y * 0.5) * innerHeight];
+}
+const pts = st => { const jx = P0.x + L1 * Math.sin(st.t1), jy = P0.y - L1 * Math.cos(st.t1); return [[P0.x, P0.y], [jx, jy], [jx + L2 * Math.sin(st.t2), jy - L2 * Math.cos(st.t2)]]; };
+function introStep(dt) {
+  if (!INTRO || introT >= IT.done) return;
+  introT += introSkip ? dt * 4 : dt;
+  if (phaseName === 'run') {
+    const n = Math.max(1, Math.ceil(dt / 0.001));
+    for (const G of ghosts) { for (let i = 0; i < n; i++) ghostStep(G, dt / n); const p = pts(G)[2]; G.trail.push(p); }
+    mainTrail.push(pts(S)[2]);
+  }
+  if (introT >= IT.done) { document.body.classList.remove('intro'); ix.clearRect(0, 0, introCv.width, introCv.height); }
+}
+const easeOut = u => 1 - (1 - clamp(u, 0, 1)) ** 3;
+function drawIntro() {
+  if (!INTRO || introT >= IT.done) return;
+  const d = Math.min(devicePixelRatio || 1, 2), W = innerWidth, H = innerHeight, t = introT;
+  if (introCv.width !== Math.round(W * d)) { introCv.width = Math.round(W * d); introCv.height = Math.round(H * d); }
+  ix.setTransform(d, 0, 0, d, 0, 0); ix.clearRect(0, 0, W, H);
+  const fadeOut = 1 - sstep(IT.out, IT.done - 0.4, t);                         // the diagram gives way to the room
+  ix.fillStyle = `rgba(0,0,0,${1 - sstep(IT.out, IT.done, t)})`; ix.fillRect(0, 0, W, H);
+  ix.lineCap = 'round'; ix.lineJoin = 'round';
+  const k = Math.max(0.7, H / 900), build = easeOut((t - IT.build) / 0.9);
+  const line = (a, b, u = 1) => { ix.beginPath(); ix.moveTo(a[0], a[1]); ix.lineTo(lerp(a[0], b[0], u), lerp(a[1], b[1], u)); ix.stroke(); };
+  const circle = (p, r, fill) => { ix.beginPath(); ix.arc(p[0], p[1], r, 0, TAU); fill ? ix.fill() : ix.stroke(); };
+  const text = (s, p, size, a, align = 'left', font = 'Inter') => { ix.globalAlpha = a; ix.font = `${font === 'Inter' ? 500 : 'italic 400'} ${size * k}px ${font === 'Inter' ? 'Inter, sans-serif' : "'Cormorant Garamond', Georgia, serif"}`; ix.textAlign = align; ix.fillText(s, p[0], p[1], W * 0.9); ix.globalAlpha = 1; };
+  // tip traces: the two copies in grey, the real one in white
+  const trace = (tr, col, a) => { if (tr.length < 2) return; ix.strokeStyle = col; ix.globalAlpha = a; ix.lineWidth = 1.2 * k; ix.beginPath(); tr.forEach((p, i) => { const q = scr(p[0], p[1]); i ? ix.lineTo(q[0], q[1]) : ix.moveTo(q[0], q[1]); }); ix.stroke(); ix.globalAlpha = 1; };
+  trace(ghosts[0].trail, '#8a8a8a', 0.8 * fadeOut); trace(ghosts[1].trail, '#5a5a5a', 0.8 * fadeOut); trace(mainTrail, '#ffffff', 0.9 * fadeOut);
+  // the pendulums: copies first, the real one on top
+  const drawPend = (st, col, a, lw) => {
+    const [p0, p1, p2] = pts(st).map(p => scr(p[0], p[1]));
+    ix.globalAlpha = a; ix.strokeStyle = col; ix.fillStyle = col; ix.lineWidth = lw;
+    line(p0, p1, build); if (build > 0.5) line(p1, p2, (build - 0.5) * 2);
+    circle(p1, 4.5 * k); if (build > 0.95) circle(p2, 5.5 * k, true);
+    ix.globalAlpha = 1;
+  };
+  const showCopies = sstep(IT.release - 0.3, IT.release + 0.2, t);
+  drawPend(ghosts[0], '#9a9a9a', showCopies * fadeOut * 0.85, 1.4 * k); drawPend(ghosts[1], '#6a6a6a', showCopies * fadeOut * 0.85, 1.4 * k);
+  drawPend(S, '#ffffff', fadeOut, 2 * k);
+  // the support: a hinge on hatched ground
+  const p0 = scr(P0.x, P0.y);
+  ix.strokeStyle = '#fff'; ix.lineWidth = 1.5 * k; ix.globalAlpha = build * fadeOut;
+  circle(p0, 9 * k); line([p0[0] - 13 * k, p0[1]], [p0[0] + 13 * k, p0[1]]); line([p0[0], p0[1] - 13 * k], [p0[0], p0[1] + 13 * k]);
+  ix.globalAlpha = 1;
+  // labels and angles, while it is still a diagram
+  const lab = sstep(0.5, 1.1, t) * (1 - sstep(IT.release + 0.6, IT.release + 1.3, t)) * fadeOut;
+  if (lab > 0.01) {
+    const [, p1, p2] = pts(S).map(p => scr(p[0], p[1]));
+    ix.fillStyle = '#fff'; ix.strokeStyle = 'rgba(255,255,255,0.55)'; ix.lineWidth = 1 * k; ix.setLineDash([4 * k, 5 * k]); ix.globalAlpha = lab;
+    for (const p of [p0, p1]) line(p, [p[0], p[1] + 90 * k]);
+    ix.setLineDash([]);
+    const arc = (c, a1, r) => { ix.beginPath(); ix.arc(c[0], c[1], r, Math.PI / 2, Math.PI / 2 - a1, a1 > 0); ix.stroke(); };
+    arc(p0, S.t1, 46 * k); arc(p1, S.t2, 40 * k);
+    ix.globalAlpha = 1;
+    const off = (p, dx, dy) => [p[0] + dx * k, p[1] + dy * k];
+    const unit = (a, b) => { const x = b[0] - a[0], y = b[1] - a[1], l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+    const u1 = unit(p0, p1), u2 = unit(p1, p2);
+    const side = (u, m, d) => { const n = [u[1], -u[0]]; return [m[0] + n[0] * d * k, m[1] + n[1] * d * k + 4 * k]; };
+    const m1 = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2], m2 = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+    text('ARM 1', side(u1, m1, -34), 10, lab * 0.85, 'center'); text('ARM 2', side(u2, m2, 34), 10, lab * 0.85, 'center');
+    text('LIGHT', [p2[0] + u2[0] * 34 * k, p2[1] + u2[1] * 34 * k + 4 * k], 10, lab * 0.85, 'center');
+    const hb = unit([0, 0], [-(u2[0] - u1[0]), -(u2[1] - u1[1])]);              // away from both arms
+    text('HINGE', [p1[0] + hb[0] * 30 * k, p1[1] + hb[1] * 30 * k + 4 * k], 10, lab * 0.85, 'center');
+    text('PIVOT', off(p0, -22, 28), 10, lab * 0.85, 'center');
+    text('θ₁', off(p0, Math.sin(S.t1 / 2) * 62, Math.cos(S.t1 / 2) * 62 + 5), 16, lab, 'center');
+    text('θ₂', [p1[0] + Math.sin(S.t2 / 2) * 56 * k, p1[1] + Math.cos(S.t2 / 2) * 56 * k + 5 * k], 16, lab, 'center');
+  }
+  // captions, in the lower band
+  const cy = H * 0.86;
+  const c1 = sstep(0.25, 0.8, t) * (1 - sstep(IT.explain - 0.25, IT.explain + 0.2, t));
+  const c2 = sstep(IT.explain + 0.1, IT.explain + 0.6, t) * (1 - sstep(IT.out - 0.2, IT.out + 0.5, t));
+  ix.fillStyle = '#fff';
+  text('A double pendulum: one arm swings from a pivot, a second swings from the first.', [W / 2, cy], 22, c1, 'center', 'serif');
+  text('Three let go half a degree apart. Within seconds they share nothing: that is chaos.', [W / 2, cy], 22, c2, 'center', 'serif');
+}
+// a click or key during the prologue hurries it along (and doesn't grab the camera)
+const skipIntro = e => { if (INTRO && introT < IT.out && e.target !== sndBtn) { introSkip = true; e.stopPropagation(); } };
+addEventListener('pointerdown', skipIntro, { capture: true });
+
 let frameNo = 0;
 function render() {
   if (frameNo % 6 === 0 || SHOT) {                   // the metal sees the room and the drawing, not itself
@@ -1565,8 +1804,15 @@ function render() {
   trailU.uNow.value = simT;
   renderer.shadowMap.needsUpdate = true;
   if (frameNo < 2) moon.shadow.needsUpdate = true;
+  // pixels under the letterbox bars are never seen: don't shade them
+  const bar = Math.floor(gradePass.uniforms.uBars.value * rtS.height);
+  rtS.scissor.set(0, bar, rtS.width, rtS.height - 2 * bar); rtS.scissorTest = bar > 0;
+  shaftRT.scissor.set(0, bar >> 1, shaftRT.width, shaftRT.height - 2 * (bar >> 1)); shaftRT.scissorTest = bar > 0;
   renderer.setRenderTarget(rtS);
   renderer.render(scene, camera);
+  trailMainMat.uniforms.tDepth.value = rtS.depthTexture;
+  rtT.scissor.copy(rtS.scissor); rtT.scissorTest = rtS.scissorTest;
+  renderer.setRenderTarget(rtT); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(trailScene, camera);
   renderer.setRenderTarget(null);
   volPass.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
   volPass.uniforms.uCamWorld.value.copy(camera.matrixWorld);
@@ -1584,19 +1830,22 @@ function keepInRoom() {
 const clock = new THREE.Clock();
 let fpsAcc = 0, fpsN = 0;
 function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 20);
+  tick(Math.min(clock.getDelta(), 1 / 20));
+  if (!frame.started) { frame.started = true; document.getElementById('loading').classList.add('done'); }
+  requestAnimationFrame(frame);
+}
+function tick(dt) {
+  if (REC) recNow += dt;
   simulate(dt);
+  introStep(dt);
   flushTrail();
   placeArms();
-  // a visitor's slow drift between two viewpoints, resumed a while after any drag
-  controls.autoRotate = performance.now() - lastInteract > 8000;
-  const az = controls.getAzimuthalAngle();
-  if (az > 0.6) controls.autoRotateSpeed = -Math.abs(controls.autoRotateSpeed);
-  if (az < -0.45) controls.autoRotateSpeed = Math.abs(controls.autoRotateSpeed);
-  controls.update(dt); keepInRoom();
+  directCamera(dt);
   updateSound();
   hud();
-  render();
+  gradePass.uniforms.uFadeIn.value = INTRO ? sstep(IT.out, IT.done, introT) ** 1.5 : 1;
+  if (!INTRO || introT > IT.out - 0.1) render();      // during the diagram there is no room to draw
+  drawIntro();
   if (ADAPT) {
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 1.5) {
@@ -1605,28 +1854,36 @@ function frame() {
       if (Math.abs(nr - RPR) > 0.02) { RPR = nr; sizeTargets(); }
     }
   }
-  if (!frame.started) { frame.started = true; document.getElementById('loading').classList.add('done'); }
-  requestAnimationFrame(frame);
 }
 
-if (SHOT) {
+if (SHOT && INTRO) {
+  const T = +Q.get('introt');
+  for (let t = 0; t < T; t += 1 / 60) { simulate(1 / 60); introStep(1 / 60); }
+  flushTrail(); placeArms(); directCamera(0);
+  gradePass.uniforms.uFadeIn.value = sstep(IT.out, IT.done, introT) ** 1.5;
+  render(); render(); drawIntro();
+  window.__ready = true;
+} else if (SHOT) {
   // deterministic still: run the physics forward t seconds of exposure, then draw one frame
   const T = Q.has('t') ? +Q.get('t') : 30;
   simulate(HOLD + 0.001);
   for (let t = 0; t < T; t += 1 / 60) simulate(1 / 60);
   flushTrail(); placeArms(); camera.lookAt(TARGET);
+  if (Q.has('shotn')) placeShot(SHOTS[shotI % SHOTS.length], Q.has('st') ? +Q.get('st') : 0.5, 0);
+  focusOn(Q.has('shotn') && SHOTS[shotI % SHOTS.length].fp ? _fp.fromArray(SHOTS[shotI % SHOTS.length].fp) : P0, Q.has('shotn') ? SHOTS[shotI % SHOTS.length].ap : 0.6, 0);
   render(); render();
   window.__ready = true;
 } else {
   // compile every shader off the main thread where the browser allows it, so the first frame doesn't stall
   // (into the HDR target the scene really draws to: compiled for the screen they'd get tone mapping baked in and be built twice)
   // open on a drawing already under way rather than an empty room
-  simulate(HOLD + 0.001); for (let t = 0; t < 9; t += 1 / 60) simulate(1 / 60);
+  if (!INTRO) { simulate(HOLD + 0.001); for (let t = 0; t < 9; t += 1 / 60) simulate(1 / 60); }
   flushTrail(); placeArms();
   renderer.setRenderTarget(rtS);
   try { await renderer.compileAsync(scene, camera); } catch (e) {}
   renderer.setRenderTarget(null);
-  frame();
+  if (REC) { window.__step = () => tick(1 / 30); document.getElementById('loading').classList.add('done'); window.__ready = true; }
+  else frame();
 }
 </script>
 </body>
