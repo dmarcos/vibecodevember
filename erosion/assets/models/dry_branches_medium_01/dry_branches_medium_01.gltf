@@ -123,17 +123,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "dry_branches_medium_01_nor_gl",
-      "uri": "textures/dry_branches_medium_01_nor_gl_1k.jpg"
+      "uri": "textures/dry_branches_medium_01_nor_gl_4k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "dry_branches_medium_01_diff",
-      "uri": "textures/dry_branches_medium_01_diff_1k.jpg"
+      "uri": "textures/dry_branches_medium_01_diff_4k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "dry_branches_medium_01_rough",
-      "uri": "textures/dry_branches_medium_01_arm_1k.jpg"
+      "uri": "textures/dry_branches_medium_01_arm_4k.jpg"
     }
   ],
   "accessors": [
