@@ -212,8 +212,10 @@ float leafDl(vec2 uv, float lod) { return dec(textureLod(tLh, uv, lod)); }
 float leafY(vec2 p, float dl) {
   float under = dec(textureLod(tDh, puv(p), 4.5)) * AD;
   // dry leaves curl up at their edges, more so as the drought sets in
-  float rim = 1. - smoothstep(0., 0.09, dl - leafThr(p));
-  return under + 0.0012 + max(dl - leafThr(p), 0.) * 0.0045 + rim * (0.0018 + 0.0022 * uDrought);
+  // (only along the litter's outer edge, judged from blurred heights, so no leaf's rim ever pokes through the one above it)
+  float rim = 1. - smoothstep(0., 0.12, dec(textureLod(tLh, puv(p), 4.)) - leafThr(p));
+  // layers sit about half a millimetre apart, like real stacked leaves
+  return under + 0.0012 + max(dl - leafThr(p), 0.) * 0.0016 + rim * (0.0006 + 0.0012 * uDrought);
 }
 // where it actually lies (position only): carried by the storm's broad scour and deposit, never below the soil
 float leafRest(vec2 p, float dl) {
@@ -238,7 +240,7 @@ float crackMod(vec2 uv, float lod, float cm, float sc, out float open) {
   return (hc - 0.64) * AC * cm + rim * 0.0011 * cm + flakeRim * 0.00045 - flakeOpen * 0.0007;
 }
 // cubic B-spline sampling of a sim field (four filtered taps): contours stay round instead of zig-zagging along the grid
-vec4 simTexS(sampler2D t, vec2 uv) {
+vec4 simTexB(sampler2D t, vec2 uv) {
 #ifdef FLOAT_LINEAR
   float n = float(SIM);
   vec2 x = uv * n - 0.5, i = floor(x), f = x - i;
@@ -248,6 +250,11 @@ vec4 simTexS(sampler2D t, vec2 uv) {
 #else
   return simTex(t, uv);
 #endif
+}
+// four B-spline taps half a cell apart: cancels the solver's cell-to-cell checkerboard in thin water exactly
+vec4 simTexS(sampler2D t, vec2 uv) {
+  float o = 0.5 / float(SIM);
+  return 0.25 * (simTexB(t, uv + vec2(o, o)) + simTexB(t, uv + vec2(-o, o)) + simTexB(t, uv + vec2(o, -o)) + simTexB(t, uv + vec2(-o, -o)));
 }
 float crackAmt(vec4 s2) { return uCrackMix * (0.45 + 0.55 * smoothstep(0.15, 0.7, s2.a)); }
 float siltAmt(vec4 s2) { return smoothstep(0.00004, 0.0003, s2.b) * uSiltCrack; }
@@ -321,6 +328,8 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromEquirectangular(HDR).texture;
 const camera = new THREE.PerspectiveCamera(+(Q.get('fov') || 33), innerWidth / innerHeight, 0.02, 20);
 const CAM_POS = new THREE.Vector3(0.0, 0.285, 0.2), CAM_TGT = new THREE.Vector3(0.0, 0.012, -0.02);
+// optional reframing for other aspect ratios (e.g. the square social video): ?dx= slides sideways, ?dz= tilts the view nearer
+{ const dx = +(Q.get('dx') || 0), dz = +(Q.get('dz') || 0); CAM_POS.x += dx; CAM_TGT.x += dx; CAM_TGT.z += dz; }
 camera.position.copy(CAM_POS); camera.lookAt(CAM_TGT);
 
 // ============================================================================ simulation targets
@@ -376,7 +385,7 @@ G shadeGround(vec3 wp) {
   vec2 p = wp.xz, uv = puv(p);
   vec4 hb = texture2D(tHB, uv);
   float wL = hb.b, open = hb.a;
-  vec4 s0 = simTexS(tS0, uv), s2 = simTexS(tS2, uv);
+  vec4 s0 = simTexS(tS0, uv), s2 = simTexB(tS2, uv);
   float d = s0.g, m = s0.a, silt = s2.b;
   float cm = crackAmt(s2) * (1. - wL);
   // ---- gradient of everything the normal maps don't know about (sim relief, cracks, silt flakes), from the bake
@@ -416,11 +425,10 @@ G shadeGround(vec3 wp) {
   float rough = mix(nrD.b, nrL.b, wL);
   rough = mix(rough, 0.93, (uDrought * dry * 0.5 + siltV * 0.3) * (1. - wL));
   rough = mix(rough, max(rough * 0.85, 0.5), wet);           // wet soil is satin; the gloss belongs to the water
-  rough = mix(rough, 0.42, film * (1. - smoothstep(0.0002, 0.0006, d)));
   rough = mix(rough, 0.95, smoothstep(0.00025, 0.0007, d));   // under a puddle, the water surface does the reflecting
   // ---- normal (tangent space u = +x, v = +z)
   vec3 nS = normalize(mix(nrm(nrD), nrm(nrC), cm * mix(0.3, 1., open)));
-  nS = normalize(mix(nS, vec3(0, 0, 1), siltV * 0.75 + film * 0.6));
+  nS = normalize(mix(nS, vec3(0, 0, 1), siltV * 0.75));
   vec3 nt = normalize(mix(nS, nrm(nrL), wL));
   o.n = normalize(vec3(nt.x / nt.z - grad.x, 1., nt.y / nt.z - grad.y));
   vec3 dn = fwidth(o.n);
@@ -429,9 +437,9 @@ G shadeGround(vec3 wp) {
   // contact shadow from the leaves lying on the soil: blurred coverage from a coarse mip of the litter heights
   float covB = smoothstep(-0.06, 0.12, leafDl(uv, 4.) - leafThr(p));
   float covN = smoothstep(-0.02, 0.06, leafDl(uv, 2.) - leafThr(p));
-  alb *= mix(1., 0.75, covN);   // the soil under litter stays darker and damper
+  alb *= mix(1., 0.85, covN);   // the soil under litter stays darker and damper
   float covE = smoothstep(-0.015, 0.03, leafDl(uv, 1.) - leafThr(p));
-  o.ao = aoTex * mix(1., aoBake, 0.85) * (1. - open * 0.4) * (1. - 0.4 * covB - 0.25 * covN - 0.3 * covE);
+  o.ao = aoTex * mix(1., aoBake, 0.85) * (1. - open * 0.4) * (1. - 0.3 * covB - 0.15 * covN - 0.2 * covE);
   o.alb = alb; o.rough = rough; o.spec = 1.;
   return o;
 }
@@ -470,9 +478,11 @@ const LEAF_F = /* glsl */`
   float ldl = dec(textureLod(tLh, luv, 1.2)), lthr = leafThr(lp);   // outlines from slightly filtered heights: smooth curves, not texel stairs
   float lw = min(fwidth(ldl) * 0.6, 0.012) + 0.0015;   // a one-pixel antialiased outline, never a see-through band
   float lcov = smoothstep(lthr - lw, lthr + lw, ldl);
-  // the steps where the sheet climbs from a lower leaf onto a higher one are not leaf surface: let them vanish
-  vec3 lgn = normalize(cross(dFdx(vWorldP), dFdy(vWorldP)));
-  lcov *= smoothstep(0.35, 0.6, abs(lgn.y));`;
+  // where the sheet climbs from a lower leaf onto a higher one: a soft seam, judged from smooth (filtered) heights
+  const float lse = 0.0006;
+  float lgx = dec(textureLod(tLh, puv(lp + vec2(lse, 0)), 1.8)) - dec(textureLod(tLh, puv(lp - vec2(lse, 0)), 1.8));
+  float lgz = dec(textureLod(tLh, puv(lp + vec2(0, lse)), 1.8)) - dec(textureLod(tLh, puv(lp - vec2(0, lse)), 1.8));
+  float lwall = smoothstep(0.35, 1.0, length(vec2(lgx, lgz)) * 0.0016 / (2. * lse));`;
 const leafGeo = makeGrid(760, X0, 0.13, Z0, 0.11, -0.08, -0.12, 0.7, 0.7);
 const LEAF_U = { uLeafWet: { value: 0 } };
 const leafMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0, transparent: true, depthWrite: false }), 'leaves', {
@@ -491,6 +501,8 @@ const leafMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.7, metalness
       float lwet = max(uLeafWet, smoothstep(0.3, 0.9, ls0.a) * 0.6) * (1. - uDrought);
       la = mix(la, desatL(la, 0.7) * vec3(1.1, 1.0, 0.86) * 1.22, uDrought * 0.65);
       la = mix(la, desatL(la, 1.2) * mix(0.75, 0.6, smoothstep(0.02, 0.12, dot(la, vec3(0.33)))), lwet);   // dark crevices darken less: they're already in shadow
+      // the step up to an overlapping leaf: the upper leaf's dark, softly lit edge
+      la = mix(la, textureLod(tLd, luv, 3.5).rgb * 0.5, lwall);
       // leaves lower in the stack sit in the shade of the ones above
       la *= mix(0.82, 1., smoothstep(lthr, lthr + 0.25, ldl));
       diffuseColor.rgb = la; diffuseColor.a = lcov;`],
@@ -501,6 +513,7 @@ const leafMat = patch(new THREE.MeshStandardMaterial({ roughness: 0.7, metalness
       float hz = leafY(lp + vec2(0, le), dec(textureLod(tLh, puv(lp + vec2(0, le)), 1.))) - leafY(lp - vec2(0, le), dec(textureLod(tLh, puv(lp - vec2(0, le)), 1.)));
       vec3 nt = nrmL(texture2D(tLn, luv)); nt.xy *= 1.2;
       vec3 wn = normalize(vec3(nt.x / nt.z - hx / (2. * le), 1., nt.y / nt.z - hz / (2. * le)));
+      wn = normalize(mix(wn, vec3(0., 1., 0.), lwall * 0.85));   // no knife-edge lighting across the step
       normal = normalize((viewMatrix * vec4(wn, 0.)).xyz);
     }`],
     ['#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= texture2D(tLh, luv).b * mix(0.6, 1., smoothstep(lthr, lthr + 0.2, ldl));'],
@@ -725,7 +738,7 @@ const hbPass = fsPass(NOISE + GROUND + /* glsl */`
   void main() {
     vec2 p = P0 + vUv * L;
     float wL, open; vec4 s0, s2;
-    float h = groundH(p, 0., wL, open, s0, s2);
+    float h = groundH(p, 1.5, wL, open, s0, s2);   // filtered to the bake's own resolution: no aliasing
     float cm = crackAmt(s2) * (1. - wL), sa = siltAmt(s2) * (1. - wL), o1;
     float extra = s0.r + (cm + sa > 0.0005 ? crackMod(vUv, 0., cm, sa, o1) * (1. - wL) : 0.);
     gl_FragColor = vec4(h, extra, wL, open);
@@ -802,8 +815,8 @@ const waterMat = patch(new THREE.MeshPhysicalMaterial({ color: 0x3a2a1c, roughne
     vec3 wP; float gWFade = 1., gPath = 0., gTurb = 0., gWD = 0., gEyeZ = 0.;
     float wLevelAt(vec2 xz, out float lift, out vec4 S) {
       vec2 uv = puv(xz);
-      float base = bicubic(tB, uv, ${SIM}.).r; S = bicubic(tS0, uv, ${SIM}.);
-      lift = base - (texture2D(tHB, uv).r - S.r);            // where a stone or the twig raised the sim's floor
+      float base = bicubic(tB, uv, ${SIM}.).r; S = simTexS(tS0, uv);
+      lift = base - (bicubic(tHB, uv, ${HBN}.).r - S.r);            // where a stone or the twig raised the sim's floor
       return base + S.r + S.g;
     }`,
   v: [
@@ -825,7 +838,7 @@ const waterMat = patch(new THREE.MeshPhysicalMaterial({ color: 0x3a2a1c, roughne
       float lift; vec4 S;
       // the soil height from the bake (smooth) instead of the rendered mesh (faceted); keep the mesh only where
       // the pixel clearly sees something standing above the soil (a leaf, a stone, the twig)
-      float soilH = texture2D(tHB, pu).r;
+      float soilH = bicubic(tHB, pu, ${HBN}.).r;
       float seen = soilH + max(Pg.y - soilH - 0.0009, 0.);
       float h = wLevelAt(Pg.xz, lift, S) - seen;              // water standing above what this pixel sees
       gWD = min(S.g, h);
@@ -947,7 +960,7 @@ const sun = new THREE.DirectionalLight(0xfff0d8, 0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(4096, 4096);
 Object.assign(sun.shadow.camera, { left: -0.32, right: 0.32, top: 0.32, bottom: -0.32, near: 0.1, far: 3 });
-sun.shadow.bias = -0.00002; sun.shadow.normalBias = 0.0002; sun.shadow.radius = 2;
+sun.shadow.bias = -0.00002; sun.shadow.normalBias = 0.0002; sun.shadow.radius = 3.5; sun.shadow.blurSamples = 16;
 sun.target.position.set(0, 0, -0.02);
 scene.add(sun, sun.target);
 const flash = new THREE.DirectionalLight(0xdde6ff, 0); flash.position.set(0.2, 1, 0.3); scene.add(flash);
@@ -976,7 +989,9 @@ const cocPass = fsPass(/* glsl */`
   void main() {
     vec4 o = texture2D(tO, vUv), t = texture2D(tT, vUv);
     vec3 c = o.rgb * (1. - t.a) + t.rgb;
-    gl_FragColor = vec4(c, clamp(uAp * (o.a - uFocus) / o.a * uH, -uMax, uMax));
+    float coc = uAp * (o.a - uFocus) / o.a * uH;
+    coc = coc < 0. ? coc * 0.35 : coc;   // a deep near zone: things just in front of the focus stay crisp, the background keeps its bokeh
+    gl_FragColor = vec4(c, clamp(coc, -uMax, uMax));
   }`, { tO: { value: null }, tT: { value: null }, uFocus: { value: 0.3 }, uAp: { value: 0.01 }, uH: { value: 1000 }, uMax: { value: 16 } });
 const gatherPass = fsPass(/* glsl */`
   uniform sampler2D tC; uniform vec2 uTexel; uniform float uMax; varying vec2 vUv;
@@ -1005,8 +1020,8 @@ const finalPass = fsPass(/* glsl */`
     vec3 sharp = max(c.rgb + dtl * 0.32 / (1. + 2. * abs(dtl)), 0.);   // sharpen fine detail, leave hard bright edges alone
     vec3 col = mix(sharp, b, smoothstep(1.1, 2.8, abs(c.a)));
     vec2 dc = vUv - 0.5; float r2 = dot(dc, dc);
-    col.r = mix(col.r, texture2D(tB, vUv - dc * 0.002).r, smoothstep(0.08, 0.3, r2) * 0.35);
-    col.b = mix(col.b, texture2D(tB, vUv + dc * 0.002).b, smoothstep(0.08, 0.3, r2) * 0.35);
+    col.r = mix(col.r, texture2D(tC, vUv - dc * 0.0015).r, smoothstep(0.1, 0.3, r2) * 0.3);
+    col.b = mix(col.b, texture2D(tC, vUv + dc * 0.0015).b, smoothstep(0.1, 0.3, r2) * 0.3);
     col += max(b - 1.2, 0.) * 0.06;
     col *= uGain * (1. + uFlash);
     float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -1335,7 +1350,7 @@ function stepSim() {
   }
   // rain falling through the frame between the lens and the soil (drawn only; the sim gets its own drops above)
   {
-    const k = Math.round(S.rain * (3800 + 800 * R()) / FPS);
+    const k = seeking ? 0 : Math.round(S.rain * (3800 + 800 * R()) / FPS);
     for (let i = 0; i < k; i++) {
       const x = -0.2 + R() * 0.4, z = -0.26 + R() * 0.4, size = 0.0007 + R() * R() * 0.0012, vy = -6.5 - size * 900;
       const gy = groundCPU(x, z), y = gy + 0.01 + R() * 0.3;
@@ -1375,7 +1390,7 @@ function stepSim() {
   }
   waterPass.u.uND.value = nd;
   U.tS0.value = M[0].textures[0]; U.tS2.value = M[0].textures[1];
-  if (++probeAge > 6) {
+  if (!seeking && ++probeAge > 6) {
     probeAge = 0; probePass.u.tS0.value = M[0].textures[0]; probePass.render(probeRT);
     renderer.readRenderTargetPixels(probeRT, 0, 0, 128, 128, probe);
   }
@@ -1436,7 +1451,7 @@ function renderFrame() {
   renderer.setClearColor(0x000000, 1);
   const focus = camera.position.distanceTo(CAM_TGT);
   Object.assign(cocPass.u.tO, { value: rtCopy.texture }); cocPass.u.tT.value = rtTrans.texture;
-  cocPass.u.uFocus.value = focus; cocPass.u.uH.value = buf.y; cocPass.u.uAp.value = +(Q.get('ap') || 0.017) * (33 / camera.fov); cocPass.u.uMax.value = buf.y * 0.014;
+  cocPass.u.uFocus.value = focus; cocPass.u.uH.value = buf.y; cocPass.u.uAp.value = +(Q.get('ap') || 0.014) * (33 / camera.fov); cocPass.u.uMax.value = buf.y * 0.014;
   cocPass.render(rtCoc);
   gatherPass.u.tC.value = rtCoc.texture; gatherPass.u.uTexel.value.set(1 / buf.x, 1 / buf.y); gatherPass.u.uMax.value = buf.y * 0.014;
   gatherPass.render(rtBlur);
@@ -1471,7 +1486,9 @@ addEventListener('resize', onResize);
 function hud() {
   const P = simT / DUR;
   dayEl.textContent = 'Day ' + dayOf(simT);
-  fillEl.style.width = (P * 100) + '%'; knobEl.style.left = (P * 100) + '%';
+  // while fast-forwarding, the knob waits where you put it and the bar fills up to it
+  const K = seeking ? target / DUR : P;
+  fillEl.style.width = (P * 100) + '%'; knobEl.style.left = (K * 100) + '%';
   let cap = CAPTIONS[0][1]; for (const [t, c] of CAPTIONS) if (simT >= t) cap = c;
   if (seeking) cap = 'time passing…';
   if (cap !== lastCap) { lastCap = cap; capEl.style.opacity = 0; setTimeout(() => { capEl.textContent = cap; capEl.style.opacity = 1; }, 300); }
@@ -1486,13 +1503,15 @@ Object.assign(state, stateAt(0));
 applyLook();
 aoPass.render(aoRT);
 const clock = new THREE.Clock();
-let acc = 0, frameAvg = 16, dprT = 0;
+let acc = 0, frameAvg = 16, dprT = 0, lastPreview = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (seeking) {
+    // fast-forward: up to ten steps per displayed frame (capped so the GPU never falls behind and the page stays responsive)
     const t0 = performance.now();
-    while (simT < target - 1e-6 && performance.now() - t0 < 45) stepSim();
-    if (simT >= target - 1e-6) { seeking = false; acc = 0; }
+    let n = 0;
+    while (simT < target - 1e-6 && performance.now() - t0 < 40 && n < 8) { stepSim(); n++; }
+    if (simT >= target - 1e-6) { seeking = false; acc = 0; probeAge = 1e9; }
   } else if (playing && !looping) {
     acc += dt;
     // one step per rendered frame at most: on a slow machine the story slows down instead of stuttering
@@ -1505,8 +1524,10 @@ function frame() {
   applyLook();
   audio.update(state, simT, !seeking && playing && !looping);
   hud();
-  renderFrame();
-  frameAvg = frameAvg * 0.95 + dt * 1000 * 0.05; dprT += dt;
+  // while fast-forwarding, a preview frame four times a second is plenty; the rest of the time goes to the simulation
+  const nowMs = performance.now();
+  if (!seeking || nowMs - lastPreview > 250) { renderFrame(); lastPreview = nowMs; }
+  if (!seeking) { frameAvg = frameAvg * 0.95 + dt * 1000 * 0.05; dprT += dt; }   // fast-forward frames are slow on purpose
   if (!SHOT && dprT > 2.5) {
     dprT = 0;
     const nd = frameAvg > 38 ? Math.max(MIN_DPR, dpr - 0.15) : frameAvg < 18 ? Math.min(MAX_DPR, dpr + 0.1) : dpr;
@@ -1530,7 +1551,7 @@ else {
 }
 requestAnimationFrame(() => requestAnimationFrame(() => loadingEl.classList.add('done')));
 window.__ready = true;
-window.__audio = audio; window.__seek = seekTo;
+window.__audio = audio; window.__seek = seekTo; window.__story = { stateAt, DUR, X0, L, FLASHES };
 window.__dbg = { U, state, S0: [M[0]], M, renderer, scene, camera, stepSim, get simT() { return simT; } };
 </script>
 </body>
