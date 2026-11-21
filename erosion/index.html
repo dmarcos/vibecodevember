@@ -1228,6 +1228,23 @@ const audio = {
       const t0 = ctx.currentTime; s.start(t0, Math.random() * 5); pulse.start(t0);
       this.minmin.push({ bp, bp2, env, next: ctx.currentTime + 2 + i * 5, base: 3300 + i * 260 });
     }
+    // the fly: a wingbeat buzz, rich in harmonics, riding the fly's speed and distance
+    {
+      const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 185;
+      const o2 = ctx.createOscillator(); o2.type = 'square'; o2.frequency.value = 370;
+      const g2 = ctx.createGain(); g2.gain.value = 0.3;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.7;
+      const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 650; pk.Q.value = 1.1; pk.gain.value = 5;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 140; hp.Q.value = 0.7;
+      const air = ctx.createBufferSource(); air.buffer = white; air.loop = true;
+      const abp = ctx.createBiquadFilter(); abp.type = 'bandpass'; abp.frequency.value = 380; abp.Q.value = 0.9;
+      const ag = ctx.createGain(); ag.gain.value = 0.35;
+      const flut = ctx.createGain(), g = ctx.createGain(); g.gain.value = 0; const pan = ctx.createStereoPanner();
+      o1.connect(lp); o2.connect(g2).connect(lp); air.connect(abp).connect(ag).connect(flut);
+      lp.connect(pk).connect(hp).connect(flut).connect(g).connect(pan).connect(this.master);
+      o1.start(); o2.start(); air.start();
+      this.buzz = { o1, o2, lp, g, pan, flut };
+    }
     this.toggle(true);
   },
   toggle(force) {
@@ -1301,6 +1318,21 @@ const audio = {
         c.next = now + up + hold + down + rest;
       }
     }
+    // the fly
+    if (this.buzz) {
+      const B = this.buzz, f = live ? fly.sound(t) : null;
+      let gain = 0;
+      if (f && f.air > 0.03) {
+        const rel = f.p.clone().sub(camera.position), d = Math.max(rel.length(), 0.04), vr = f.v.dot(rel) / d, sp = f.v.length();
+        const f0 = (176 + 34 * Math.min(sp / 0.4, 1) + 6 * Math.sin(t * 5.3) + 4 * Math.sin(t * 13.1)) * (1 - vr / 343);
+        B.o1.frequency.setTargetAtTime(f0, now, 0.03); B.o2.frequency.setTargetAtTime(f0 * 2.004, now, 0.03);
+        gain = f.air * 0.055 * Math.min(Math.pow(0.3 / d, 1.6), 6);
+        B.lp.frequency.setTargetAtTime(1500 + 2600 * Math.min(0.3 / d, 1.5), now, 0.05);
+        const pv = f.p.clone().project(camera); B.pan.pan.setTargetAtTime(clamp(pv.x * 0.8, -0.9, 0.9), now, 0.05);
+        B.flut.gain.setTargetAtTime(0.65 + 0.7 * Math.random(), now, 0.025);   // the tone wavers as it turns
+      }
+      B.g.gain.setTargetAtTime(gain, now, 0.015);
+    }
     // minminzemi phrases
     for (const v of this.minmin) {
       if (heat < 0.15) { v.env.gain.setTargetAtTime(0, now, 0.3); continue; }
@@ -1326,6 +1358,224 @@ const audio = {
 const soundBtn = document.getElementById('sound');
 soundBtn.addEventListener('click', (e) => { e.stopPropagation(); audio.toggle(); });
 addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') audio.toggle(); });
+
+
+// ============================================================================ a greenbottle fly that comes to sun itself on the rock once the ground is dry
+const fly = (() => {
+  const rock = objects[0]; rock.updateMatrixWorld(true);
+  const rb = new THREE.Box3().setFromObject(rock);
+  const ray = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0);
+  const hitY = (x, z) => { ray.set(new THREE.Vector3(x, 1, z), DOWN); const h = ray.intersectObject(rock, true)[0]; return h ? h.point.y : null; };
+  // the rock's top as a small height field, with smooth normals from neighbouring samples (the scan's own faces are too rough to stand on)
+  const NG = 28, gx0 = rb.min.x, gz0 = rb.min.z, gdx = (rb.max.x - rb.min.x) / (NG - 1), gdz = (rb.max.z - rb.min.z) / (NG - 1);
+  const HG = new Float32Array(NG * NG).fill(NaN);
+  for (let j = 0; j < NG; j++) for (let i = 0; i < NG; i++) { const y = hitY(gx0 + i * gdx, gz0 + j * gdz); if (y !== null) HG[j * NG + i] = y; }
+  const hAt = (x, z) => {
+    const fx = clamp((x - gx0) / gdx, 0, NG - 1.001), fz = clamp((z - gz0) / gdz, 0, NG - 1.001), i = fx | 0, j = fz | 0, u = fx - i, v = fz - j;
+    const a = HG[j * NG + i], b = HG[j * NG + i + 1], c = HG[(j + 1) * NG + i], d = HG[(j + 1) * NG + i + 1];
+    return lerp(lerp(a, b, u), lerp(c, d, u), v);
+  };
+  const nAt = (x, z) => { const e = 0.0025; return new THREE.Vector3(hAt(x - e, z) - hAt(x + e, z), 2 * e, hAt(x, z - e) - hAt(x, z + e)).normalize(); };
+  // two flat-ish spots near the top: where it lands, and where it hops to
+  let top = null; const cand = [];
+  for (let j = 2; j < NG - 2; j++) for (let i = 2; i < NG - 2; i++) {
+    const x = gx0 + i * gdx, z = gz0 + j * gdz, y = HG[j * NG + i];
+    if (!(y === y)) continue;
+    let ok = true; for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) if (!(HG[(j + dj) * NG + i + di] === HG[(j + dj) * NG + i + di])) ok = false;
+    if (!ok) continue;
+    const n = nAt(x, z);
+    if (n.y > 0.9) cand.push({ x, z, y, n });
+    if (!top || y > top.y) top = { x, z, y };
+  }
+  cand.sort((a, b) => b.y - a.y);
+  const hi = cand.filter((c) => c.y > top.y - 0.005);
+  const L1 = hi.reduce((m, c) => (!m || c.z - c.x * 0.5 > m.z - m.x * 0.5 ? c : m), null);   // the side facing the lens
+  const L2 = hi.reduce((m, c) => (!m || Math.hypot(c.x - L1.x, c.z - L1.z) > Math.hypot(m.x - L1.x, m.z - L1.z) ? c : m), null);
+  const H1 = 2.3, H2 = Math.atan2(L1.x - L2.x, L1.z - L2.z) + Math.PI + 0.5;   // headings (0 = facing +z, toward the lens)
+
+  // ---- the fly itself: built about its own feet, +z forward, +y up, metres
+  const g = new THREE.Group(); g.scale.setScalar(1.1); scene.add(g);
+  const cv = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = ANISO; return t; };
+  const Rn = mulberry32(77);
+  const pits = cv(128, 128, (x, w, h) => { x.fillStyle = '#808080'; x.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(0,0,0,${0.25 + Rn() * 0.3})`; x.beginPath(); x.arc(Rn() * w, Rn() * h, 0.8 + Rn() * 1.2, 0, 7); x.fill(); } });
+  pits.wrapS = pits.wrapT = THREE.RepeatWrapping;
+  const facets = cv(256, 256, (x, w, h) => { x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.fillStyle = '#000'; for (let j = 0; j < 64; j++) for (let i = 0; i < 64; i++) { x.beginPath(); x.arc((i + (j & 1) * 0.5) * 4, j * 3.46, 0.9, 0, 7); x.fill(); } });
+  const cuticle = new THREE.MeshPhysicalMaterial({ color: 0x2c5a30, metalness: 0.92, roughness: 0.34, bumpMap: pits, bumpScale: 0.6, iridescence: 0.55, iridescenceIOR: 1.7, iridescenceThicknessRange: [280, 520], clearcoat: 0.7, clearcoatRoughness: 0.15 });
+  const eyeMat = new THREE.MeshPhysicalMaterial({ color: 0x4e140c, roughness: 0.5, bumpMap: facets, bumpScale: 0.5, clearcoat: 1, clearcoatRoughness: 0.08, sheen: 0.4, sheenColor: new THREE.Color(0x904030) });
+  const faceMat = new THREE.MeshPhysicalMaterial({ color: 0xb8b4a8, metalness: 0.7, roughness: 0.35 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x0c0b0a, roughness: 0.45, metalness: 0.2 });
+  const SPH = new THREE.SphereGeometry(1, 40, 28), CYL = new THREE.CylinderGeometry(1, 0.8, 1, 8, 1).translate(0, 0.5, 0);
+  const blob = (mat, s, p, parent = g, shadow = true) => { const m = new THREE.Mesh(SPH, mat); m.scale.set(...s); m.position.set(...p); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; };
+  const body = new THREE.Group(); g.add(body);
+  blob(cuticle, [0.0014, 0.0013, 0.0018], [0, 0.0021, 0.0006], body);           // thorax
+  blob(cuticle, [0.00085, 0.00045, 0.0006], [0, 0.0029, -0.0008], body);           // scutellum
+  const abd = blob(cuticle, [0.00165, 0.00118, 0.0021], [0, 0.0019, -0.0019], body); abd.rotation.x = -0.1;
+  const head = new THREE.Group(); head.position.set(0, 0.0022, 0.0021); body.add(head);
+  blob(black, [0.001, 0.00095, 0.0006], [0, 0, 0.0002], head);
+  blob(eyeMat, [0.00068, 0.001, 0.00072], [0.00048, 0.0001, 0.00042], head);
+  blob(eyeMat, [0.00068, 0.001, 0.00072], [-0.00048, 0.0001, 0.00042], head);
+  blob(faceMat, [0.00032, 0.0006, 0.0003], [0, -0.0002, 0.00098], head);
+  const prob = blob(black, [0.00018, 0.0006, 0.00018], [0, -0.0009, 0.0009], head); prob.rotation.x = 0.4;
+  blob(black, [0.00026, 0.00012, 0.00026], [0, -0.00145, 0.00118], head);
+  // bristles: black macrochaetae standing on the thorax and the tip of the abdomen
+  {
+    const geo = new THREE.ConeGeometry(0.000028, 0.00075, 4).translate(0, 0.000375, 0);
+    const im = new THREE.InstancedMesh(geo, black, 70), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), R = mulberry32(5);
+    for (let i = 0; i < 70; i++) {
+      const onThx = i < 44, c = onThx ? new THREE.Vector3(0, 0.0021, 0.0007) : new THREE.Vector3(0, 0.0018, -0.0022), s = onThx ? [0.0014, 0.00125, 0.00165] : [0.00165, 0.00115, 0.0021];
+      const a = (R() - 0.5) * 2.6, b = onThx ? (R() - 0.5) * 2.4 : -0.6 - R() * 1.6;
+      const n = new THREE.Vector3(Math.sin(a) * Math.cos(b), Math.cos(a) * Math.cos(b), Math.sin(b));
+      const p = new THREE.Vector3(n.x * s[0], n.y * s[1], n.z * s[2]).add(c);
+      const dir = n.clone().add(new THREE.Vector3(0, 0, -0.9)).normalize();
+      q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      m4.compose(p, q, new THREE.Vector3(1, 0.6 + R() * 0.8, 1)); im.setMatrixAt(i, m4);
+    }
+    body.add(im);
+  }
+  // legs: three segments each, posed every frame from hip, foot and a knee lifted outward
+  const legs = [];
+  const HIPS = [[0.0005, 0.0013, 0.0015], [0.0006, 0.0012, 0.0007], [0.0005, 0.0012, -0.0001]];
+  const FEET = [[0.0034, 0, 0.0052], [0.0046, 0, 0.0003], [0.0036, 0, -0.0046]];
+  for (let k = 0; k < 6; k++) {
+    const segs = [0, 1, 2].map((s) => { const m = new THREE.Mesh(CYL, black); m.castShadow = s < 2; body.add(m); return m; });
+    legs.push({ segs, side: k < 3 ? 1 : -1, pair: k % 3 });
+  }
+  const UP = new THREE.Vector3(0, 1, 0), tv = new THREE.Vector3();
+  const seg = (m, a, b, r) => { tv.subVectors(b, a); const l = tv.length(); m.position.copy(a); m.quaternion.setFromUnitVectors(UP, tv.divideScalar(l)); m.scale.set(r, l, r); };
+  const poseLeg = (L, foot, lift) => {
+    const s = L.side, H = new THREE.Vector3(HIPS[L.pair][0] * s, HIPS[L.pair][1], HIPS[L.pair][2]);
+    const out = new THREE.Vector3(foot.x - H.x, 0, foot.z - H.z).normalize();
+    const K = H.clone().lerp(foot, 0.38).addScaledVector(out, 0.0007).add(new THREE.Vector3(0, 0.0013 + lift * 0.0006, 0));
+    const A = foot.clone().addScaledVector(out, -0.0011).add(new THREE.Vector3(0, 0.00045 + lift * 0.0002, 0));
+    seg(L.segs[0], H, K, 0.00011); seg(L.segs[1], K, A, 0.000075); seg(L.segs[2], A, foot, 0.00005);
+  };
+  // wings: clear membrane with dark veins, thin-film colours where the light catches them
+  const wingTex = cv(512, 192, (x, w, h) => {
+    const P = (u, v) => [u * w, (0.5 - v) * h];
+    const out = [[0, 0.06], [0.08, 0.2], [0.3, 0.33], [0.6, 0.38], [0.85, 0.32], [0.98, 0.16], [1, 0.02], [0.96, -0.12], [0.8, -0.26], [0.55, -0.36], [0.3, -0.38], [0.14, -0.3], [0.05, -0.16], [0, -0.06]];
+    x.beginPath(); out.forEach(([u, v], i) => { const [a, b] = P(u, v); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.closePath();
+    x.fillStyle = 'rgba(205,212,214,0.07)'; x.fill(); x.save(); x.clip();
+    const vein = (pts, wd) => { x.beginPath(); pts.forEach(([u, v], i) => { const [a, b] = P(u, v); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.lineWidth = wd; x.strokeStyle = 'rgba(34,28,22,0.85)'; x.stroke(); };
+    vein([[0, 0.06], [0.08, 0.2], [0.3, 0.33], [0.6, 0.38], [0.85, 0.32], [0.98, 0.16]], 5);   // costa
+    vein([[0.02, 0.05], [0.25, 0.22], [0.45, 0.3]], 3);                                        // R1
+    vein([[0.04, 0.03], [0.4, 0.18], [0.75, 0.25], [0.97, 0.15]], 2.6);                        // R2+3
+    vein([[0.06, 0.0], [0.45, 0.06], [0.8, 0.07], [0.99, 0.04]], 2.6);                          // R4+5
+    vein([[0.06, -0.05], [0.45, -0.1], [0.66, -0.12], [0.82, -0.02], [0.96, 0.03]], 2.4);      // M, bending up to the tip
+    vein([[0.05, -0.1], [0.3, -0.24], [0.5, -0.33]], 2.2);                                      // CuA
+    vein([[0.52, 0.06], [0.5, -0.11]], 2); vein([[0.68, -0.12], [0.64, -0.3]], 2); vein([[0.22, 0.2], [0.2, 0.0]], 1.6);
+    x.restore(); x.beginPath(); out.forEach(([u, v], i) => { const [a, b] = P(u, v); i ? x.lineTo(a, b) : x.moveTo(a, b); }); x.closePath(); x.lineWidth = 1.5; x.strokeStyle = 'rgba(60,52,44,0.6)'; x.stroke();
+  });
+  wingTex.colorSpace = THREE.SRGBColorSpace;
+  const WL = 0.0059, WW = 0.003;
+  const wingGeo = new THREE.PlaneGeometry(WL, WW).translate(WL / 2, 0, 0).rotateX(-Math.PI / 2);   // span +x, chord along z, leading edge +z
+  const wingMat = new THREE.MeshPhysicalMaterial({ map: wingTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.12, iridescence: 1, iridescenceIOR: 1.45, iridescenceThicknessRange: [300, 900], specularIntensity: 1 });
+  const fanMat = new THREE.MeshPhysicalMaterial({ color: 0xd8dcdc, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false, roughness: 0.3 });
+  const fanGeo = new THREE.CircleGeometry(WL * 0.97, 24, -0.5, 1.6).rotateX(-Math.PI / 2);
+  const wings = [];
+  for (const s of [1, -1]) {
+    const root = new THREE.Group(); root.position.set(0.0005 * s, 0.0029, 0.0005); root.scale.x = s; body.add(root);
+    const a = new THREE.Mesh(wingGeo, wingMat), b = new THREE.Mesh(wingGeo, wingMat), fan = new THREE.Mesh(fanGeo, fanMat);
+    a.rotation.order = b.rotation.order = 'YZX'; root.add(a, b, fan); wings.push({ a, b, fan });
+  }
+
+  // ---- what it does, as a pure function of story time
+  const T_IN = 50.4, T_LAND = 53.2, T_HOP = 57.2, T_HOP2 = 57.75, T_OUT = 60.5, T_GONE = 62.7;
+  const P1 = new THREE.Vector3(L1.x, L1.y, L1.z), P2 = new THREE.Vector3(L2.x, L2.y, L2.z);
+  const approach = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.2, 0.17, 0.16), new THREE.Vector3(-0.07, 0.09, 0.05), new THREE.Vector3(0.0, 0.05, -0.05), new THREE.Vector3(0.09, 0.07, -0.08),
+    new THREE.Vector3(0.16, 0.06, 0.0), new THREE.Vector3(0.12, P1.y + 0.03, 0.07), new THREE.Vector3(P1.x - 0.004, P1.y + 0.012, P1.z + 0.006), P1.clone()], false, 'centripetal');
+  const leave = new THREE.CatmullRomCurve3([
+    P2.clone(), P2.clone().add(new THREE.Vector3(0.002, 0.016, 0.003)), new THREE.Vector3(0.06, 0.05, 0.1),
+    new THREE.Vector3(0.02, 0.09, 0.03), new THREE.Vector3(-0.08, 0.12, 0.12), new THREE.Vector3(-0.2, 0.2, 0.2)], false, 'centripetal');
+  const wob = (t, a) => new THREE.Vector3(Math.sin(t * 7.1) + 0.6 * Math.sin(t * 17.3 + 1), 0.6 * Math.sin(t * 9.7 + 2) + 0.4 * Math.sin(t * 23.1), Math.sin(t * 8.3 + 4) + 0.5 * Math.sin(t * 19.9 + 3)).multiplyScalar(a);
+  const ease = (x) => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  const onRock = (x, z, yaw, lift = 0) => ({ p: new THREE.Vector3(x, hAt(x, z) + lift, z), n: nAt(x, z), yaw });
+  function at(t) {
+    if (t < T_IN || t > T_GONE) return null;
+    if (t < T_LAND) {   // darting in, a loop past the stones, a hover, and down
+      const u = (t - T_IN) / (T_LAND - T_IN), s = 1 - Math.pow(1 - u, 1.6);
+      const p = approach.getPointAt(s).add(wob(t, 0.004 * (1 - smooth(0.85, 1, u))));
+      return { p, n: UP, yaw: null, fly: 1, settle: smooth(0.9, 1, u), toYaw: H1, tan: approach.getTangentAt(s) };
+    }
+    if (t < T_HOP) return { ...onRock(P1.x, P1.z, H1 + 0.7 * smooth(55.0, 55.7, t) + 0.05 * Math.sin(t * 1.3)), fly: 0 };
+    if (t < T_HOP2) {   // a short hop across the stone
+      const u = (t - T_HOP) / (T_HOP2 - T_HOP), e = ease(u), x = lerp(P1.x, P2.x, e), z = lerp(P1.z, P2.z, e);
+      const r = onRock(x, z, lerp(H1 + 0.7, H2, e), Math.sin(u * Math.PI) * 0.007); r.fly = 1; r.settle = Math.max(1 - u * 6, 0, u * 6 - 5); return r;
+    }
+    if (t < T_OUT) return { ...onRock(P2.x, P2.z, H2 - 0.5 * smooth(59.8, 60.2, t)), fly: 0 };
+    const u = (t - T_OUT) / (T_GONE - T_OUT), s = Math.pow(u, 1.5);
+    const p = leave.getPointAt(s).add(wob(t, 0.004 * smooth(0, 0.2, u)));
+    return { p, n: UP, yaw: null, fly: 1, settle: 1 - smooth(0, 0.08, u), toYaw: H2 - 0.5, tan: leave.getTangentAt(s) };
+  }
+  const yawOf = (st) => {
+    if (st.yaw !== null) return st.yaw;
+    const fy = Math.atan2(st.tan.x, st.tan.z);
+    let d = st.toYaw - fy; d = Math.atan2(Math.sin(d), Math.cos(d));
+    return fy + d * st.settle;
+  };
+  const M = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(), Z = new THREE.Vector3();
+  const LEG_LIFT = [0, 0, 0, 0, 0, 0];
+  function update(t) {
+    const st = at(t);
+    g.visible = !!st;
+    if (!st) return;
+    const yaw = yawOf(st), air = st.fly * (1 - (st.settle ?? 0) * 0.8);
+    Y.copy(st.n).lerp(UP, 0.35).normalize();
+    // in the air: the body tilts into the direction of travel
+    if (st.tan && st.fly) { const lean = st.tan.clone().setY(0).multiplyScalar(0.35 * (1 - st.settle)); Y.add(lean).normalize(); }
+    Z.set(Math.sin(yaw), 0, Math.cos(yaw)); Z.addScaledVector(Y, -Z.dot(Y)).normalize(); X.crossVectors(Y, Z);
+    M.makeBasis(X, Y, Z); g.quaternion.setFromRotationMatrix(M); g.position.copy(st.p);
+    // grooming on the stone: front legs rubbed together, then over the eyes; later the hind legs stroke the wings
+    const rub = st.fly ? 0 : smooth(53.6, 53.9, t) * (1 - smooth(54.8, 55.0, t)) + smooth(55.9, 56.2, t) * (1 - smooth(56.7, 56.9, t));
+    const overHead = smooth(55.8, 56.1, t) * (1 - smooth(56.7, 56.9, t));
+    const groom = st.fly ? 0 : smooth(58.2, 58.5, t) * (1 - smooth(59.4, 59.6, t));
+    const shuffle = st.fly ? 0 : Math.max(smooth(55.0, 55.15, t) * (1 - smooth(55.55, 55.7, t)), smooth(59.8, 59.9, t) * (1 - smooth(60.1, 60.2, t)));
+    body.rotation.x = -0.12 * rub + 0.1 * groom + 0.1 * air;
+    body.position.y = 0.0002 * rub;
+    head.rotation.set(0.15 * Math.sin(t * 2.3) * (1 - air) * (1 - rub), 0.25 * Math.sin(t * 0.9 + Math.sin(t * 3.1)) * (1 - air), 0);
+    for (let k = 0; k < 6; k++) {
+      const L = legs[k], s = L.side, F = FEET[L.pair];
+      const foot = new THREE.Vector3(F[0] * s, F[1], F[2]);
+      // feet hang under the body in flight
+      foot.lerp(new THREE.Vector3(F[0] * s * 0.5, 0.0005, F[2] * 0.75), air);
+      if (L.pair === 0 && rub > 0) {
+        const ph = t * Math.PI * 2 * 3.2 + (s > 0 ? 0 : Math.PI);
+        const up = new THREE.Vector3(0.00028 * s + 0.0003 * Math.sin(ph), 0.0017 + overHead * 0.0016 + 0.0002 * Math.sin(ph * 0.5), 0.0041 - overHead * 0.0006 + 0.00025 * Math.cos(ph));
+        foot.lerp(up, rub);
+      }
+      if (L.pair === 2 && groom > 0) {
+        const ph = t * Math.PI * 2 * 2.4 + (s > 0 ? 0 : 2);
+        foot.lerp(new THREE.Vector3(0.0011 * s, 0.0031 + 0.0003 * Math.sin(ph * 2), -0.0042 + 0.0011 * Math.sin(ph)), groom);
+      }
+      if (shuffle > 0) foot.y += 0.0005 * shuffle * Math.max(0, Math.sin(t * 22 + ((k + L.pair) & 1) * Math.PI));
+      poseLeg(L, foot, rub * (L.pair === 0) + groom * (L.pair === 2));
+    }
+    // wings: folded over the abdomen at rest; in flight a ~180 Hz beat the shutter catches as two blurred strokes and a fan
+    const R = mulberry32((t * 3000) | 0);
+    const rest = { y: Math.PI / 2 - 0.32, z: -0.06 + 0.12 * groom };
+    for (const w of wings) {
+      if (air < 0.02) {
+        w.a.rotation.set(0, rest.y, rest.z); w.b.visible = w.fan.visible = false; continue;
+      }
+      w.b.visible = w.fan.visible = true;
+      const j = R() * 0.25;
+      w.a.rotation.set(0, lerp(rest.y, Math.PI / 2 - 2.25 + j, air), lerp(rest.z, 0.55, air));
+      w.b.rotation.set(0, lerp(rest.y, Math.PI / 2 - 0.85 - j, air), lerp(rest.z, -0.35, air));
+      w.fan.rotation.set(0, 0, 0.1);
+    }
+    wingMat.opacity = lerp(1, 0.5, air); fanMat.opacity = 0.05 * air;
+  }
+  // for the buzz
+  const prev = new THREE.Vector3();
+  function sound(t) {
+    const st = at(t);
+    if (!st) return null;
+    const air = st.fly * (1 - (st.settle ?? 0) * 0.5);
+    const p0 = at(t - 0.05), v = p0 ? st.p.clone().sub(p0.p).multiplyScalar(20) : new THREE.Vector3();
+    return { p: st.p, v, air };
+  }
+  return { update, sound, group: g, spots: [L1, L2] };
+})();
 
 // ============================================================================ stepping the world
 const ping = (a) => { const t = a[0]; a[0] = a[1]; a[1] = t; };
@@ -1424,6 +1674,7 @@ function applyLook() {
   flash.intensity = S.flash * 2;
   const env = lerp(0.95, 0.55, S.storm) * (1 + S.flash * 2.5) * lerp(1, 0.72, S.sunAmt) * lerp(1, 0.85, S.drought);
   scene.environmentIntensity = transScene.environmentIntensity = env;
+  fly.update(simT);
   OBJ_U.uObjWet.value = smooth(5, 12, simT) * (1 - smooth(38, 46, simT));
   LEAF_U.uLeafWet.value = smooth(6, 13, simT) * (1 - smooth(36, 44, simT));
   PU.uLight.value.setRGB(1, 1, 1).multiplyScalar(env * 0.9);
@@ -1551,7 +1802,7 @@ else {
 }
 requestAnimationFrame(() => requestAnimationFrame(() => loadingEl.classList.add('done')));
 window.__ready = true;
-window.__audio = audio; window.__seek = seekTo; window.__story = { stateAt, DUR, X0, L, FLASHES };
+window.__audio = audio; window.__seek = seekTo; window.__story = { stateAt, DUR, X0, L, FLASHES }; window.__fly = fly;
 window.__dbg = { U, state, S0: [M[0]], M, renderer, scene, camera, stepSim, get simT() { return simT; } };
 </script>
 </body>
