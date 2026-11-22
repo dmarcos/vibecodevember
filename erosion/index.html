@@ -46,6 +46,15 @@
   #capStage { left: 0; right: 0; bottom: 44px; text-align: center; color: #fff; font: italic 400 30px 'Cormorant Garamond', Georgia, serif; text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 18px rgba(0,0,0,.6); }
   @media (max-width: 640px) { #hint { display: none; } #caption { font-size: 16px; } #day { font-size: 21px; min-width: 70px; } .name { font-size: 20px; } }
 </style>
+<script>
+  // if anything fails while loading, say so on screen instead of leaving the loader hanging
+  (function () {
+    var show = function (msg) { var el = document.getElementById('loading'); if (el) { el.style.font = '14px system-ui'; el.style.padding = '24px'; el.style.textAlign = 'center'; el.textContent = 'Something went wrong: ' + msg; } };
+    addEventListener('error', function (e) { show(e.message || String(e)); });
+    addEventListener('unhandledrejection', function (e) { show((e.reason && (e.reason.message || e.reason)) + ''); });
+    window.__showError = show;
+  })();
+</script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -97,6 +106,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const loadingEl = document.getElementById('loading');
 const say = (s) => { loadingEl.textContent = s; };
+const trace = (m) => { if (Q.has('trace')) fetch('/__log?' + encodeURIComponent(m)).catch(() => {}); };
 
 // patch geometry (metres). Everything the camera sees lies inside this square.
 const L = 0.508, X0 = -0.254, Z0 = -0.274;
@@ -108,7 +118,11 @@ const f6 = (v) => v.toFixed(6);
 // ============================================================================ renderer
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: SHOT || CAPTURE });
-const MAX_DPR = CAPTURE ? +(Q.get('ss') || 1.5) : Math.min(window.devicePixelRatio || 1, SHOT ? 1 : 2);
+// phones and tablets get half-resolution scans and a lighter pipeline: the full set needs over a gigabyte of GPU memory
+const MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const LITE = Q.has('lite') || (MOBILE && !Q.has('full'));
+const AS = LITE ? 'assets/mobile/' : 'assets/';
+const MAX_DPR = CAPTURE ? +(Q.get('ss') || 1.5) : Math.min(window.devicePixelRatio || 1, SHOT ? 1 : LITE ? 1.5 : 2);
 const MIN_DPR = Math.min(1, MAX_DPR);
 let dpr = MAX_DPR;
 renderer.setPixelRatio(dpr);
@@ -118,32 +132,37 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
 const ANISO = renderer.capabilities.getMaxAnisotropy();
+if (Q.has('trace')) {
+  const gl = renderer.getContext();
+  trace('exts ' + ['EXT_color_buffer_float', 'EXT_color_buffer_half_float', 'OES_texture_float_linear', 'EXT_float_blend', 'OES_texture_half_float_linear'].map((e) => e + '=' + !!gl.getExtension(e)).join(' ') + ' maxTex=' + gl.getParameter(gl.MAX_TEXTURE_SIZE) + ' maxDraw=' + gl.getParameter(gl.MAX_DRAW_BUFFERS) + ' units=' + gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) + ' vunits=' + gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) + ' frag=' + gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT).precision);
+  for (const k of ['error', 'warn']) { const o = console[k]; console[k] = (...a) => { trace(k + ' ' + a.map(String).join(' ').slice(0, 1500)); o.apply(console, a); }; }
+}
 
 // ============================================================================ assets
 say('loading the soil scans…');
 const texLoader = new THREE.TextureLoader();
-const tex = (name, srgb) => texLoader.loadAsync(`assets/patch/${name}`).then((t) => {
+const tex = (name, srgb) => texLoader.loadAsync(`${AS}patch/${name}`).then((t) => {
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping; t.anisotropy = Math.min(4, ANISO); return t;
+  t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping; t.anisotropy = Math.min(4, ANISO); trace('tex ' + name); return t;
 });
 async function heightCPU(name) {
-  const img = new Image(); img.src = `assets/patch/${name}`; await img.decode();
+  const img = new Image(); img.src = `${AS}patch/${name}`; await img.decode();
   const N = img.width, cv = document.createElement('canvas'); cv.width = cv.height = N;
   const ctx = cv.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' }); ctx.drawImage(img, 0, 0);
   const d = ctx.getImageData(0, 0, N, N).data, a = new Float32Array(N * N);
   for (let i = 0; i < N * N; i++) a[i] = (d[i * 4] * 256 + d[i * 4 + 1]) / 65535;
-  return { a, N };
+  trace('heights ' + name); return { a, N };
 }
 const [T, HDc, HLc, HDR, gPebbles, gBranch] = await Promise.all([
   Promise.all([['dirt_diff.jpg', 1], ['dirt_nr.jpg', 0], ['dirt_h.png', 0], ['crack_diff.jpg', 1], ['crack_nr.jpg', 0], ['crack_h.png', 0], ['litter_diff.jpg', 1], ['litter_nr.jpg', 0], ['litter_h.png', 0]].map(([n, s]) => tex(n, s))),
   heightCPU('dirt_h.png'), heightCPU('litter_h.png'),
-  new RGBELoader().loadAsync('assets/hdri/autumn_forest_01_4k.hdr'),
-  new GLTFLoader().loadAsync('assets/models/namaqualand_stones_01/namaqualand_stones_01.gltf'),
-  new GLTFLoader().loadAsync('assets/models/dry_branches_medium_01/dry_branches_medium_01.gltf'),
+  new RGBELoader().loadAsync(AS + 'hdri/autumn_forest_01_4k.hdr').then((h) => { trace('hdr'); return h; }),
+  new GLTFLoader().loadAsync(AS + 'models/namaqualand_stones_01/namaqualand_stones_01.gltf').then((g) => { trace('stones'); return g; }),
+  new GLTFLoader().loadAsync(AS + 'models/dry_branches_medium_01/dry_branches_medium_01.gltf').then((g) => { trace('branch'); return g; }),
 ]);
 const [tDd, tDn, tDh, tCd, tCn, tCh, tLd, tLn, tLh] = T;
-HDR.mapping = THREE.EquirectangularReflectionMapping;
-say('building the ground…');
+trace('all assets'); HDR.mapping = THREE.EquirectangularReflectionMapping;
+say('building the ground…'); trace('building');
 
 // CPU mirrors of the scanned heights (uv: u = +x, v = +z, image rows run from v = 1 down)
 function sampleCPU(M, u, v) {
@@ -329,8 +348,21 @@ scene.environment = pmrem.fromEquirectangular(HDR).texture;
 const camera = new THREE.PerspectiveCamera(+(Q.get('fov') || 33), innerWidth / innerHeight, 0.02, 20);
 const CAM_POS = new THREE.Vector3(0.0, 0.285, 0.2), CAM_TGT = new THREE.Vector3(0.0, 0.012, -0.02);
 // optional reframing for other aspect ratios (e.g. the square social video): ?dx= slides sideways, ?dz= tilts the view nearer
-{ const dx = +(Q.get('dx') || 0), dz = +(Q.get('dz') || 0); CAM_POS.x += dx; CAM_TGT.x += dx; CAM_TGT.z += dz; }
-camera.position.copy(CAM_POS); camera.lookAt(CAM_TGT);
+const CAM_POS0 = CAM_POS.clone(), CAM_TGT0 = CAM_TGT.clone(), FOV0 = camera.fov;
+// tall screens (phones held upright) get the square social-video framing, opened up so the rock and branch stay in view
+function frameCam() {
+  const a = innerWidth / innerHeight, tall = smooth(1.3, 1.0, a), upright = smooth(1.05, 0.7, a);
+  const dx = Q.has('dx') ? +Q.get('dx') : lerp(0.03 * tall, 0.06, upright), dz = Q.has('dz') ? +Q.get('dz') : lerp(0.025 * tall, 0.055, upright);
+  CAM_POS.copy(CAM_POS0); CAM_TGT.copy(CAM_TGT0); CAM_POS.x += dx; CAM_TGT.x += dx; CAM_TGT.z += dz;
+  let fov = FOV0;
+  if (!Q.has('fov') && a < 1.3) {
+    const h = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(lerp(FOV0, 44, tall)) / 2) * Math.max(a, 1));   // keep this much width
+    fov = Math.min(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(h / 2) / a)), 57);   // any wider and the far edge of the patch shows
+  }
+  camera.fov = fov; camera.aspect = a; camera.updateProjectionMatrix();
+  camera.position.copy(CAM_POS); camera.lookAt(CAM_TGT);
+}
+frameCam();
 
 // ============================================================================ simulation targets
 const simRT = () => new THREE.WebGLRenderTarget(SIM, SIM, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
@@ -958,7 +990,7 @@ transScene.environment = scene.environment; transScene.environmentRotation.copy(
 // ============================================================================ lights
 const sun = new THREE.DirectionalLight(0xfff0d8, 0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.mapSize.setScalar(LITE ? 2048 : 4096);
 Object.assign(sun.shadow.camera, { left: -0.32, right: 0.32, top: 0.32, bottom: -0.32, near: 0.1, far: 3 });
 sun.shadow.bias = -0.00002; sun.shadow.normalBias = 0.0002; sun.shadow.radius = 3.5; sun.shadow.blurSamples = 16;
 sun.target.position.set(0, 0, -0.02);
@@ -972,7 +1004,7 @@ function makeRTs() {
   buf = renderer.getDrawingBufferSize(new THREE.Vector2());
   [rtOpq, rtCopy, rtTrans, rtCoc, rtBlur].forEach((r) => r && r.dispose());
   rtOpq = new THREE.WebGLRenderTarget(buf.x, buf.y, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(buf.x, buf.y) });
-  rtCopy = new THREE.WebGLRenderTarget(buf.x, buf.y, { type: THREE.FloatType, depthBuffer: false });   // linear depth needs float precision: the water is reconstructed from it
+  rtCopy = new THREE.WebGLRenderTarget(buf.x, buf.y, { type: THREE.FloatType, depthBuffer: false, minFilter: SIMF, magFilter: SIMF });   // linear depth needs float precision: the water is reconstructed from it
   rtTrans = new THREE.WebGLRenderTarget(buf.x, buf.y, { type: THREE.HalfFloatType, samples: 4 });
   rtCoc = new THREE.WebGLRenderTarget(buf.x, buf.y, { type: THREE.HalfFloatType, depthBuffer: false });
   rtBlur = new THREE.WebGLRenderTarget(Math.ceil(buf.x / 2), Math.ceil(buf.y / 2), { type: THREE.HalfFloatType, depthBuffer: false });
@@ -1356,6 +1388,7 @@ const audio = {
   },
 };
 const soundBtn = document.getElementById('sound');
+if (MOBILE && soundBtn.textContent.includes('click')) soundBtn.textContent = soundBtn.textContent.replace('click', 'tap');
 soundBtn.addEventListener('click', (e) => { e.stopPropagation(); audio.toggle(); });
 addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') audio.toggle(); });
 
@@ -1732,7 +1765,7 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight') seekTo(simT + 4);
   else if (e.key === 'ArrowLeft') seekTo(simT - 4);
 });
-function onResize() { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); makeRTs(); }
+function onResize() { frameCam(); renderer.setSize(innerWidth, innerHeight, false); makeRTs(); }
 addEventListener('resize', onResize);
 function hud() {
   const P = simT / DUR;
@@ -1746,7 +1779,7 @@ function hud() {
 }
 
 // ============================================================================ boot
-say('settling the water…');
+say('settling the water…'); trace('settling');
 bakeObjects();
 basePass.render(baseRT);
 resetSim();
@@ -1801,7 +1834,7 @@ else {
   };
 }
 requestAnimationFrame(() => requestAnimationFrame(() => loadingEl.classList.add('done')));
-window.__ready = true;
+window.__ready = true; trace('ready');
 window.__audio = audio; window.__seek = seekTo; window.__story = { stateAt, DUR, X0, L, FLASHES }; window.__fly = fly;
 window.__dbg = { U, state, S0: [M[0]], M, renderer, scene, camera, stepSim, get simT() { return simT; } };
 </script>
