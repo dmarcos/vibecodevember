@@ -1,0 +1,1596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vibecodevember - Bolt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #f3eee6; --soft: #b9ae9f; --hot: #e8603c; --bar: 56px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #070605; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .scrim { position: fixed; left: 0; right: 0; bottom: 0; height: 170px; pointer-events: none; background: linear-gradient(to top, rgba(6,5,4,.6), transparent); }
+  .bar { position: fixed; left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 3vw, 36px); pointer-events: none; text-shadow: 0 0 10px rgba(0,0,0,.6); }
+  .brand { font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; color: var(--ink); opacity: .82; }
+  .name { font: italic 400 24px 'Cormorant Garamond', Georgia, serif; letter-spacing: .05em; }
+  #hud { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(760px, calc(100% - 32px)); text-shadow: 0 0 10px rgba(0,0,0,.85); pointer-events: none; transition: opacity .6s; }
+  #caption { min-height: 26px; margin-bottom: 12px; text-align: center; font: italic 400 21px 'Cormorant Garamond', Georgia, serif; letter-spacing: .02em; transition: opacity .9s; }
+  #stats { display: flex; justify-content: center; gap: clamp(18px, 5vw, 54px); }
+  .st { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 110px; }
+  .st .k { font: 500 9.5px Inter, sans-serif; letter-spacing: .3em; text-transform: uppercase; color: var(--soft); }
+  .st .v { font: italic 500 30px 'Cormorant Garamond', Georgia, serif; font-variant-numeric: tabular-nums; line-height: 1.05; transition: color .3s; }
+  .st .v small { font: 500 10px Inter, sans-serif; font-style: normal; letter-spacing: .14em; color: var(--soft); margin-left: 5px; }
+  .st .v.hot { color: var(--hot); }
+  #hint { margin-top: 9px; text-align: center; font-size: 10.5px; letter-spacing: .08em; color: var(--soft); }
+  #hint b { color: var(--ink); font-weight: 500; }
+  #sound { position: fixed; right: clamp(16px, 3vw, 36px); top: 64px; font: 500 10px Inter, sans-serif; letter-spacing: .26em; text-transform: uppercase; color: var(--soft); pointer-events: none; transition: opacity .6s; text-shadow: 0 0 8px rgba(0,0,0,.7); }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .12s linear; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #070605; font: italic 400 21px 'Cormorant Garamond', Georgia, serif; color: var(--soft); transition: opacity 1.1s; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  body.clean #hud, body.clean .scrim, body.clean #sound { opacity: 0; }
+  .cap { display: none; }
+  body.capture .bar, body.capture #hud, body.capture .scrim, body.capture #sound, body.capture #loading { display: none !important; }
+  body.capture .cap { display: block; position: fixed; z-index: 5; pointer-events: none; }
+  #capTitle { left: 32px; top: 32px; padding: 18px 24px 16px; border-radius: 10px; background: rgba(14,11,8,.55); backdrop-filter: blur(8px); color: #fff; font: 400 34px Inter, sans-serif; letter-spacing: .005em; }
+  #capTitle small { display: block; margin-top: 8px; font: 500 14px Inter, sans-serif; letter-spacing: .26em; text-transform: uppercase; opacity: .8; }
+  #capP { right: 34px; top: 26px; text-align: right; color: #fff; font: italic 500 64px 'Cormorant Garamond', Georgia, serif; font-variant-numeric: tabular-nums; text-shadow: 0 2px 4px rgba(0,0,0,.5), 0 0 24px rgba(0,0,0,.45); line-height: 1; }
+  #capP small { display: block; font: 500 13px Inter, sans-serif; font-style: normal; letter-spacing: .3em; text-transform: uppercase; margin-top: 8px; opacity: .85; }
+  #capP.hot { color: #ff9a6e; }
+  #capStage { left: 0; right: 0; bottom: 46px; text-align: center; color: #fff; font: italic 400 34px 'Cormorant Garamond', Georgia, serif; letter-spacing: .02em; text-shadow: 0 1px 3px rgba(0,0,0,.8), 0 0 20px rgba(0,0,0,.7); }
+  body.shot .bar, body.shot #hud, body.shot .scrim, body.shot #sound, body.shot #loading { display: none !important; }
+  @media (max-width: 640px) {
+    #hint { display: none; }
+    #caption { font-size: 17px; }
+    .st { min-width: 0; }
+    .st .v { font-size: 23px; }
+    .st .k { font-size: 8px; letter-spacing: .2em; }
+    .name { font-size: 20px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="scrim"></div>
+<header class="bar"><span class="brand">Vibecodevember</span><span class="name">Bolt</span></header>
+<div id="hud">
+  <div id="caption"></div>
+  <div id="stats">
+    <div class="st"><span class="k">Boiler</span><span class="v" id="vP">0<small>psi</small></span></div>
+    <div class="st"><span class="k">Bolt stretch</span><span class="v" id="vE">0<small>mm</small></span></div>
+    <div class="st"><span class="k">Threads holding</span><span class="v" id="vT">0</span></div>
+  </div>
+  <div id="hint"><b>drag</b> to orbit · <b>scroll</b> to zoom · <b>C</b> auto camera · <b>M</b> sound · <b>space</b> pause · <b>H</b> hide</div>
+</div>
+<div id="fade"></div>
+<div class="cap" id="capTitle">Bolt<small>Vibecodevember</small></div>
+<div class="cap" id="capP">0<small>psi</small></div>
+<div class="cap" id="capStage"></div>
+<div id="sound">click for sound</div>
+<div id="loading">building pressure…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// ============================================================================ setup
+const Q = new URLSearchParams(location.search);
+const SHOT = Q.has('shot') ? +Q.get('shot') : -1;      // ?shot=N&t=S : frozen camera for stills
+const CAPTURE = Q.has('capture');                 // ?capture: deterministic 30 s square film, driven by window.__frame(i)
+if (CAPTURE) document.body.classList.add('capture');
+const FILM_DUR = 30, FILM_FPS = 30, FILM_T0 = 12;   // the film starts 12 s into the story and runs it at ~2x until the break
+const START_T = CAPTURE ? FILM_T0 : +(Q.get('t') || 0);
+let filmT = 0, storyRate = 1;
+if (SHOT >= 0) document.body.classList.add('shot');
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: SHOT >= 0 || CAPTURE });
+renderer.toneMapping = THREE.NoToneMapping;            // tone mapping happens in the final pass
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
+const MAX_DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+let dpr = CAPTURE ? +(Q.get('ss') || 1.5) : SHOT >= 0 ? 1 : Math.min(MAX_DPR, 1.25);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0, 0, 0);
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.01, 40);
+
+// Metres. The joint: the boiler nozzle's brass flange face sits on x = 0, the pipe runs off along +x.
+// Six bolt holes on a 130 mm circle. Five bolts are gone. One is left.
+const RB = 0.142, FR = 0.168, FT = 0.032, PR = 0.09, HOLE = 0.0135, BORE = 0.078;
+const ANG = 0.95;                                          // the last bolt, measured from +y toward +z
+const UDIR = new THREE.Vector3(0, Math.cos(ANG), Math.sin(ANG));
+const WAX = new THREE.Vector3(0, -Math.sin(ANG), Math.cos(ANG));   // hinge axis (x × u)
+const RP = 0.19;                                           // the flange rocks about a line just past the bolt
+const PITCH = 0.003, RMAJ = 0.0119, TD = 0.0017, RMIN = RMAJ - TD, U_TH = 0.058, L0 = 0.095;
+
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry(1889);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const lerp = (a, b, t) => a + (b - a) * t;
+const TAU = Math.PI * 2;
+
+// ============================================================================ shader helpers
+const NOISE = /* glsl */`
+float h31(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float vn3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(h31(i), h31(i+vec3(1,0,0)), f.x), mix(h31(i+vec3(0,1,0)), h31(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(h31(i+vec3(0,0,1)), h31(i+vec3(1,0,1)), f.x), mix(h31(i+vec3(0,1,1)), h31(i+vec3(1,1,1)), f.x), f.y), f.z); }
+float fbm3(vec3 p){ float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++){ s += a*vn3(p); p = p*2.03 + 17.1; a *= 0.5; } return s; }
+`;
+
+// Procedural wear without UVs: object-space noise drives roughness, tarnish and patina.
+function grime(mat, o) {
+  const d = Object.assign({ scale: 30, rough: 0.25, col: 0.25, tarnish: [1, 1, 1], tarnishAmt: 0, verd: 0, verdCol: [0.07, 0.16, 0.12], rust: 0 }, o);
+  const f = (v) => v.toFixed(5);
+  const v3 = (a) => `vec3(${f(a[0])},${f(a[1])},${f(a[2])})`;
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vOP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvOP = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vOP;\n' + NOISE)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 gp = vOP * ${f(d.scale)};
+        float gN = fbm3(gp), gN2 = fbm3(gp * 4.7 + 3.1), gN3 = fbm3(gp * 0.35 + 9.0);
+        diffuseColor.rgb *= 1.0 + ${f(d.col)} * (gN - 0.5) + ${f(d.col * 0.5)} * (gN2 - 0.5);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * ${v3(d.tarnish)}, smoothstep(0.3, 0.75, gN3) * ${f(d.tarnishAmt)});
+        float verd = smoothstep(0.6, 0.72, fbm3(gp * 1.7 + 4.0) + 0.15 * (gN2 - 0.5)) * ${f(d.verd)};
+        float rust = smoothstep(0.58, 0.75, fbm3(gp * 1.3 + 11.0)) * ${f(d.rust)};
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${v3(d.verdCol)}, verd);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.20, 0.07, 0.025), rust);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = clamp(roughnessFactor + ${f(d.rough)} * (gN - 0.5) + ${f(d.rough * 0.6)} * (gN2 - 0.5) + verd * 0.6 + rust * 0.5, 0.05, 1.0);`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor *= 1.0 - max(verd, rust);`);
+  };
+  mat.customProgramCacheKey = () => 'grime' + JSON.stringify(d);
+  return mat;
+}
+
+const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b);
+const M = {
+  brass: grime(new THREE.MeshStandardMaterial({ color: lin(0.84, 0.62, 0.30), metalness: 1, roughness: 0.27 }),
+    { scale: 26, rough: 0.1, col: 0.12, tarnish: [0.78, 0.66, 0.52], tarnishAmt: 0.4, verd: 0.06 }),
+  boiler: grime(new THREE.MeshStandardMaterial({ color: lin(0.74, 0.52, 0.25), metalness: 1, roughness: 0.42 }),
+    { scale: 7, rough: 0.28, col: 0.22, tarnish: [0.55, 0.42, 0.32], tarnishAmt: 0.7, verd: 0.35 }),
+  steel: grime(new THREE.MeshStandardMaterial({ color: lin(0.19, 0.19, 0.2), metalness: 1, roughness: 0.42 }),
+    { scale: 22, rough: 0.28, col: 0.35, tarnish: [0.7, 0.62, 0.55], tarnishAmt: 0.4, rust: 0.35 }),
+  machined: grime(new THREE.MeshStandardMaterial({ color: lin(0.52, 0.52, 0.53), metalness: 1, roughness: 0.3 }),
+    { scale: 140, rough: 0.16, col: 0.12, tarnishAmt: 0.0 }),
+  nut: grime(new THREE.MeshStandardMaterial({ color: lin(0.36, 0.36, 0.37), metalness: 1, roughness: 0.26 }),
+    { scale: 90, rough: 0.07, col: 0.04, tarnish: [0.7, 0.64, 0.58], tarnishAmt: 0.15 }),
+  iron: grime(new THREE.MeshStandardMaterial({ color: lin(0.10, 0.095, 0.09), metalness: 0.85, roughness: 0.62 }),
+    { scale: 9, rough: 0.3, col: 0.5, rust: 0.55 }),
+  brick: grime(new THREE.MeshStandardMaterial({ color: lin(0.15, 0.055, 0.03), metalness: 0, roughness: 0.92 }),
+    { scale: 6, rough: 0.1, col: 0.7 }),
+  wall: grime(new THREE.MeshStandardMaterial({ color: lin(0.05, 0.035, 0.028), metalness: 0, roughness: 0.9 }),
+    { scale: 2.5, rough: 0.1, col: 0.8 }),
+  floor: grime(new THREE.MeshStandardMaterial({ color: lin(0.035, 0.032, 0.03), metalness: 0, roughness: 0.55 }),
+    { scale: 1.6, rough: 0.9, col: 0.6 }),
+  gasket: grime(new THREE.MeshStandardMaterial({ color: lin(0.20, 0.11, 0.06), metalness: 0, roughness: 0.9, side: THREE.DoubleSide }),
+    { scale: 160, rough: 0.1, col: 0.6 }),
+  bore: new THREE.MeshStandardMaterial({ color: lin(0.03, 0.03, 0.03), metalness: 0.6, roughness: 0.7, side: THREE.BackSide }),
+  fracture: grime(new THREE.MeshStandardMaterial({ color: lin(0.55, 0.55, 0.56), metalness: 1, roughness: 0.62, vertexColors: true }),
+    { scale: 900, rough: 0.5, col: 0.35 }),
+};
+
+// ============================================================================ geometry helpers
+// Surface of revolution about +x: P = (u, r cos φ, r sin φ). Normals by finite differences, no seam.
+function revolve(rFn, u0, u1, nu, nv, invert = false) {
+  const pos = [], nor = [], uv = [], idx = [];
+  const P = (u, ph) => { const r = rFn(u, ph); return [u, r * Math.cos(ph), r * Math.sin(ph)]; };
+  const du = (u1 - u0) / nu * 0.3, dp = TAU / nv * 0.3;
+  for (let i = 0; i <= nu; i++) {
+    const u = u0 + (u1 - u0) * i / nu;
+    for (let j = 0; j <= nv; j++) {
+      const ph = TAU * j / nv;
+      const p = P(u, ph), a1 = P(u + du, ph), a0 = P(u - du, ph), b1 = P(u, ph + dp), b0 = P(u, ph - dp);
+      const ax = a1[0] - a0[0], ay = a1[1] - a0[1], az = a1[2] - a0[2];
+      const bx = b1[0] - b0[0], by = b1[1] - b0[1], bz = b1[2] - b0[2];
+      let nx = by * az - bz * ay, ny = bz * ax - bx * az, nz = bx * ay - by * ax;   // b × a = outward
+      const l = Math.hypot(nx, ny, nz) || 1, sg = invert ? -1 : 1;
+      pos.push(...p); nor.push(sg * nx / l, sg * ny / l, sg * nz / l); uv.push((u - u0) / (u1 - u0), j / nv);
+    }
+  }
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i * (nv + 1) + j, b = a + nv + 1, c = a + 1, d = b + 1;
+    if (invert) idx.push(a, b, c, c, b, d); else idx.push(a, c, b, c, d, b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+// Extrude a 2D profile along +z, then turn it so it extrudes along +x and shape (X, Y) lands on world (y, z).
+const TOX = new THREE.Matrix4().set(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1);
+function extrudeX(shape, len, bev, segs = 48) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(1e-4, len - 2 * bev), bevelEnabled: bev > 0, bevelThickness: bev, bevelSize: bev, bevelOffset: -bev, bevelSegments: 3, curveSegments: segs });
+  g.applyMatrix4(TOX); g.computeBoundingBox(); g.translate(-g.boundingBox.min.x, 0, 0);
+  return g;
+}
+const circle = (r, hole = false, cx = 0, cy = 0) => { const p = hole ? new THREE.Path() : new THREE.Shape(); p.absarc(cx, cy, r, 0, TAU, hole); return p; };
+function hexShape(R) { const s = new THREE.Shape(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; i ? s.lineTo(R * Math.cos(a), R * Math.sin(a)) : s.moveTo(R * Math.cos(a), R * Math.sin(a)); } s.closePath(); return s; }
+const latheX = (pts, segs = 96) => new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), segs).rotateZ(-Math.PI / 2);
+const cylX = (r, len, segs = 64, open = false) => new THREE.CylinderGeometry(r, r, len, segs, 1, open).rotateZ(-Math.PI / 2);
+function mesh(geo, mat, parent, cast = true, recv = true) { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = recv; if (parent) parent.add(m); return m; }
+const holeAngles = [...Array(6)].map((_, k) => ANG + k * Math.PI / 3);
+
+// ============================================================================ textures
+function canvasTex(w, h, draw, srgb = true) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8; return t;
+}
+function makePuffAtlas() {
+  const N = 512, G = 64, rr = mulberry(77), grid = new Float32Array(G * G).map(() => rr());
+  const vn = (x, y) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const g = (a, b) => grid[((b % G + G) % G) * G + ((a % G + G) % G)];
+    return lerp(lerp(g(ix, iy), g(ix + 1, iy), sx), lerp(g(ix, iy + 1), g(ix + 1, iy + 1), sx), sy);
+  };
+  const fbm = (x, y) => { let s = 0, a = 0.5; for (let i = 0; i < 5; i++) { s += a * vn(x, y); x = x * 2.02 + 7.3; y = y * 2.02 + 3.1; a *= 0.5; } return s; };
+  return canvasTex(N, N, (ctx) => {
+    const img = ctx.createImageData(N, N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const cx = x % 256, cy = y % 256, cell = (x >> 8) + 2 * (y >> 8);
+      const dx = (cx - 128) / 124, dy = (cy - 128) / 124, d = Math.hypot(dx, dy);
+      const n = fbm(cx / 60 + cell * 13.7, cy / 60 + cell * 5.1);
+      const fall = Math.pow(clamp(1 - d, 0, 1), 1.2);
+      const a = clamp((n * 0.8 - 0.12 + fall * 0.75) * fall * 1.4, 0, 1) * (1 - smooth(0.72, 1.0, d));
+      const i = (y * N + x) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = 255; img.data[i + 3] = a * 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }, false);
+}
+function makeDial() {
+  return canvasTex(1024, 1024, (g, W) => {
+    const c = W / 2;
+    const bg = g.createRadialGradient(c, c * 0.9, 40, c, c, c);
+    bg.addColorStop(0, '#efe6cf'); bg.addColorStop(0.8, '#e2d5b4'); bg.addColorStop(1, '#b9a679');
+    g.fillStyle = bg; g.fillRect(0, 0, W, W);
+    // age stains
+    for (let i = 0; i < 60; i++) { const r = 20 + rnd() * 90; const gr = g.createRadialGradient(0, 0, 0, 0, 0, r); gr.addColorStop(0, 'rgba(120,90,40,0.07)'); gr.addColorStop(1, 'rgba(120,90,40,0)'); g.save(); g.translate(rnd() * W, rnd() * W); g.fillStyle = gr; g.fillRect(-r, -r, 2 * r, 2 * r); g.restore(); }
+    const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25, ang = (v) => A0 + (A1 - A0) * v / 300;
+    g.lineCap = 'butt';
+    g.strokeStyle = '#a3241a'; g.lineWidth = 34; g.beginPath(); g.arc(c, c, 380, ang(200), ang(300)); g.stroke();
+    g.strokeStyle = '#1b1712';
+    for (let v = 0; v <= 300; v += 5) {
+      const a = ang(v), big = v % 50 === 0, mid = v % 10 === 0;
+      const r0 = big ? 340 : mid ? 360 : 372;
+      g.lineWidth = big ? 7 : mid ? 4 : 2.5;
+      g.beginPath(); g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0); g.lineTo(c + Math.cos(a) * 398, c + Math.sin(a) * 398); g.stroke();
+    }
+    g.lineWidth = 3; g.beginPath(); g.arc(c, c, 398, A0, A1); g.stroke();
+    g.fillStyle = '#1b1712'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = 'italic 600 62px Georgia, serif';
+    for (let v = 0; v <= 300; v += 50) { const a = ang(v); g.fillText(String(v), c + Math.cos(a) * 280, c + Math.sin(a) * 280); }
+    g.font = '600 38px Georgia, serif'; g.fillText('LBS. PER SQ. IN.', c, c + 170);
+    g.font = 'italic 46px Georgia, serif'; g.fillText('Steam', c, c - 150);
+    g.font = '500 22px Georgia, serif'; g.fillText('HARGREAVE & COLE  ·  LEEDS', c, c + 230);
+    g.fillStyle = '#a3241a'; g.font = '600 24px Georgia, serif'; g.fillText('WORKING PRESSURE 180', c, c + 270);
+  });
+}
+
+// ============================================================================ lights + environment
+const pmrem = new THREE.PMREMGenerator(renderer);
+{
+  const env = new THREE.Scene();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 10), new THREE.MeshBasicMaterial({ color: lin(0.012, 0.010, 0.009), side: THREE.BackSide }));
+  box.position.y = 1.5; env.add(box);
+  const add = (w, h, col, pos, look) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide })); m.position.set(...pos); m.lookAt(...look); env.add(m); };
+  add(1.4, 1.8, lin(1.6, 2.0, 2.6), [1.5, 1.9, -4.9], [0, 0, 0]);           // tall window behind
+  add(0.9, 1.6, lin(0.7, 0.9, 1.2), [-4.9, 1.6, -1.0], [0, 0, 0]);          // side window
+  add(0.25, 0.25, lin(30, 22, 14), [0.62, 1.05, 0.72], [0, 0, 0]);          // work lamp
+  add(0.5, 0.2, lin(6, 2.2, 0.5), [-0.1, -0.7, 0.1], [2, -0.7, 0.4]);       // firebox
+  add(3.0, 0.08, lin(0.6, 0.45, 0.3), [0, 3.5, 0], [0, 0, 0]);              // dim ceiling strip
+  add(2.4, 1.6, lin(0.55, 0.42, 0.30), [0.6, 2.6, 1.4], [0, 0, 0]);         // lamp bounce off the ceiling
+  add(2.5, 2.0, lin(0.16, 0.20, 0.26), [-3.5, 1.2, 2.0], [0, 0, 0]);        // cold bounce from the side wall
+  add(3.0, 1.0, lin(0.10, 0.06, 0.035), [0.5, -0.9, 0.5], [0, 2, 0]);       // warm floor bounce
+  add(1.2, 0.6, lin(1.2, 0.9, 0.6), [2.2, 1.0, 0.8], [0, 0, 0]);            // a lit doorway, off right
+  add(4, 2, lin(0.06, 0.045, 0.035), [0, 0.5, 4.9], [0, 0, 0]);             // the room behind camera
+  scene.environment = pmrem.fromScene(env, 0.02).texture;
+  scene.environmentIntensity = 0.9;
+}
+const KEY_POS = new THREE.Vector3(0.62, 1.05, 0.72);
+const key = new THREE.SpotLight(lin(1.0, 0.80, 0.58), 10, 0, 0.36, 0.75, 2);
+key.position.copy(KEY_POS);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.5; key.shadow.camera.far = 3.5;
+key.shadow.bias = -0.00008; key.shadow.normalBias = 0.0006;
+scene.add(key, key.target);
+const RIM_POS = new THREE.Vector3(-0.35, 0.75, -1.15);
+const rim = new THREE.SpotLight(lin(0.62, 0.76, 1.0), 22, 0, 0.55, 0.9, 2);
+rim.position.copy(RIM_POS); rim.target.position.set(0.05, -0.02, 0.05);
+rim.castShadow = true; rim.shadow.mapSize.set(1024, 1024); rim.shadow.camera.near = 0.4; rim.shadow.camera.far = 3.5; rim.shadow.bias = -0.0002; rim.shadow.normalBias = 0.001;
+scene.add(rim, rim.target);
+const FIRE_POS = new THREE.Vector3(-0.02, -0.68, 0.12);
+const fire = new THREE.PointLight(lin(1.0, 0.42, 0.12), 2.4, 0, 2);
+fire.position.copy(FIRE_POS); scene.add(fire);
+const fill = new THREE.SpotLight(lin(1.0, 0.86, 0.7), 3, 0, 0.75, 1.0, 2);
+fill.position.set(-0.1, 0.7, 1.3); fill.target.position.set(-0.2, 0.0, 0.0); scene.add(fill, fill.target);
+const windowFill = new THREE.DirectionalLight(lin(0.55, 0.68, 0.9), 0.25);
+windowFill.position.set(1.5, 2, -4); scene.add(windowFill);
+
+// ============================================================================ the room
+const room = new THREE.Group(); scene.add(room);
+{
+  const FLOOR_Y = -0.95;
+  const floor = mesh(new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2), M.floor, room, false, true); floor.position.y = FLOOR_Y;
+  const walls = mesh(new THREE.BoxGeometry(9, 5.5, 9), M.wall, room, false, true); walls.material = M.wall.clone(); walls.material.side = THREE.BackSide;
+  grime(walls.material, { scale: 2.5, rough: 0.1, col: 0.8 });
+  walls.position.set(0, FLOOR_Y + 2.75, -0.5);
+  // tall cold window on the back wall, seen only as soft light behind the steam
+  const win = mesh(new THREE.PlaneGeometry(1.3, 1.9), new THREE.MeshBasicMaterial({ color: lin(1.1, 1.35, 1.75) }), room, false, false);
+  win.position.set(1.4, 1.2, -4.94);
+  const mullion = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.8 });
+  for (let i = -1; i <= 1; i++) { const b = mesh(new THREE.BoxGeometry(0.035, 1.9, 0.02), mullion, room, false, false); b.position.set(1.4 + i * 0.43, 1.2, -4.92); }
+  for (let i = -2; i <= 2; i++) { const b = mesh(new THREE.BoxGeometry(1.3, 0.035, 0.02), mullion, room, false, false); b.position.set(1.4, 1.2 + i * 0.47, -4.92); }
+  // the work lamp: a bare caged bulb, the key light's excuse
+  const bulb = mesh(new THREE.SphereGeometry(0.028, 24, 16), new THREE.MeshBasicMaterial({ color: lin(40, 28, 16) }), room, false, false);
+  bulb.position.copy(KEY_POS).add(new THREE.Vector3(0.03, 0.04, 0.03));
+  const shade = mesh(new THREE.ConeGeometry(0.11, 0.09, 40, 1, true), M.iron, room, false, false);
+  shade.material = M.iron.clone(); shade.material.side = THREE.DoubleSide; grime(shade.material, { scale: 9, rough: 0.3, col: 0.5, rust: 0.4 });
+  shade.position.copy(bulb.position).add(new THREE.Vector3(0.02, 0.05, 0.02)); shade.lookAt(0, 3, 0);
+  const cord = mesh(new THREE.CylinderGeometry(0.004, 0.004, 3, 6), mullion, room, false, false); cord.position.copy(shade.position).add(new THREE.Vector3(0, 1.55, 0));
+}
+
+// ============================================================================ the machine
+const machine = new THREE.Group(); scene.add(machine);
+const piece = new THREE.Group(); machine.add(piece);        // the steel pipe flange that wants to leave
+const boltG = new THREE.Group(); machine.add(boltG);        // bolt local frame: +x along the bolt, +y radial outward
+
+// --- boiler: riveted brass shell on steel bands, axis along z
+const BX = -0.78, BR = 0.55, BZ0 = -1.55, BZ1 = 0.55;
+{
+  const shell = mesh(new THREE.CylinderGeometry(BR, BR, BZ1 - BZ0, 128, 1, true).rotateX(Math.PI / 2), M.boiler, machine);
+  shell.position.set(BX, 0, (BZ0 + BZ1) / 2);
+  const dome = mesh(new THREE.SphereGeometry(BR, 96, 32, 0, TAU, 0, Math.PI / 2).rotateX(Math.PI / 2).scale(1, 1, 0.42), M.boiler, machine);
+  dome.position.set(BX, 0, BZ1);
+  const domeB = dome.clone(); domeB.rotation.y = Math.PI; domeB.position.z = BZ0; machine.add(domeB);
+  const bandZ = [-1.15, -0.55, 0.05, 0.45];
+  const rivetGeo = new THREE.SphereGeometry(0.0085, 12, 6, 0, TAU, 0, Math.PI / 2);
+  const rivetPos = [];
+  for (const z of bandZ) {
+    mesh(new THREE.CylinderGeometry(BR + 0.008, BR + 0.008, 0.07, 128, 1, true).rotateX(Math.PI / 2), M.steel, machine).position.set(BX, 0, z);
+    for (let i = 0; i < 120; i++) { const a = i / 120 * TAU; for (const dz of [-0.022, 0.022]) rivetPos.push([BX + Math.cos(a) * (BR + 0.008), Math.sin(a) * (BR + 0.008), z + dz, a, 0]); }
+  }
+  for (let i = 0; i < 70; i++) { const z = BZ0 + 0.05 + i * (BZ1 - BZ0 - 0.1) / 69; const a = 2.05; rivetPos.push([BX + Math.cos(a) * BR, Math.sin(a) * BR, z, a, 0]); }
+  const rivets = new THREE.InstancedMesh(rivetGeo, M.steel, rivetPos.length);
+  const m4 = new THREE.Matrix4(), qq = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  rivetPos.forEach(([x, y, z, a], i) => { qq.setFromUnitVectors(up, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); m4.compose(new THREE.Vector3(x, y, z), qq, new THREE.Vector3(1, 0.65, 1)); rivets.setMatrixAt(i, m4); });
+  rivets.castShadow = rivets.receiveShadow = true; machine.add(rivets);
+  // steam dome + safety valve on top
+  const sd = mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.3, 64), M.brass, machine); sd.position.set(BX, BR + 0.08, -0.55);
+  mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.03, 64), M.brass, machine).position.set(BX, BR + 0.24, -0.55);
+  // firebox
+  const fb = mesh(new THREE.BoxGeometry(1.25, 0.5, 2.0), M.brick, machine); fb.position.set(BX, -0.72, (BZ0 + BZ1) / 2);
+  const door = mesh(new THREE.BoxGeometry(0.03, 0.26, 0.36), M.iron, machine); door.position.set(BX + 0.64, -0.72, 0.12);
+  const glow = new THREE.MeshBasicMaterial({ color: lin(5, 1.6, 0.35) });
+  for (let i = 0; i < 4; i++) { const s = mesh(new THREE.BoxGeometry(0.005, 0.012, 0.26), glow, machine, false, false); s.position.set(BX + 0.656, -0.79 + i * 0.035, 0.12); }
+  const gap = mesh(new THREE.BoxGeometry(0.004, 0.27, 0.006), glow, machine, false, false); gap.position.set(BX + 0.652, -0.72, 0.30);
+}
+// --- nozzle and the brass flange (boiler side, fixed)
+{
+  mesh(cylX(PR, 0.24, 96), M.brass, machine).position.set(-0.15, 0, 0);
+  mesh(latheX([[0.102, -0.03], [0.1, -0.05], [0.094, -0.075], [PR, -0.09]]), M.brass, machine);
+  const sh = circle(FR); sh.holes.push(circle(BORE, true)); for (const a of holeAngles) sh.holes.push(circle(HOLE, true, RB * Math.cos(a), RB * Math.sin(a)));
+  mesh(extrudeX(sh, 0.03, 0.002, 64), M.brass, machine).position.x = -0.03;
+  mesh(cylX(BORE, 0.3, 64, true), M.bore, machine, false, false).position.x = -0.15;
+  // collar where the nozzle meets the shell
+  mesh(cylX(PR + 0.02, 0.05, 96), M.brass, machine).position.set(-0.235, 0, 0);
+}
+// --- gasket, torn: a ring on the brass face, a ragged strip hanging out where the gap is widest
+const gasketFlap = (() => {
+  const ring = new THREE.Shape(); ring.absarc(0, 0, 0.116, 0, TAU, false); ring.holes.push(circle(BORE + 0.002, true));
+  const g = extrudeX(ring, 0.0018, 0, 96); mesh(g, M.gasket, machine);
+  const pg = new THREE.PlaneGeometry(0.075, 0.016, 24, 4);
+  const pos = pg.attributes.position;
+  for (let i = 0; i < pos.count; i++) { const x = pos.getX(i), y = pos.getY(i); const rag = (Math.sin(x * 420) * 0.002 + Math.sin(x * 1300) * 0.0012) * (y > 0 ? 1 : 0.4); pos.setY(i, y + rag); }
+  pg.computeVertexNormals();
+  const mat = M.gasket.clone();
+  const uT = { value: 0 }, uA = { value: 0 };
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uT = uT; sh.uniforms.uA = uA;
+    sh.vertexShader = 'uniform float uT, uA;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      float k = smoothstep(0.0, 0.06, position.y);
+      transformed.x += uA * k * (sin(uT * 47.0 + position.y * 140.0) * 0.0035 + sin(uT * 83.0 + position.y * 260.0) * 0.0015);
+      transformed.z += uA * k * sin(uT * 61.0 + position.y * 90.0) * 0.003;`);
+  };
+  pg.applyMatrix4(TOX);                                 // plane x → radial, plane y → tangential, normal → along the bolt axis
+  pg.translate(0, 0.022, 0);
+  const flap = new THREE.Mesh(pg, mat); flap.castShadow = true;
+  const holder = new THREE.Group(); machine.add(holder);
+  const a = ANG + Math.PI * 0.82;                       // low on the front side, where the gap is wide and the camera can see it
+  holder.position.set(0.0035, Math.cos(a) * 0.132, Math.sin(a) * 0.132);
+  holder.rotation.x = a;
+  holder.add(flap);
+  return { uT, uA, holder };
+})();
+// --- the piece: the steel pipe flange and pipe, rocked open by pressure
+{
+  const sh = circle(FR); sh.holes.push(circle(BORE, true)); for (const a of holeAngles) sh.holes.push(circle(HOLE, true, RB * Math.cos(a), RB * Math.sin(a)));
+  const fl = extrudeX(sh, FT, 0.002, 64);
+  const flMat = M.steel.clone();
+  grime(flMat, { scale: 22, rough: 0.28, col: 0.35, tarnish: [0.7, 0.62, 0.55], tarnishAmt: 0.4, rust: 0.3 });
+  mesh(fl, flMat, piece);
+  mesh(latheX([[0.102, FT], [0.1, FT + 0.012], [0.095, FT + 0.032], [PR, FT + 0.05]]), M.steel, piece);
+  mesh(cylX(PR, 0.38, 96), M.steel, piece).position.x = FT + 0.03 + 0.19 - 0.02;
+  mesh(cylX(BORE, 0.42, 64, true), M.bore, piece, false, false).position.x = 0.2;
+  const elbow = mesh(new THREE.TorusGeometry(0.2, PR, 32, 64, Math.PI / 2).rotateZ(-Math.PI / 2), M.steel, piece);
+  elbow.position.set(0.4, 0.2, 0);
+  const vert = mesh(new THREE.CylinderGeometry(PR, PR, 2.2, 96), M.steel, piece); vert.position.set(0.6, 0.2 + 1.1, 0);
+  // a mid-pipe flange pair for realism, all bolts present
+  const sh2 = circle(0.16); for (let k = 0; k < 8; k++) sh2.holes.push(circle(0.011, true, 0.125 * Math.cos(k * TAU / 8), 0.125 * Math.sin(k * TAU / 8)));
+  for (const y of [0.95, 0.982]) { const f2 = mesh(extrudeX(sh2, 0.032, 0.002), M.steel, piece); f2.rotation.z = Math.PI / 2; f2.position.set(0.6, y, 0); }
+}
+// --- the bolt, its nut, its washers, and the stubs of the five that went before
+const boltU = { uE: { value: 0 }, uUc: { value: 0.034 }, uNeck: { value: 0 }, uTh: { value: 0 }, uXm: { value: 0.04 }, uHeat: { value: 0 }, uCrack: { value: 0 }, uStrain: { value: 0 } };
+const BOLT_VERT = /* glsl */`
+uniform float uE, uUc, uNeck, uTh, uXm;
+varying vec3 vOP;
+float rampS(float d){ return 0.5 * (d + sqrt(d*d + 1.0e-4)); }
+vec3 boltDeform(vec3 p){
+  float u = p.x;
+  float st = smoothstep(uUc - 0.009, uUc + 0.009, u);
+  float nk = uNeck * exp(-pow((u - uUc) / 0.0062, 2.0));
+  vec3 q = p;
+  q.yz *= 1.0 - nk;
+  q.x = u + uE * st;
+  q.y += uTh * rampS(q.x - uXm);
+  return q;
+}`;
+function makeBoltMat(U, clip) {
+const boltMat = new THREE.MeshPhysicalMaterial({ color: lin(0.56, 0.57, 0.58), metalness: 1, roughness: 0.27 });
+boltMat.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, U, clip);
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\n' + BOLT_VERT)
+    .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+      { float u = position.x, w = 0.0062;
+        float nk = uNeck * exp(-pow((u - uUc) / w, 2.0));
+        float drdu = length(position.yz) * nk * 2.0 * (u - uUc) / (w * w);
+        objectNormal = normalize(objectNormal + vec3(-drdu * length(objectNormal.yz), 0.0, 0.0)); }`)
+    .replace('#include <begin_vertex>', 'vec3 transformed = boltDeform(position); vOP = position;');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+      uniform float uUc, uHeat, uCrack, uStrain, uNeck, uCut, uSide;
+      varying vec3 vOP;
+      ${NOISE}
+      vec3 temper(float h){
+        vec3 c0 = vec3(0.56,0.57,0.58), c1 = vec3(0.66,0.60,0.48), c2 = vec3(0.60,0.47,0.36), c3 = vec3(0.46,0.34,0.44), c4 = vec3(0.30,0.37,0.54), c5 = vec3(0.44,0.49,0.55);
+        h = clamp(h, 0.0, 1.0) * 5.0;
+        if (h < 1.0) return mix(c0, c1, h); if (h < 2.0) return mix(c1, c2, h - 1.0);
+        if (h < 3.0) return mix(c2, c3, h - 2.0); if (h < 4.0) return mix(c3, c4, h - 3.0); return mix(c4, c5, h - 4.0);
+      }`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      float bu = vOP.x, bph = atan(vOP.z, vOP.y), br = length(vOP.yz);
+      float dd = bu - uUc;
+      // after the break: each half keeps its own side of a jagged fracture
+      float cutU = uCut + 0.0011 * (vn3(vec3(bph * 2.5, 5.0, 1.0)) - 0.5) + 0.0005 * (vn3(vec3(bph * 11.0, 2.0, 7.0)) - 0.5);
+      if (uSide > 0.5 && bu > cutU && bu > 0.0) discard;
+      if (uSide < -0.5 && (bu < cutU || bu < 0.0)) discard;
+      float shank = step(0.0, bu) * (1.0 - step(${(U_TH + 0.004).toFixed(4)}, bu));
+      // oxide film from the superheated jet: straw → bronze → purple → blue rings around the neck
+      float heat = uHeat * exp(-dd * dd / (0.017 * 0.017)) * (0.85 + 0.3 * vn3(vec3(bph * 2.0, bu * 400.0, 1.0)));
+      diffuseColor.rgb = mix(diffuseColor.rgb, temper(heat), smoothstep(0.06, 0.3, heat) * shank);
+      // a hairline fatigue crack opening around part of the neck
+      float wig = 0.0009 * (vn3(vec3(bph * 4.0, 1.0, 2.0)) - 0.5) + 0.0003 * (vn3(vec3(bph * 30.0, 3.0, 2.0)) - 0.5);
+      float cmask = clamp((sin(bph + 0.3) * 0.5 + 0.5) * 1.6 - 1.4 + uCrack * 1.8, 0.0, 1.0);
+      float cw = 0.00005 + 0.00032 * uCrack;
+      float crack = (1.0 - smoothstep(cw * 0.25, cw, abs(dd - 0.0008 - wig))) * cmask * step(0.01, uCrack) * shank;
+      diffuseColor.rgb *= 1.0 - 0.96 * crack;
+      // Lüders bands: 45° slip lines where the steel has yielded
+      float lud = uStrain * exp(-dd * dd / (0.016 * 0.016)) * shank;
+      float band = sin((bu + br * bph) * 6.2832 / 0.0013 + 3.0 * vn3(vec3(bu * 600.0, bph, 0.0)));
+      float neckness = uNeck * 6.0 * exp(-dd * dd / (0.007 * 0.007)) * shank;`)
+    .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+      float bn = fbm3(vOP * 1200.0), bn2 = fbm3(vOP * vec3(80.0, 2500.0, 2500.0));
+      roughnessFactor = clamp(roughnessFactor + 0.12 * (bn - 0.5) + 0.08 * (bn2 - 0.5) + 0.22 * neckness + lud * 0.025 * smoothstep(0.2, 0.9, band) + crack * 0.7, 0.08, 1.0);`);
+};
+boltMat.customProgramCacheKey = () => 'bolt';
+return boltMat;
+}
+const boltClip = { uCut: { value: 0 }, uSide: { value: 0 } };
+const boltMat = makeBoltMat(boltU, boltClip);
+const boltDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+boltDepth.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, boltU);
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + BOLT_VERT)
+    .replace('#include <begin_vertex>', 'vec3 transformed = boltDeform(position); vOP = position;');
+};
+
+function boltR(u, ph) {
+  let r = RMAJ;
+  if (u < 0.0015) r += (0.0015 - u) * 0.6;
+  const runin = smooth(U_TH - 0.001, U_TH + 0.004, u);
+  if (runin > 0) {
+    let f = u / PITCH - ph / TAU; f -= Math.floor(f);
+    const tri = 1 - Math.abs(2 * f - 1);
+    r = RMAJ - TD * (1 - smooth(0.18, 0.82, tri)) * runin;
+  }
+  r = Math.min(r, RMIN - 0.0004 + (L0 - u) * 1.0);
+  return Math.max(r, 0.0001);
+}
+function headGeo() {
+  const g1 = extrudeX(hexShape(0.0208), 0.015, 0.0012, 1).translate(-0.015, 0, 0);
+  const g2 = latheX([[0.001, -0.0002], [0.0172, -0.0002], [0.0172, 0.0003], [0.001, 0.0003]], 48);   // washer face
+  return [g1, g2];
+}
+const ni = (g) => (g.index ? g.toNonIndexed() : g);
+function strip(g) { for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; }
+const bolt = (() => {
+  const shank = revolve(boltR, 0, L0, 380, 128);
+  const cap = new THREE.CircleGeometry(RMIN - 0.0004, 48).rotateY(Math.PI / 2).translate(L0, 0, 0);
+  const geo = mergeGeometries([shank, cap, ...headGeo()].map((g) => strip(ni(g))));
+  const m = mesh(geo, boltMat, boltG);
+  m.customDepthMaterial = boltDepth;
+  return m;
+})();
+// ---------- the break: a second copy of the bolt (outer half), jagged fracture faces, a group that flies
+const fragU = {}; for (const k in boltU) fragU[k] = { value: 0 };
+const fragClip = { uCut: { value: 0 }, uSide: { value: -1 } };
+const flyer = new THREE.Group(); flyer.visible = false; scene.add(flyer);
+const fragMesh = mesh(bolt.geometry, makeBoltMat(fragU, fragClip), flyer);
+const fracMat = new THREE.MeshStandardMaterial({ color: lin(0.62, 0.62, 0.63), metalness: 1, roughness: 0.6, emissive: lin(1.0, 0.32, 0.06), emissiveIntensity: 0 });
+function fractureFace(sign) {
+  const g = new THREE.CircleGeometry(1, 40, 0, TAU);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), r = Math.hypot(x, y), a = Math.atan2(y, x);
+    pos.setZ(i, sign * (0.0009 * Math.sin(a * 3 + 1) + 0.0006 * Math.sin(a * 7) + 0.0012 * (1 - r) * (0.5 + 0.5 * Math.sin(a * 5 + 2))));
+  }
+  g.computeVertexNormals(); g.rotateY(Math.PI / 2 * sign);
+  const m = new THREE.Mesh(g, fracMat); m.visible = false; m.castShadow = true; return m;
+}
+const capStay = fractureFace(1); boltG.add(capStay);
+const capFly = fractureFace(-1); flyer.add(capFly);
+const blast = new THREE.PointLight(lin(1.0, 0.45, 0.12), 0, 0, 2); scene.add(blast);
+boltG.position.set(-0.033, RB * UDIR.y, RB * UDIR.z);
+boltG.rotation.x = ANG;
+// head washer behind the brass flange
+const washerGeo = (() => { const s = circle(0.021); s.holes.push(circle(0.0128, true)); return extrudeX(s, 0.0035, 0.0005, 48); })();
+mesh(washerGeo, M.machined, boltG);            // sits between the head and the brass back face
+// nut: hex body with a real threaded bore, so you can look in and see how little is left
+const nutG = new THREE.Group(); boltG.add(nutG);
+const washerN = new THREE.Group(); boltG.add(washerN);
+{
+  const hs = hexShape(0.0208); hs.holes.push(circle(RMAJ + 0.0005, true));
+  mesh(extrudeX(hs, 0.022, 0.0014, 32), M.nut, nutG);
+  const nutPhase = 0.0013;
+  const inner = revolve((u, ph) => {
+    let f = (u + nutPhase) / PITCH - ph / TAU; f -= Math.floor(f);
+    const tri = 1 - Math.abs(2 * f - 1);
+    const dmg = 0.00035 * Math.max(0, Math.sin(ph * 7 + u * 900)) * smooth(0.012, 0, u);   // smeared threads at the loaded face
+    const r = RMIN + 0.0003 + TD * smooth(0.18, 0.82, tri) + dmg;
+    return Math.max(r, RMAJ + 0.0005 - u * 1.0, RMAJ + 0.0005 - (0.022 - u) * 1.0);
+  }, 0, 0.022, 120, 96, true);
+  mesh(inner, M.nut, nutG);
+  mesh(washerGeo, M.machined, washerN);
+}
+// sheared stubs in three holes, two holes empty. Each stub: head, necked shank, cup-and-cone break.
+{
+  const stubSpec = [[1, 0.0355], [3, 0.0345], [4, 0.0365]];
+  for (const [k, uEnd] of stubSpec) {
+    const a = holeAngles[k], seed = k * 1.7;
+    const neckAt = uEnd - 0.002;
+    const rf = (u, ph) => {
+      const jag = 0.0012 * Math.sin(ph * 3 + seed) + 0.0007 * Math.sin(ph * 7 + seed * 2) + 0.0004 * Math.sin(ph * 17);
+      const end = uEnd + jag;
+      let r = RMAJ * (1 - 0.18 * Math.exp(-(((u - neckAt) / 0.004) ** 2)));
+      if (u > end) r *= Math.max(0, 1 - (u - end) / 0.0045);
+      if (u < 0.0015) r += (0.0015 - u) * 0.6;
+      return Math.max(r, 0.0002);
+    };
+    const g = revolve(rf, 0, uEnd + 0.006, 70, 64);
+    const col = new Float32Array(g.attributes.position.count * 3);
+    for (let i = 0; i < g.attributes.position.count; i++) {
+      const u = g.attributes.position.getX(i);
+      const fr = smooth(uEnd - 0.0025, uEnd, u);
+      const c = lerp(0.55, 1.05, fr);                  // the break is bright, fresh, crystalline
+      col[i * 3] = c * lerp(0.82, 1, fr); col[i * 3 + 1] = c * lerp(0.74, 1, fr); col[i * 3 + 2] = c * lerp(0.66, 1, fr);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const parts = headGeo().map((h) => { const n = strip(ni(h)); n.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n.attributes.position.count * 3).fill(0.5), 3)); return n; });
+    const geo = mergeGeometries([ni(g), ...parts]);
+    const sg = new THREE.Group(); sg.position.set(-0.033, RB * Math.cos(a), RB * Math.sin(a)); sg.rotation.x = a; machine.add(sg);
+    mesh(geo, M.fracture, sg);
+    mesh(washerGeo, M.machined, sg);
+  }
+}
+// --- pressure gauge on a siphon off the nozzle
+const gauge = (() => {
+  const g = new THREE.Group(); machine.add(g);
+  const base = new THREE.Vector3(-0.16, 0.088, -0.02), C = new THREE.Vector3(-0.16, 0.36, -0.02);
+  mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.15, 24), M.brass, machine).position.set(base.x, base.y + 0.075, base.z);
+  const pig = mesh(new THREE.TorusGeometry(0.028, 0.0065, 16, 48), M.brass, machine); pig.position.set(base.x, base.y + 0.18, base.z + 0.028); pig.rotation.y = Math.PI / 2;
+  mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.06, 24), M.brass, machine).position.set(base.x, C.y - 0.085, base.z);
+  mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.025, 6), M.brass, machine).position.set(base.x, C.y - 0.07, base.z);   // gauge cock
+  g.position.copy(C);
+  g.lookAt(C.clone().add(new THREE.Vector3(0.62, 0.05, 0.78)));
+  const R = 0.064;
+  mesh(new THREE.CylinderGeometry(R + 0.004, R + 0.006, 0.032, 96).rotateX(Math.PI / 2), M.brass, g).position.z = -0.016;
+  mesh(new THREE.TorusGeometry(R + 0.003, 0.0055, 20, 96), M.brass, g).position.z = 0.002;
+  const dial = mesh(new THREE.CircleGeometry(R, 96), new THREE.MeshStandardMaterial({ map: makeDial(), roughness: 0.5, metalness: 0 }), g, false, true);
+  dial.position.z = 0.0005;
+  const needleShape = new THREE.Shape(); needleShape.moveTo(-0.0028, -0.012); needleShape.lineTo(0.0028, -0.012); needleShape.lineTo(0.0006, 0.054); needleShape.lineTo(-0.0006, 0.054); needleShape.closePath();
+  const needle = new THREE.Group(); g.add(needle); needle.position.z = 0.003;
+  mesh(new THREE.ShapeGeometry(needleShape), new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.35, metalness: 0.4 }), needle, true, false);
+  const tell = new THREE.Group(); g.add(tell); tell.position.z = 0.0022;
+  const ts = new THREE.Shape(); ts.moveTo(-0.0012, 0); ts.lineTo(0.0012, 0); ts.lineTo(0.0004, 0.05); ts.lineTo(-0.0004, 0.05); ts.closePath();
+  mesh(new THREE.ShapeGeometry(ts), new THREE.MeshStandardMaterial({ color: lin(0.45, 0.03, 0.02), roughness: 0.4 }), tell, false, false);
+  mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.004, 24).rotateX(Math.PI / 2), M.brass, g).position.z = 0.0045;
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(0.5, 64, 16, 0, TAU, 0, 0.13).rotateX(Math.PI / 2).translate(0, 0, -0.4935),
+    new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.04, metalness: 0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  g.add(glass);
+  return { needle, tell };
+})();
+// --- safety valve (lever and weight) on the steam dome
+const valve = (() => {
+  const g = new THREE.Group(); g.position.set(BX, BR + 0.255, -0.55); machine.add(g);
+  mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.12, 48), M.brass, g).position.y = 0.06;
+  mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 48), M.brass, g).position.y = 0.13;
+  const pivot = new THREE.Group(); pivot.position.set(0, 0.15, -0.06); g.add(pivot);
+  const lever = mesh(new THREE.BoxGeometry(0.018, 0.012, 0.55), M.steel, pivot); lever.position.z = 0.25;
+  const w = mesh(new THREE.SphereGeometry(0.045, 32, 16), M.iron, pivot); w.position.set(0, -0.03, 0.5);
+  return { pivot, top: new THREE.Vector3(BX, BR + 0.255 + 0.15, -0.55) };
+})();
+// --- flywheel in the dark behind: the engine is still running
+const flywheel = (() => {
+  const g = new THREE.Group(); g.position.set(0.95, 0.15, -1.55); machine.add(g);
+  mesh(new THREE.LatheGeometry([[0.66, -0.06], [0.75, -0.06], [0.75, 0.06], [0.66, 0.06], [0.66, -0.06]].map(([a, b]) => new THREE.Vector2(a, b)), 128).rotateX(Math.PI / 2), M.iron, g);
+  for (let i = 0; i < 6; i++) { const s = mesh(new THREE.BoxGeometry(0.05, 0.66, 0.035), M.iron, g); s.rotation.z = i * Math.PI / 3; s.translateY(0.33); }
+  mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.14, 48).rotateX(Math.PI / 2), M.iron, g);
+  mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.6, 32).rotateX(Math.PI / 2), M.machined, g);
+  const ped = mesh(new THREE.BoxGeometry(0.35, 1.1, 0.4), M.iron, machine); ped.position.set(0.95, -0.4, -1.95);
+  return g;
+})();
+
+// ============================================================================ steam
+const puffTex = makePuffAtlas();
+const STEAM_N = 5200;
+const steam = (() => {
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = plane.index; geo.setAttribute('position', plane.attributes.position); geo.setAttribute('uv', plane.attributes.uv);
+  const iPos = new THREE.InstancedBufferAttribute(new Float32Array(STEAM_N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const iData = new THREE.InstancedBufferAttribute(new Float32Array(STEAM_N * 4), 4).setUsage(THREE.DynamicDrawUsage);
+  const iTint = new THREE.InstancedBufferAttribute(new Float32Array(STEAM_N * 2), 2).setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('iPos', iPos); geo.setAttribute('iData', iData); geo.setAttribute('iTint', iTint); geo.instanceCount = 0;
+  const U = {
+    uTex: { value: puffTex }, uKeyPos: { value: KEY_POS }, uKeyCol: { value: new THREE.Vector3(1.0, 0.80, 0.58).multiplyScalar(3.0) },
+    uKeyDir: { value: new THREE.Vector3() }, uRimPos: { value: RIM_POS }, uRimCol: { value: new THREE.Vector3(0.62, 0.76, 1.0).multiplyScalar(3.8) },
+    uRimDir: { value: new THREE.Vector3() }, uFirePos: { value: FIRE_POS }, uFireCol: { value: new THREE.Vector3(1.0, 0.42, 0.12).multiplyScalar(0.6) },
+    uAmb: { value: new THREE.Vector3(0.035, 0.036, 0.04) },
+    tDepth: { value: null }, uSRes: { value: new THREE.Vector2(1, 1) }, uNear: { value: camera.near }, uFar: { value: camera.far },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: U, transparent: true, depthWrite: false,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    vertexShader: /* glsl */`
+      attribute vec3 iPos; attribute vec4 iData;   // size, alpha, rotation, seed
+      attribute vec2 iTint;                        // smoke, fire
+      uniform vec3 uKeyPos, uKeyCol, uKeyDir, uRimPos, uRimCol, uRimDir, uFirePos, uFireCol, uAmb;
+      varying vec2 vUv; varying float vA; varying vec3 vCol; varying float vVZ;
+      float hg(float c, float g){ float g2 = g*g; return (1.0 - g2) / pow(1.0 + g2 - 2.0*g*c, 1.5) * 0.0796; }
+      vec3 lightOf(vec3 lp, vec3 ld, vec3 col, vec3 toCam, float cosA, float cosB){
+        vec3 d = iPos - lp; float dist = length(d); d /= dist;
+        float cone = smoothstep(cosA, cosB, dot(d, ld));
+        float c = dot(d, toCam);
+        float ph = mix(hg(c, 0.72), hg(c, -0.25), 0.35) * 6.0;
+        return col * ph * cone / (dist * dist);
+      }
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
+        float cr = cos(iData.z), sr = sin(iData.z);
+        vec2 q = position.xy;
+        mv.xy += vec2(cr*q.x - sr*q.y, sr*q.x + cr*q.y) * iData.x;
+        gl_Position = projectionMatrix * mv;
+        float nearFade = smoothstep(0.05, 0.24, -mv.z);
+        vVZ = -mv.z;
+        float cell = floor(iData.w * 3.999);
+        vUv = (uv + vec2(mod(cell, 2.0), floor(cell / 2.0))) * 0.5;
+        vec3 toCam = normalize(cameraPosition - iPos);
+        vec3 L = uAmb;
+        L += lightOf(uKeyPos, uKeyDir, uKeyCol, toCam, 0.90, 0.985);
+        L += lightOf(uRimPos, uRimDir, uRimCol, toCam, 0.80, 0.97);
+        vec3 fd = iPos - uFirePos; L += uFireCol / dot(fd, fd) * 0.3;
+        // thick puffs shade themselves a little
+        vCol = L * mix(1.0, 0.7, smoothstep(0.03, 0.25, iData.x));
+        vCol = mix(vCol, L * 0.12 + vec3(0.004, 0.0035, 0.003), iTint.x) + vec3(2.6, 0.8, 0.14) * iTint.y;
+        vA = iData.y * nearFade;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uTex, tDepth; uniform vec2 uSRes; uniform float uNear, uFar;
+      varying vec2 vUv; varying float vA; varying vec3 vCol; varying float vVZ;
+      void main(){
+        // soft particles: fade out where the puff meets solid metal, vanish behind it
+        float d = texture2D(tDepth, gl_FragCoord.xy / uSRes).x;
+        float sceneZ = -(uNear * uFar) / ((uFar - uNear) * d - uFar);
+        float soft = clamp((sceneZ - vVZ) / 0.03, 0.0, 1.0);
+        float a = texture2D(uTex, vUv).a * vA * soft * soft;
+        if (a < 0.002) discard;
+        gl_FragColor = vec4(vCol * a, a);
+      }`,
+  });
+  const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.renderOrder = 10; m.layers.set(2); scene.add(m);
+  const S = {
+    p: new Float32Array(STEAM_N * 3), v: new Float32Array(STEAM_N * 3), o: new Float32Array(STEAM_N * 3),
+    age: new Float32Array(STEAM_N), life: new Float32Array(STEAM_N), s0: new Float32Array(STEAM_N), grow: new Float32Array(STEAM_N),
+    rot: new Float32Array(STEAM_N), rv: new Float32Array(STEAM_N), seed: new Float32Array(STEAM_N), dens: new Float32Array(STEAM_N),
+    drag: new Float32Array(STEAM_N), clear: new Float32Array(STEAM_N), smk: new Float32Array(STEAM_N), fir: new Float32Array(STEAM_N), n: 0,
+  };
+  function spawn(px, py, pz, vx, vy, vz, size, grow, life, dens, drag = 2.4, clearDist = 0.03, smoke = 0, fireAmt = 0) {
+    if (S.n >= STEAM_N) return;
+    const i = S.n++;
+    S.p[i * 3] = S.o[i * 3] = px; S.p[i * 3 + 1] = S.o[i * 3 + 1] = py; S.p[i * 3 + 2] = S.o[i * 3 + 2] = pz;
+    S.v[i * 3] = vx; S.v[i * 3 + 1] = vy; S.v[i * 3 + 2] = vz;
+    S.age[i] = 0; S.life[i] = life; S.s0[i] = size; S.grow[i] = grow; S.rot[i] = rnd() * TAU; S.rv[i] = (rnd() - 0.5) * 2.5;
+    S.seed[i] = rnd(); S.dens[i] = dens; S.drag[i] = drag; S.clear[i] = clearDist; S.smk[i] = smoke; S.fir[i] = fireAmt;
+  }
+  const size0 = (w) => Math.min(0.05, S.s0[w] + S.grow[w] * (1 - Math.exp(-S.age[w] * 2.2)) * 0.35);
+  function copy(d, s) {
+    for (const k of ['age', 'life', 's0', 'grow', 'rot', 'rv', 'seed', 'dens', 'drag', 'clear', 'smk', 'fir']) S[k][d] = S[k][s];
+    for (let c = 0; c < 3; c++) { S.p[d * 3 + c] = S.p[s * 3 + c]; S.v[d * 3 + c] = S.v[s * 3 + c]; S.o[d * 3 + c] = S.o[s * 3 + c]; }
+  }
+  function update(dt, t) {
+    const P = iPos.array, D = iData.array, TT = iTint.array;
+    let w = 0;
+    for (let i = 0; i < S.n; i++) {
+      S.age[i] += dt;
+      if (S.age[i] >= S.life[i]) continue;
+      if (w !== i) copy(w, i);
+      const j = w * 3, a = S.age[w], lf = a / S.life[w];
+      const x = S.p[j], y = S.p[j + 1], z = S.p[j + 2];
+      const k = Math.exp(-S.drag[w] * dt);
+      const tb = 1.4 * Math.min(1, a * 3);
+      S.v[j] = S.v[j] * k + (Math.sin(y * 21 + t * 1.3) + 0.7 * Math.sin(z * 15 - t * 0.9)) * tb * dt;
+      S.v[j + 1] = S.v[j + 1] * k + (0.55 + Math.sin(z * 19 + t * 1.1) + 0.7 * Math.sin(x * 23 + t * 1.7)) * tb * dt;
+      S.v[j + 2] = S.v[j + 2] * k + (Math.sin(x * 17 - t * 1.2) + 0.7 * Math.sin(y * 25 + t * 0.8)) * tb * dt;
+      S.p[j] += S.v[j] * dt; S.p[j + 1] += S.v[j + 1] * dt; S.p[j + 2] += S.v[j + 2] * dt;
+      if (S.p[j + 1] < -0.93) { S.p[j + 1] = -0.93; S.v[j + 1] = Math.abs(S.v[j + 1]) * 0.2; }
+      collide(S.p, S.v, j, size0(w));
+      S.rot[w] += S.rv[w] * dt;
+      const size = S.s0[w] + S.grow[w] * (1 - Math.exp(-a * 2.2)) + S.grow[w] * 0.25 * a;
+      // superheated steam is invisible until it condenses a few centimetres out
+      const dx = S.p[j] - S.o[j], dy = S.p[j + 1] - S.o[j + 1], dz = S.p[j + 2] - S.o[j + 2];
+      const vis = smooth(S.clear[w] * 0.3, S.clear[w], Math.sqrt(dx * dx + dy * dy + dz * dz));
+      const alpha = S.dens[w] * vis * smooth(0, 0.1, lf) * (1 - smooth(0.35, 1, lf)) / (1 + size * 3.5);
+      P[j] = S.p[j]; P[j + 1] = S.p[j + 1]; P[j + 2] = S.p[j + 2];
+      D[w * 4] = size; D[w * 4 + 1] = alpha; D[w * 4 + 2] = S.rot[w]; D[w * 4 + 3] = S.seed[w];
+      const fa = S.fir[w] * Math.exp(-a * 3.2);                    // flame cools into smoke
+      TT[w * 2] = Math.max(S.smk[w], S.fir[w] * smooth(0.08, 0.5, a)); TT[w * 2 + 1] = fa;
+      w++;
+    }
+    S.n = w; geo.instanceCount = w;
+    iPos.needsUpdate = true; iData.needsUpdate = true; iTint.needsUpdate = true;
+  }
+  return { spawn, update, U, S };
+})();
+
+// Push a particle out of the solids it has drifted into (pipe, nozzle, hubs, flanges, boiler, riser).
+// The gap between the flanges stays open: that's where the steam comes from.
+function pushRadial(p, v, j, ia, ib, ca, cb, R) {   // cylinder whose cross-section is coords (ia, ib) centred at (ca, cb)
+  const da = p[j + ia] - ca, db = p[j + ib] - cb, r = Math.hypot(da, db);
+  if (r >= R) return;
+  const nx = r > 1e-5 ? da / r : 1, ny = r > 1e-5 ? db / r : 0;
+  p[j + ia] = ca + nx * R; p[j + ib] = cb + ny * R;
+  const vr = v[j + ia] * nx + v[j + ib] * ny;
+  if (vr < 0) { v[j + ia] -= vr * nx * 1.3; v[j + ib] -= vr * ny * 1.3; }
+}
+function collide(p, v, j, pad) {
+  const x = p[j], y = p[j + 1], z = p[j + 2];
+  const o = st.o, inGap = x > 0.0015 && x < o - 0.001;
+  // along the pipe axis (x), cross-section (y, z)
+  if (x > -0.036 && x < o + FT + 0.004 && !inGap) pushRadial(p, v, j, 1, 2, 0, 0, FR + pad * 0.5);
+  else if (x > -0.095 && x < o + FT + 0.055 && !inGap) pushRadial(p, v, j, 1, 2, 0, 0, 0.104 + pad * 0.5);
+  else if (x > -0.27 && x < 0.42) pushRadial(p, v, j, 1, 2, 0, 0, PR + 0.004 + pad * 0.5);
+  // boiler shell, axis along z through (BX, 0)
+  if (z > BZ0 - 0.2 && z < BZ1 + 0.22) {
+    const zr = z > BZ1 ? Math.sqrt(Math.max(0, 1 - ((z - BZ1) / 0.231) ** 2)) : z < BZ0 ? Math.sqrt(Math.max(0, 1 - ((BZ0 - z) / 0.231) ** 2)) : 1;
+    if (zr > 0) pushRadial(p, v, j, 0, 1, BX, 0, (BR + 0.01) * zr + pad * 0.5);
+  }
+  // riser pipe at x = 0.6, axis along y
+  if (y > 0.15) pushRadial(p, v, j, 0, 2, 0.6, 0, PR + 0.006 + pad * 0.5);
+}
+
+// ============================================================================ droplets + stripped thread flakes
+const FLY_N = 1600;
+const fly = (() => {
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = plane.index; geo.setAttribute('position', plane.attributes.position);
+  const iPos = new THREE.InstancedBufferAttribute(new Float32Array(FLY_N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const iVel = new THREE.InstancedBufferAttribute(new Float32Array(FLY_N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const iData = new THREE.InstancedBufferAttribute(new Float32Array(FLY_N * 4), 4).setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('iPos', iPos); geo.setAttribute('iVel', iVel); geo.setAttribute('iData', iData); geo.instanceCount = 0;
+  const U = { uTime: { value: 0 } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: U, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */`
+      attribute vec3 iPos, iVel; attribute vec4 iData;   // width, alpha, seed, kind (0 water, 1 metal)
+      uniform float uTime;
+      varying vec2 vQ; varying vec3 vCol;
+      void main(){
+        vec4 a = viewMatrix * vec4(iPos, 1.0);
+        vec4 b = viewMatrix * vec4(iPos - iVel * 0.010, 1.0);
+        vec2 d = a.xy - b.xy; float L = length(d); vec2 dir = L > 1e-6 ? d / L : vec2(1.0, 0.0);
+        vec2 perp = vec2(-dir.y, dir.x);
+        float w = iData.x;
+        vec4 p = mix(b, a, position.x + 0.5);
+        p.xy += perp * position.y * w + dir * position.x * w;
+        gl_Position = projectionMatrix * p;
+        vQ = position.xy * 2.0;
+        float glint = iData.w > 0.5 ? 0.3 + 9.0 * pow(abs(sin(uTime * 37.0 + iData.z * 60.0)), 12.0) : 1.0;
+        vCol = (iData.w > 1.5 ? vec3(9.0, 3.6, 0.9) * (0.6 + 0.4 * sin(uTime * 60.0 + iData.z * 40.0)) : iData.w > 0.5 ? vec3(1.0, 0.93, 0.82) * 1.4 * glint : vec3(0.75, 0.82, 0.9) * 1.1) * iData.y;
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec2 vQ; varying vec3 vCol;
+      void main(){ float a = (1.0 - abs(vQ.y)) * sqrt(max(0.0, 1.0 - abs(vQ.x))); gl_FragColor = vec4(vCol * a, a); }`,
+  });
+  const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.renderOrder = 11; scene.add(m);
+  const p = new Float32Array(FLY_N * 3), v = new Float32Array(FLY_N * 3), age = new Float32Array(FLY_N), life = new Float32Array(FLY_N), wd = new Float32Array(FLY_N), seed = new Float32Array(FLY_N), kind = new Float32Array(FLY_N);
+  let n = 0;
+  function spawn(px, py, pz, vx, vy, vz, width, lf, kd) {
+    if (n >= FLY_N) return; const i = n++;
+    p[i * 3] = px; p[i * 3 + 1] = py; p[i * 3 + 2] = pz; v[i * 3] = vx; v[i * 3 + 1] = vy; v[i * 3 + 2] = vz;
+    age[i] = 0; life[i] = lf; wd[i] = width; seed[i] = rnd(); kind[i] = kd;
+  }
+  function update(dt, t) {
+    U.uTime.value = t;
+    let w = 0;
+    const P = iPos.array, V = iVel.array, D = iData.array;
+    for (let i = 0; i < n; i++) {
+      age[i] += dt; if (age[i] >= life[i]) continue;
+      if (w !== i) { for (let c = 0; c < 3; c++) { p[w * 3 + c] = p[i * 3 + c]; v[w * 3 + c] = v[i * 3 + c]; } age[w] = age[i]; life[w] = life[i]; wd[w] = wd[i]; seed[w] = seed[i]; kind[w] = kind[i]; }
+      const j = w * 3, k = Math.exp(-(kind[w] > 1.5 ? 0.35 : kind[w] > 0.5 ? 0.6 : 1.6) * dt);
+      v[j] *= k; v[j + 1] = v[j + 1] * k - 9.8 * dt; v[j + 2] *= k;
+      p[j] += v[j] * dt; p[j + 1] += v[j + 1] * dt; p[j + 2] += v[j + 2] * dt;
+      if (p[j + 1] < -0.945) { p[j + 1] = -0.945; v[j + 1] *= kind[w] > 1.5 ? -0.45 : -0.25; v[j] *= 0.5; v[j + 2] *= 0.5; }
+      P[j] = p[j]; P[j + 1] = p[j + 1]; P[j + 2] = p[j + 2]; V[j] = v[j]; V[j + 1] = v[j + 1]; V[j + 2] = v[j + 2];
+      D[w * 4] = wd[w]; D[w * 4 + 1] = 1 - smooth(0.6, 1, age[w] / life[w]); D[w * 4 + 2] = seed[w]; D[w * 4 + 3] = kind[w];
+      w++;
+    }
+    n = w; geo.instanceCount = w; iPos.needsUpdate = iVel.needsUpdate = iData.needsUpdate = true;
+  }
+  return { spawn, update };
+})();
+
+// ============================================================================ post: DOF (half-res gather), bloom, grade
+let W = 1, H = 1, HW = 1, HH = 1;
+const rtMain = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(1, 1) });
+const rtHalf = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const rtBlur = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const rtSteam = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const rtComp = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const DOFU = { uFocus: { value: 0.3 }, uAp: { value: 10 }, uNear: { value: camera.near }, uFar: { value: camera.far } };
+const COC = /* glsl */`
+uniform float uFocus, uAp, uNear, uFar;
+float viewZ(float d){ return (uNear * uFar) / ((uFar - uNear) * d - uFar); }
+float cocOf(float d){ float z = -viewZ(d); return uAp * (1.0 / uFocus - 1.0 / z); }`;
+const passDown = new FullScreenQuad(new THREE.ShaderMaterial({
+  uniforms: { ...DOFU, tC: { value: null }, tS: { value: null }, tD: { value: null }, uTexel: { value: new THREE.Vector2() }, uMax: { value: 12 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D tC, tD, tS; uniform vec2 uTexel; uniform float uMax; varying vec2 vUv;
+    ${COC}
+    void main(){
+      vec4 st = texture2D(tS, vUv);
+      vec3 c = texture2D(tC, vUv).rgb * (1.0 - st.a) + st.rgb;
+      float d = min(min(texture2D(tD, vUv + uTexel * vec2(-0.5, -0.5)).x, texture2D(tD, vUv + uTexel * vec2(0.5, -0.5)).x),
+                    min(texture2D(tD, vUv + uTexel * vec2(-0.5, 0.5)).x, texture2D(tD, vUv + uTexel * vec2(0.5, 0.5)).x));
+      gl_FragColor = vec4(min(c, vec3(60.0)), clamp(cocOf(d), -uMax, uMax));
+    }`,
+}));
+const passGather = new FullScreenQuad(new THREE.ShaderMaterial({
+  uniforms: { tH: { value: null }, uTexel: { value: new THREE.Vector2() }, uMax: { value: 12 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D tH; uniform vec2 uTexel; uniform float uMax; varying vec2 vUv;
+    const float GA = 2.39996323;
+    void main(){
+      vec4 c = texture2D(tH, vUv);
+      float cs = abs(c.a);
+      vec3 col = c.rgb; float tot = 1.0; float acc = cs;
+      float radius = 0.7, ang = 0.0;
+      for (int i = 0; i < 260; i++) {
+        if (radius >= uMax) break;
+        vec4 s = texture2D(tH, vUv + vec2(cos(ang), sin(ang)) * uTexel * radius);
+        float ss = abs(s.a);
+        if (s.a > c.a) ss = min(ss, cs * 2.0);        // background can't bleed over what's in front of it
+        float m = smoothstep(radius - 0.5, radius + 0.5, ss);
+        col += mix(col / tot, s.rgb, m);
+        acc += mix(acc / tot, ss, m);
+        tot += 1.0;
+        radius += 0.7 / radius; ang += GA;
+      }
+      gl_FragColor = vec4(col / tot, acc / tot);
+    }`,
+}));
+const passComp = new FullScreenQuad(new THREE.ShaderMaterial({
+  uniforms: { ...DOFU, tC: { value: null }, tS: { value: null }, tD: { value: null }, tB: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D tC, tD, tB, tS; varying vec2 vUv;
+    ${COC}
+    void main(){
+      vec4 st = texture2D(tS, vUv);
+      vec3 sharp = texture2D(tC, vUv).rgb * (1.0 - st.a) + st.rgb;
+      vec4 b = texture2D(tB, vUv);
+      float coc = abs(cocOf(texture2D(tD, vUv).x));
+      float f = smoothstep(0.35, 1.3, max(coc, b.a));
+      gl_FragColor = vec4(mix(sharp, b.rgb, f), 1.0);
+    }`,
+}));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.55, 1.15);
+const FINALU = { tC: { value: rtComp.texture }, uExp: { value: 1.0 }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2() }, uFlash: { value: 0 } };
+const passFinal = new FullScreenQuad(new THREE.ShaderMaterial({
+  uniforms: FINALU,
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */`
+    uniform sampler2D tC; uniform float uExp, uTime, uFlash; uniform vec2 uRes; varying vec2 vUv;
+    vec3 RRTAndODTFit(vec3 v){ vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
+    vec3 aces(vec3 c){
+      const mat3 i = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
+      const mat3 o = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+      c = i * c; c = RRTAndODTFit(c); c = o * c; return clamp(c, 0.0, 1.0);
+    }
+    float hash(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
+    vec3 srgb(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c)); }
+    void main(){
+      vec2 d = vUv - 0.5;
+      float e = dot(d, d);
+      vec2 off = d * e * 0.010;
+      vec3 c = vec3(texture2D(tC, vUv + off).r, texture2D(tC, vUv).g, texture2D(tC, vUv - off).b);
+      c *= uExp * (1.0 + uFlash);
+      c *= mix(1.0, 0.45, smoothstep(0.08, 0.55, e * 1.6));          // vignette before the curve, like glass
+      c = aces(c * 1.1);
+      c = srgb(c);
+      // gentle grade: cool shadows, warm highlights
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      c = mix(c, c * vec3(0.94, 0.98, 1.06), (1.0 - l) * 0.35);
+      c = mix(c, c * vec3(1.04, 1.0, 0.94), l * 0.25);
+      float g = hash(vUv * uRes + fract(uTime * 17.0) * 113.0) - 0.5;
+      c += g * 0.035 * (1.0 - l * 0.6);
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+}));
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(w, h, false);
+  W = Math.max(2, Math.floor(w * dpr)); H = Math.max(2, Math.floor(h * dpr));
+  HW = Math.max(1, W >> 1); HH = Math.max(1, H >> 1);
+  rtMain.setSize(W, H); rtComp.setSize(W, H); rtHalf.setSize(HW, HH); rtBlur.setSize(HW, HH);
+  rtSteam.setSize(W, H); steam.U.uSRes.value.set(W, H);
+  bloom.setSize(W, H);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  FINALU.uRes.value.set(W, H);
+  const maxR = clamp(13 * HH / 540, 6, 18);
+  passDown.material.uniforms.uTexel.value.set(1 / W, 1 / H);
+  passDown.material.uniforms.uMax.value = maxR;
+  passGather.material.uniforms.uTexel.value.set(1 / HW, 1 / HH);
+  passGather.material.uniforms.uMax.value = maxR;
+}
+addEventListener('resize', resize);
+resize();
+
+// ============================================================================ camera
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 0.07; controls.maxDistance = 3.2; controls.enablePan = false;
+let manual = false;
+controls.addEventListener('start', () => { if (!manual) { camera.up.set(0, 1, 0); camera.lookAt(controls.target); } manual = true; });
+// Rest position of the neck, the thing we keep sharp.
+const F0 = new THREE.Vector3(0.012, RB * UDIR.y, RB * UDIR.z);
+const ER = UDIR, ET = WAX;   // radial-out and tangential directions at the bolt
+const inB = (v) => new THREE.Vector3(v[0], 0, 0).addScaledVector(ER, v[1]).addScaledVector(ET, v[2]);
+// offsets are relative to the nut: [along the bolt, radially out, tangential]
+const SHOTS = [
+  { world: true, a: [0.38, -0.2, 0.16], b: [0.345, -0.18, 0.145], fov: 32, ap: 0.003, dur: 18, push: [0.8, 0.64] },   // hero: up at the nut, gauge behind
+  { a: [-0.035, 0.03, 0.38], b: [-0.03, 0.04, 0.33], fov: 32, ap: 0.003, dur: 10, lookOff: [-0.03, 0, 0] },              // along the gap, neck and nut
+  { a: [0.065, 0.05, 0.095], b: [0.052, 0.055, 0.072], fov: 26, ap: 0.0028, dur: 10 },              // the nut, three-quarter, into the bore
+  { a: [-0.03, 0.17, 0.08], b: [-0.025, 0.14, 0.06], fov: 26, ap: 0.003, dur: 10 },                 // over the rim
+  { world: true, a: [0.39, -0.21, 0.17], b: [0.35, -0.185, 0.15], fov: 30, ap: 0.003, dur: 14, push: [0.76, 0.62] },    // hero again
+  { world: true, a: [0.6, 0.20, 0.64], b: [0.51, 0.17, 0.55], fov: 22, ap: 0.006, dur: 8 },         // the machine
+  { a: [-0.03, 0.07, -0.3], b: [-0.026, 0.075, -0.25], fov: 22, ap: 0.0035, dur: 10, lookOff: [-0.046, 0, 0] },              // from the other side
+];
+let shotI = SHOT >= 0 ? SHOT % SHOTS.length : 0, shotT = 0;
+const camBase = new THREE.Vector3(), camLook = new THREE.Vector3();
+let curAp = SHOTS[0].ap;
+// the centre of the nut, ignoring the shake (so the shake still reads on screen)
+const _nk = new THREE.Vector3();
+function nutRestFrozen() { return nutRest().clone(); }
+function nutRest() {
+  boltG.updateMatrix(); nutG.updateMatrix();
+  return _nk.set(0.011, 0, 0).applyMatrix4(nutG.matrix).applyMatrix4(boltG.matrix);
+}
+// on the bang: cut side-on and wide, bolt level in frame, so the nut has somewhere to fly
+const FINALE = { world: true, a: [0.5, -0.24, 0.24], b: [0.56, -0.26, 0.27], fov: 36, ap: 0.003, dur: 99 };
+let heroHeld = false;
+// film cut list: [from, to, shot]. The break lands at ~21.7 s, on the hero angle.
+const FILM_CUTS = [[0, 6.2, 0], [6.2, 10.3, 1], [10.3, 13.9, 2], [13.9, 18.4, 6], [18.4, 99, 0]];
+function autoCam(dt) {
+  shotT += dt;
+  let s, k;
+  if (st.broken && !manual) { s = FINALE; k = smooth(0, 8, BK.t); }
+  else if (CAPTURE) {
+    const c = FILM_CUTS.find((g) => filmT < g[1]);
+    shotI = c[2]; s = SHOTS[shotI];
+    const u = clamp((filmT - c[0]) / Math.min(c[1] - c[0], 8), 0, 1);
+    k = smooth(0, 1, u) * 0.85 + u * 0.15;
+  } else {
+    const finale = SHOT < 0 && st.tc > BREAK_T - 6;
+    if (finale && !heroHeld) { heroHeld = true; if (shotI !== 0) { shotI = 0; shotT = 0; } }
+    if (!finale) heroHeld = false;
+    if (SHOT < 0 && !finale && shotT > SHOTS[shotI].dur) { shotT = 0; shotI = (shotI + 1) % SHOTS.length; }
+    s = SHOTS[shotI];
+    k = SHOT >= 0 ? 0.5 : smooth(0, 1, shotT / s.dur) * 0.85 + shotT / s.dur * 0.15;
+  }
+  const off = [lerp(s.a[0], s.b[0], k), lerp(s.a[1], s.b[1], k), lerp(s.a[2], s.b[2], k)];
+  const pr = s.push || [1.2, 0.72];
+  let push = lerp(pr[0], pr[1], smooth(0, 1, st.S));              // the camera creeps in as the bolt gives
+  if (st.broken && !manual) push = 1;
+  camLook.copy(st.broken ? BK.look : nutRest());
+  if (s.lookOff && !st.broken) camLook.add(inB(s.lookOff));      // frame the neck and the nut together
+  camBase.copy(s.world ? new THREE.Vector3(...off) : inB(off)).multiplyScalar(push).add(camLook);
+  camera.fov = s.fov; camera.updateProjectionMatrix();
+  camera.position.copy(camBase);
+  // keep the bolt level in frame: screen-right runs along the bolt
+  if (s.world) camera.up.set(0, 1, 0);
+  else { const f = tmpV2.copy(camLook).sub(camBase).normalize(); camera.up.set(0, -f.z, f.y).normalize(); if (camera.up.y < 0) camera.up.negate(); }
+  camera.lookAt(camLook);
+  controls.target.copy(camLook);
+  curAp = s.ap;
+}
+
+// ============================================================================ audio (procedural)
+const AU = { ctx: null, muted: false };
+function audioInit() {
+  if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
+  const ctx = CAPTURE ? new OfflineAudioContext(2, 48000 * FILM_DUR, 48000) : new (window.AudioContext || window.webkitAudioContext)(); AU.ctx = ctx;
+  const sr = ctx.sampleRate, len = sr * 3;
+  const white = ctx.createBuffer(1, len, sr), brown = ctx.createBuffer(1, len, sr);
+  { const a = white.getChannelData(0), b = brown.getChannelData(0); let l = 0; for (let i = 0; i < len; i++) { a[i] = Math.random() * 2 - 1; l = (l + 0.02 * a[i]) / 1.02; b[i] = l * 3.5; } }
+  const master = ctx.createGain(); master.gain.value = 0.85;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.2;
+  master.connect(comp).connect(ctx.destination);
+  if (CAPTURE) { master.gain.setValueAtTime(0, 0); master.gain.linearRampToValueAtTime(0.85, 0.6); master.gain.setValueAtTime(0.85, FILM_DUR - 1.4); master.gain.linearRampToValueAtTime(0, FILM_DUR - 0.05); }
+  const loop = (buf, rate = 1) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.playbackRate.value = rate; s.start(ctx.currentTime, Math.random() * 2); return s; };
+  const bq = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+  const gn = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+  const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n[n.length - 1]; };
+  AU.master = master; AU.white = white; AU.bq = bq; AU.gn = gn;
+  AU.hiss = gn(); chain(loop(white), bq('highpass', 1600), bq('peaking', 4500, 0.8), AU.hiss, master);
+  AU.hissPk = AU.hiss;
+  AU.hiss2 = gn(); const h2f = bq('bandpass', 7000, 0.6); chain(loop(white, 0.93), h2f, AU.hiss2, master); AU.h2f = h2f;
+  AU.roar = gn(); chain(loop(brown), bq('lowpass', 240), AU.roar, master);
+  AU.groan = gn(); AU.gf1 = bq('bandpass', 150, 22); AU.gf2 = bq('bandpass', 330, 28);
+  const gsrc = loop(brown, 1.0); gsrc.connect(AU.gf1); gsrc.connect(AU.gf2); AU.gf1.connect(AU.groan); AU.gf2.connect(AU.groan); AU.groan.connect(master);
+  AU.moanO = ctx.createOscillator(); AU.moanO.type = 'sawtooth'; AU.moanO.frequency.value = 52; AU.moan = gn();
+  chain(AU.moanO, bq('lowpass', 420, 3), AU.moan, master); AU.moanO.start();
+  AU.valve = gn(); chain(loop(white, 1.07), bq('bandpass', 2400, 1.6), AU.valve, master);
+  AU.whO = ctx.createOscillator(); AU.whO.frequency.value = 1180; AU.wh = gn(); chain(AU.whO, AU.wh, master); AU.whO.start();
+  AU.lfo = ctx.createOscillator(); AU.lfo.frequency.value = 5.5; const lg = gn(9); chain(AU.lfo, lg, AU.whO.frequency); AU.lfo.start();
+}
+const now = () => (CAPTURE ? filmT : AU.ctx.currentTime);
+function thump(k) {
+  if (!AU.ctx || AU.muted) return;
+  const ctx = AU.ctx, t = now();
+  const o = ctx.createOscillator(); o.frequency.setValueAtTime(78, t); o.frequency.exponentialRampToValueAtTime(36, t + 0.14);
+  const g = AU.gn(0); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.45 * k, t + 0.006); g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+  o.connect(g).connect(AU.master); o.start(t); o.stop(t + 0.35);
+  const n = ctx.createBufferSource(); n.buffer = AU.white; const nf = AU.bq('bandpass', 900, 1.2); const ng = AU.gn(0);
+  ng.gain.setValueAtTime(0.12 * k, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  n.connect(nf).connect(ng).connect(AU.master); n.start(t, Math.random() * 2); n.stop(t + 0.08);
+}
+function clank(k, delay = 0) {
+  if (!AU.ctx || AU.muted) return;
+  const ctx = AU.ctx, t = now() + delay;
+  const parts = [312, 771, 1423, 2210, 2987, 4105, 5530];
+  parts.forEach((f, i) => {
+    const o = ctx.createOscillator(); o.frequency.value = f * (0.97 + Math.random() * 0.06);
+    const g = AU.gn(0); const amp = 0.22 * k / (1 + i * 0.6), dec = 1.6 / (1 + i * 0.5);
+    g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.0005, t + dec);
+    o.connect(g).connect(AU.master); o.start(t); o.stop(t + dec + 0.05);
+  });
+  const n = ctx.createBufferSource(); n.buffer = AU.white; const nf = AU.bq('bandpass', 2600, 0.9); const ng = AU.gn(0);
+  ng.gain.setValueAtTime(0.6 * k, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  n.connect(nf).connect(ng).connect(AU.master); n.start(t, Math.random() * 2); n.stop(t + 0.1);
+  // the rasp of threads tearing
+  const r = ctx.createOscillator(); r.type = 'sawtooth'; r.frequency.setValueAtTime(140, t); r.frequency.linearRampToValueAtTime(95, t + 0.25);
+  const rf = AU.bq('bandpass', 1300, 3); const rg = AU.gn(0);
+  rg.gain.setValueAtTime(0.0, t); rg.gain.linearRampToValueAtTime(0.18 * k, t + 0.01); rg.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  const am = ctx.createOscillator(); am.frequency.value = 38; const amg = AU.gn(0.5); am.connect(amg).connect(rg.gain); am.start(t); am.stop(t + 0.32);
+  r.connect(rf).connect(rg).connect(AU.master); r.start(t); r.stop(t + 0.32);
+}
+function ping(k) {
+  if (!AU.ctx || AU.muted) return;
+  const ctx = AU.ctx, t = now(), o = ctx.createOscillator(); o.frequency.value = 2800 + Math.random() * 3800;
+  const g = AU.gn(0); g.gain.setValueAtTime(0.05 * k, t); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.12 + Math.random() * 0.2);
+  o.connect(g).connect(AU.master); o.start(t); o.stop(t + 0.4);
+}
+function bang() {
+  if (!AU.ctx || AU.muted) return;
+  const ctx = AU.ctx, t = now();
+  // the crack of the bolt, then the boom of the joint letting go
+  const n = ctx.createBufferSource(); n.buffer = AU.white; const nf = AU.bq('lowpass', 3200, 0.5); const ng = AU.gn(0);
+  ng.gain.setValueAtTime(1.6, t); ng.gain.exponentialRampToValueAtTime(0.25, t + 0.25); ng.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
+  nf.frequency.setValueAtTime(5000, t); nf.frequency.exponentialRampToValueAtTime(500, t + 1.5);
+  n.connect(nf).connect(ng).connect(AU.master); n.start(t, Math.random()); n.stop(t + 2.3);
+  const o = ctx.createOscillator(); o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(24, t + 1.2);
+  const og = AU.gn(0); og.gain.setValueAtTime(1.2, t); og.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+  o.connect(og).connect(AU.master); o.start(t); o.stop(t + 1.7);
+  clank(2.2);
+  // the nut landing somewhere in the dark
+  clank(0.5, 1.4); clank(0.25, 1.9);
+}
+function audioUpdate(st) {
+  if (!AU.ctx) return;
+  const t = now(), m = AU.muted ? 0 : 1, tc = 0.06;
+  AU.hiss.gain.setTargetAtTime(m * (0.10 + 0.35 * st.leak), t, tc);
+  AU.hiss2.gain.setTargetAtTime(m * (0.05 + 0.22 * st.leak), t, tc);
+  AU.h2f.frequency.setTargetAtTime(5500 + 3000 * st.leak, t, 0.1);
+  AU.roar.gain.setTargetAtTime(m * (0.25 + 0.35 * st.S + 0.4 * st.surge), t, 0.1);
+  AU.groan.gain.setTargetAtTime(m * (0.3 * st.surge + 0.06 * st.S) * 2.2, t, 0.15);
+  AU.gf1.frequency.setTargetAtTime(120 + 60 * st.surge + 30 * Math.sin(st.t * 0.7), t, 0.3);
+  AU.gf2.frequency.setTargetAtTime(290 + 90 * st.surge - 40 * st.S, t, 0.3);
+  AU.moan.gain.setTargetAtTime(m * 0.025 * st.surge, t, 0.2);
+  AU.moanO.frequency.setTargetAtTime(44 + 14 * st.surge, t, 0.4);
+  AU.valve.gain.setTargetAtTime(m * 0.4 * st.valve, t, 0.04);
+  AU.wh.gain.setTargetAtTime(m * 0.022 * st.valve, t, 0.05);
+}
+function soundToggle() {
+  AU.muted = !AU.muted;
+  document.getElementById('sound').textContent = AU.muted ? 'sound off · M' : '';
+}
+function firstGesture() {
+  audioInit();
+  document.getElementById('sound').style.opacity = 0;
+  removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
+}
+addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
+
+// ============================================================================ the story of one bolt
+const st = {
+  t: START_T, S: 0, surge: 0, P: 0, o: 0.01, th: 0.02, g: 0.008, s: 0, e: 0.004, leak: 0, valve: 0, impulse: 0,
+  jerkFrom: 0, jerkTo: 0, jerkT: -10, lastJerk: -10, surgeNext: 2.5, surges: [], maxP: 0, engaged: 0.022, broken: false, tc: 0,
+};
+function surgeAt(t) { let v = 0; for (const s of st.surges) { const d = t - s.t; if (d < 0) continue; v += s.a * (d < s.up ? smooth(0, s.up, d) : Math.exp(-(d - s.up) / s.down)); } return v; }
+const sTarget = (oRef, surge) => clamp(oRef + 0.0022 * surge - 0.0062, 0, 0.0226);
+const CYCLE = 67, BUILD = 54, BREAK_T = 55.5;
+const cycleS = (tc) => { const u = clamp(tc / BUILD, 0, 1); return 1 - Math.pow(1 - u, 1.35); };
+let cycleN = -1;
+function resetCycle() {
+  unbreak();
+  st.s = st.jerkTo = st.jerkFrom = 0; st.lastJerk = st.t; st.maxP = 0; st.surges.length = 0; st.surgeNext = st.t + 2;
+  capI = -2;
+}
+function story(dt) {
+  st.t += dt;
+  const t = st.t;
+  const n = Math.floor(t / CYCLE);
+  if (n !== cycleN) { if (cycleN >= 0) resetCycle(); cycleN = n; }
+  st.tc = t - n * CYCLE;
+  st.S = cycleS(st.tc);
+  if (t > st.surgeNext) {
+    st.surges.push({ t, a: 0.55 + rnd() * 0.5, up: 0.8 + rnd() * 1.1, down: 1.4 + rnd() * 1.6 });
+    st.surgeNext = t + 5 + rnd() * 4 - st.S * 3.2;
+    if (st.surges.length > 6) st.surges.shift();
+  }
+  st.surge = Math.min(1.3, surgeAt(t) + 0.12 * (0.5 + 0.5 * Math.sin(t * 0.9)) * st.S);
+  if (!st.broken && st.tc >= BREAK_T && SHOT !== -2) doBreak();
+  if (st.broken) { afterBreak(dt); return; }
+  const chatter = (Math.sin(t * TAU * 37) * 0.6 + Math.sin(t * TAU * 53.3) * 0.4) * (0.00025 + 0.0005 * st.S + 0.0006 * st.surge);
+  const oRef = 0.005 + 0.025 * st.S;
+  st.o = oRef + 0.0042 * st.surge * (0.3 + st.S) + chatter;
+  st.th = 0.008 + 0.06 * st.S + 0.011 * st.surge * (0.3 + st.S) + chatter * 2;
+  st.g = Math.max(0.003, st.o - (RP - RB) * st.th);
+  // stick–slip: the nut doesn't creep, it lets go a few tenths at a time
+  const sT = sTarget(oRef, st.surge);
+  const jd = t - st.jerkT;
+  if (jd < 0.32) st.s = lerp(st.jerkFrom, st.jerkTo, 1 - Math.pow(1 - jd / 0.32, 3));
+  else st.s = st.jerkTo;
+  if (sT - st.s > 0.0011 && t - st.lastJerk > 1.1 && jd > 0.2) {
+    st.jerkFrom = st.s; st.jerkTo = st.s + Math.min(sT - st.s, 0.0012 + rnd() * 0.0016);
+    st.jerkT = t; st.lastJerk = t; onJerk(st.jerkTo - st.jerkFrom);
+  }
+  st.e = st.o - st.s;
+  st.engaged = clamp(0.026 - st.s, 0, 0.022);
+  st.P = 150 + 125 * st.S + 25 * st.surge + 2.5 * Math.sin(t * 23) * st.S;
+  st.leak = clamp((st.o - 0.003) / 0.026, 0, 1.4);
+  // safety valve lifts, but can't keep up
+  const vOpen = st.P > 262 ? 1 : st.P < 250 ? 0 : st.valve > 0.5 ? 1 : 0;
+  st.valve = lerp(st.valve, vOpen, 1 - Math.exp(-dt * 8));
+  st.impulse *= Math.exp(-dt * 7);
+  st.maxP = Math.max(st.maxP, st.P);
+}
+const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
+// ---------- the conclusion
+const BK = { t: 0, real: 0, look: new THREE.Vector3(), v: new THREE.Vector3(), w: new THREE.Vector3(), p0: new THREE.Vector3(), th0: 0, o0: 0, P0: 0, spark: 0 };
+function doBreak() {
+  st.broken = true; BK.t = 0; BK.real = 0; BK.th0 = st.th; BK.o0 = st.o; BK.P0 = st.P;
+  // freeze the deformation the fragment carries away
+  for (const k in boltU) fragU[k].value = boltU[k].value;
+  const cut = boltU.uUc.value + 0.0008;
+  boltClip.uCut.value = fragClip.uCut.value = cut; boltClip.uSide.value = 1;
+  // fracture faces sit at the neck, in the deformed frame
+  const xm = boltU.uXm.value, xc = cut + boltU.uE.value * 0.5;
+  const rN = RMAJ * (1 - boltU.uNeck.value) * 0.98;
+  for (const c of [capStay, capFly]) { c.visible = true; c.scale.set(1, rN, rN); c.position.set(xc, st.th * 0.5 * (xc - xm + Math.sqrt((xc - xm) ** 2 + 1e-4)), 0); }
+  fracMat.emissiveIntensity = 3;
+  // the outer half, washer and nut leave together
+  BK.look.copy(nutRestFrozen()).addScaledVector(UDIR, -0.01).add(tmpV.set(-0.03, 0, 0));
+  boltG.updateMatrixWorld(true);
+  boltG.matrixWorld.decompose(flyer.position, flyer.quaternion, flyer.scale);
+  flyer.visible = true; flyer.updateMatrixWorld(true);
+  flyer.attach(nutG); flyer.attach(washerN);
+  bolt.castShadow = false;
+  const ax = tmpV.set(1, 0, 0).applyQuaternion(flyer.quaternion).normalize();
+  BK.v.copy(ax).multiplyScalar(4.2).addScaledVector(UDIR, 1.2).add(tmpV2.set(-0.4, 2.2, -0.6));
+  BK.w.set(rnd() * 30 - 15, rnd() * 30 - 15, rnd() * 30 - 15);
+  boltG.localToWorld(BK.p0.set(xc, 0, 0));
+  blast.position.copy(BK.p0).addScaledVector(UDIR, 0.03);
+  st.impulse = 3;
+  bang();
+  // sparks: the steel tearing
+  for (let i = 0; i < 420; i++) {
+    const d = tmpV2.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
+    const sp = 1.5 + rnd() * 7;
+    fly.spawn(BK.p0.x, BK.p0.y, BK.p0.z, d.x * sp + ax.x * 2, d.y * sp + 1.5 + UDIR.y * 2, d.z * sp + UDIR.z * 2, 0.0015 + rnd() * 0.002, 0.5 + rnd() * 1.4, 2);
+  }
+  // fireball and smoke from the joint
+  for (let i = 0; i < 130; i++) {
+    const d = tmpV2.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize();
+    const sp = 0.4 + rnd() * 1.6;
+    steam.spawn(BK.p0.x + d.x * 0.01, BK.p0.y + d.y * 0.01, BK.p0.z + d.z * 0.01, d.x * sp + 0.6, d.y * sp + 0.8, d.z * sp,
+      0.012 + rnd() * 0.015, 0.05 + rnd() * 0.07, 0.8 + rnd() * 1.0, 0.75, 3.2, 0.002, 0.35, 1);
+  }
+  for (let i = 0; i < 140; i++) {
+    const a = rnd() * TAU;
+    const p = toWorld(rnd() * 0.05, Math.cos(a) * FR, Math.sin(a) * FR);
+    const sp = 0.5 + rnd() * 1.6;
+    steam.spawn(p.x, p.y, p.z, (rnd() - 0.5) * 0.8, Math.cos(a) * sp + 0.3, Math.sin(a) * sp, 0.04 + rnd() * 0.04, 0.25 + rnd() * 0.25, 3 + rnd() * 2.5, 0.8, 1.6, 0.002, 0.88, 0);
+  }
+  for (let i = 0; i < 60; i++) emitGap(2.4);
+}
+function afterBreak(dt) {
+  BK.t += dt;
+  const b = BK.t;
+  // the piece kicks open and rings
+  const kickOpen = 1 - Math.exp(-b * 5);
+  st.th = BK.th0 + 0.09 * kickOpen + 0.025 * Math.sin(b * 19) * Math.exp(-b * 2.2);
+  st.o = BK.o0 + 0.02 * kickOpen;
+  st.g = Math.max(0.003, st.o - (RP - RB) * st.th);
+  st.P = BK.P0 * (0.25 + 0.75 * Math.exp(-b * 0.9));
+  st.leak = 0.55 * Math.exp(-b * 0.7) + 0.12;
+  st.surge = Math.exp(-b * 1.5);
+  st.engaged = 0; st.e = 0;
+  st.valve = lerp(st.valve, 0, 1 - Math.exp(-dt * 3));
+  st.impulse *= Math.exp(-dt * 4);
+  // the outer half of the bolt, the washer and the nut go
+  BK.v.y -= 9.8 * dt;
+  flyer.position.addScaledVector(BK.v, dt);
+  flyer.rotateOnWorldAxis(tmpV.copy(BK.w).normalize(), BK.w.length() * dt);
+  if (flyer.position.y < -0.93) { flyer.position.y = -0.93; BK.v.y *= -0.35; BK.v.x *= 0.6; BK.v.z *= 0.6; BK.w.multiplyScalar(0.6); }
+  // the break face glows and cools
+  fracMat.emissiveIntensity = 2 * Math.exp(-b * 1.2);
+  blast.intensity = 8 * Math.exp(-b * 2.6) * (0.75 + 0.25 * Math.sin(b * 53)) + 1.5 * Math.exp(-b * 0.5);
+  // fire keeps licking out of the joint for a while, then it's smoke
+  BK.spark += dt * 160 * Math.exp(-b * 1.2);
+  while (BK.spark >= 1) {
+    BK.spark--;
+    const d = tmpV2.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize(), sp = 1 + rnd() * 4;
+    fly.spawn(BK.p0.x, BK.p0.y, BK.p0.z, d.x * sp, d.y * sp + 1, d.z * sp, 0.0012 + rnd() * 0.0015, 0.4 + rnd() * 0.9, 2);
+  }
+  if (rnd() < dt * 60 * Math.exp(-b * 0.7)) {
+    const a = rnd() * TAU, p = toWorld(0.01 + rnd() * 0.03, Math.cos(a) * FR * 0.9, Math.sin(a) * FR * 0.9);
+    steam.spawn(p.x, p.y, p.z, rnd() - 0.4, Math.cos(a) + 0.7, Math.sin(a), 0.03, 0.12, 0.8 + rnd(), 0.9, 2.5, 0.002, 0.3, Math.exp(-b * 0.6));
+  }
+  if (rnd() < dt * 40) {
+    const a = rnd() * TAU, p = toWorld(rnd() * 0.04, Math.cos(a) * FR, Math.sin(a) * FR);
+    steam.spawn(p.x, p.y, p.z, rnd() - 0.5, 0.4 + rnd() * 0.5, rnd() - 0.5, 0.05, 0.3, 3.5 + rnd() * 2, 0.6, 1.2, 0.002, 0.9, 0);
+  }
+}
+function unbreak() {
+  if (!st.broken) return;
+  st.broken = false;
+  boltG.attach(nutG); boltG.attach(washerN);
+  flyer.visible = false; capStay.visible = capFly.visible = false;
+  boltClip.uSide.value = 0; bolt.castShadow = true; fracMat.emissiveIntensity = 0; blast.intensity = 0;
+}
+function onJerk(ds) {
+  st.impulse = Math.min(1.6, st.impulse + 0.6 + ds * 300);
+  clank(0.7 + ds * 200);
+  // flakes of stripped thread spat from the nut's bore
+  const base = boltG.localToWorld(tmpV.set(0.069 + st.o + 0.021, st.th * 0.04, 0));
+  const ax = boltG.localToWorld(tmpV2.set(1, 0, 0)).sub(boltG.localToWorld(new THREE.Vector3())).normalize();
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * TAU, r = RMAJ;
+    const p = boltG.localToWorld(new THREE.Vector3(0.069 + st.o + (rnd() < 0.6 ? 0.0 : 0.022), st.th * 0.04 + Math.cos(a) * r, Math.sin(a) * r));
+    const v = p.clone().sub(base).normalize().multiplyScalar(0.4 + rnd() * 1.2).addScaledVector(ax, (rnd() - 0.3) * 0.6);
+    fly.spawn(p.x, p.y, p.z, v.x, v.y + rnd() * 0.6, v.z, 0.0006 + rnd() * 0.0008, 0.6 + rnd() * 0.8, 1);
+  }
+  // a burst out of the gap
+  for (let i = 0; i < 35; i++) emitGap(1.4);
+}
+
+// --- emission
+const mw = new THREE.Vector3();
+function gapAt(phi, r) { return st.g + st.th * (RP - r * Math.cos(phi - ANG)); }
+function toWorld(x, y, z) { return mw.set(x, y, z).applyMatrix4(machine.matrixWorld); }
+function emitGap(boost = 1) {
+  // pick an angle weighted by how wide the gap is there
+  let phi = 0, w = 0;
+  for (let k = 0; k < 6; k++) { phi = rnd() * TAU; w = gapAt(phi, FR); if (rnd() < (w / (st.g + st.th * (RP + FR))) ** 1.5) break; }
+  const cy = Math.cos(phi), cz = Math.sin(phi);
+  const x = w * (0.2 + 0.6 * rnd());
+  const p = toWorld(x, cy * (FR + 0.002), cz * (FR + 0.002));
+  const sp = (0.9 + rnd() * 1.6) * (0.6 + 0.6 * st.leak) * boost * (0.6 + 0.4 * w / 0.03);
+  const fan = (rnd() - 0.5) * 0.6;
+  steam.spawn(p.x, p.y, p.z, (rnd() - 0.5) * 0.7 + 0.25, cy * sp - cz * fan, cz * sp + cy * fan,
+    0.006 + rnd() * 0.012, 0.07 + rnd() * 0.13, 1.0 + rnd() * 1.6, 0.65 + 0.3 * rnd(), 3.2 + rnd() * 1.5, 0.02 + rnd() * 0.025);
+  if (rnd() < 0.04 * boost) { const v = sp * (0.6 + rnd() * 0.5); fly.spawn(p.x, p.y, p.z, (rnd() - 0.5) * 0.5, cy * v, cz * v, 0.0005 + rnd() * 0.0007, 0.4 + rnd() * 0.5, 0); }
+}
+function emitBolt() {
+  // fine wisps tearing past the stretched shank
+  const side = (rnd() - 0.5) * 2;
+  const rr = RB + 0.006 + rnd() * 0.01;
+  const ph = ANG + side * 0.12;
+  const x = 0.003 + rnd() * Math.max(0.002, st.o - 0.006);
+  const p = toWorld(x, Math.cos(ph) * rr, Math.sin(ph) * rr);
+  const sp = 0.5 + rnd() * 1.1 * (0.5 + st.leak);
+  steam.spawn(p.x, p.y, p.z, (rnd() - 0.5) * 0.25, Math.cos(ph) * sp, Math.sin(ph) * sp + side * 0.3, 0.002 + rnd() * 0.004, 0.02 + rnd() * 0.04, 0.4 + rnd() * 0.6, 0.35 + 0.2 * rnd(), 3.0, 0.004);
+}
+function emitValve() {
+  const p = toWorld(valve.top.x, valve.top.y, valve.top.z);
+  const sp = 3 + rnd() * 3;
+  steam.spawn(p.x + (rnd() - 0.5) * 0.02, p.y, p.z + (rnd() - 0.5) * 0.02, (rnd() - 0.5) * 0.5, sp, (rnd() - 0.5) * 0.5, 0.02 + rnd() * 0.02, 0.3 + rnd() * 0.3, 1.4 + rnd() * 1.2, 0.5, 1.4, 0.06);
+}
+function emitGaugeCock() {
+  const p = toWorld(-0.16, 0.29, -0.0);
+  steam.spawn(p.x, p.y, p.z, 0.15 + rnd() * 0.1, 0.1, 0.15 + rnd() * 0.1, 0.004, 0.04, 0.8 + rnd() * 0.5, 0.28, 2.0, 0.01);
+}
+
+// ============================================================================ apply the state to the scene
+const qPiece = new THREE.Quaternion(), Pp = UDIR.clone().multiplyScalar(RP), restPos = new THREE.Vector3();
+const vib = new THREE.Vector3(), camShake = new THREE.Vector3();
+let beatNext = 0, emitAcc = { gap: 0, bolt: 0, valve: 0, cock: 0, ping: 0 };
+function applyState(dt, time) {
+  const S = st.S;
+  // whole machine shudders: engine beat, high-frequency buzz, kicks when the nut slips
+  const beat = 2 * 1.15;
+  const ph = (time * beat) % 1;
+  const kick = Math.exp(-ph * 9) * 0.6;
+  const A = 0.00008 + 0.0011 * S * S * (st.broken ? 0.3 : 1) + 0.0009 * st.surge * S + 0.003 * st.impulse;
+  vib.set(
+    A * (Math.sin(time * 211) * 0.6 + Math.sin(time * 297 + 1) * 0.4) + kick * 0.0003,
+    A * (Math.sin(time * 173 + 2) * 0.6 + Math.sin(time * 331) * 0.4) + kick * 0.0006,
+    A * (Math.sin(time * 241 + 4) * 0.6 + Math.sin(time * 149 + 3) * 0.4)
+  );
+  machine.position.copy(vib);
+  machine.rotation.set(vib.y * 0.25, vib.x * 0.2, vib.z * 0.3);
+  machine.updateMatrixWorld(true);
+  // the piece rocks open about a line just past the bolt
+  qPiece.setFromAxisAngle(WAX, st.th);
+  piece.quaternion.copy(qPiece);
+  piece.position.copy(Pp).sub(restPos.copy(Pp).applyQuaternion(qPiece)).add(tmpV.set(st.g, 0, 0));
+  // the bolt: stretched, necking, bent, hot
+  const xm = 0.033 + st.o / 2;
+  if (!st.broken) {
+  boltU.uE.value = st.e;
+  boltU.uUc.value = 0.033 + st.s * 0.5 + 0.0015;
+  boltU.uNeck.value = 0.005 + 0.22 * Math.pow(S, 1.4) + 0.03 * st.surge * S;
+  boltU.uTh.value = st.th;
+  boltU.uXm.value = xm;
+  boltU.uHeat.value = 0.6 * S;
+  boltU.uCrack.value = smooth(0.5, 0.97, S) * (0.85 + 0.15 * st.surge);
+  boltU.uStrain.value = smooth(0.25, 0.9, S);
+  const ramp = (d) => 0.5 * (d + Math.sqrt(d * d + 1e-4));
+  const wx = 0.033 + st.o + FT, nx = wx + 0.0035;
+  washerN.position.set(wx, st.th * ramp(wx - xm), 0); washerN.rotation.z = st.th;
+  const cock = 0.012 * S + 0.008 * st.surge + 0.004 * Math.sin(time * 61) * st.surge;
+  nutG.position.set(nx, st.th * ramp(nx - xm), 0); nutG.rotation.set(0.15 + (st.s / PITCH) * TAU * 0.55 + 0.01 * Math.sin(time * 40) * st.impulse, cock * 0.5, st.th + cock);
+  }
+  // gauge needle bangs into the red
+  const pa = (p) => Math.PI * 0.75 - (p / 300) * Math.PI * 1.5;  // dial is drawn clockwise from lower-left
+  gauge.needle.rotation.z = pa(st.P + 4 * Math.sin(time * 47) * (0.4 + st.surge));
+  gauge.tell.rotation.z = pa(st.maxP);
+  valve.pivot.rotation.x = -0.05 * st.valve - 0.012 * st.valve * Math.sin(time * 70);
+  flywheel.rotation.z = -time * TAU * 1.15;
+  gasketFlap.uT.value = time; gasketFlap.uA.value = 0.4 + st.leak;
+  // fire breathes
+  fire.intensity = 2.2 + 0.5 * Math.sin(time * 7.3) + 0.3 * Math.sin(time * 17.1 + 1) + 0.25 * Math.sin(time * 3.1);
+  // emission
+  emitAcc.gap += dt * (30 + 760 * st.leak * st.leak + 120 * st.leak);
+  emitAcc.bolt += dt * (8 + 120 * st.leak);
+  emitAcc.valve += dt * 260 * st.valve;
+  emitAcc.cock += dt * 9;
+  while (emitAcc.gap >= 1) { emitAcc.gap--; emitGap(); }
+  while (emitAcc.bolt >= 1) { emitAcc.bolt--; emitBolt(); }
+  while (emitAcc.valve >= 1) { emitAcc.valve--; emitValve(); }
+  while (emitAcc.cock >= 1) { emitAcc.cock--; emitGaugeCock(); }
+  // the steel complains
+  emitAcc.ping += dt * (0.4 + 2.5 * st.surge * S);
+  if (emitAcc.ping >= 1) { emitAcc.ping = -rnd() * 1.5; ping(0.5 + st.surge); }
+  if (AU.ctx && time >= beatNext) { beatNext = time + 1 / beat; thump(0.6 + 0.4 * S); }
+}
+
+// ============================================================================ HUD
+const vP = document.getElementById('vP'), vE = document.getElementById('vE'), vT = document.getElementById('vT'), cap = document.getElementById('caption');
+const CAPS = [
+  [1, 'Five of six bolts have already sheared.'],
+  [9, 'The last one is holding the whole flange.'],
+  [20, 'Past yield now. The steel is necking down.'],
+  [31, 'Its threads are stripping out of the nut.'],
+  [42, 'A crack is opening around the neck.'],
+];
+let capI = -1, hudTick = 0;
+const fadeEl = document.getElementById('fade');
+function hud(dt) {
+  hudTick += dt; if (hudTick < 0.1) return; hudTick = 0;
+  vP.innerHTML = Math.round(st.P) + '<small>psi</small>';
+  vP.classList.toggle('hot', st.P > 250);
+  vE.innerHTML = st.broken ? '—' : (st.e * 1000 + 0.0).toFixed(1) + '<small>mm</small>';
+  const th = st.broken ? 0 : st.engaged / PITCH;
+  vT.textContent = th.toFixed(1);
+  vT.classList.toggle('hot', th < 2.5);
+  let want = -1; for (let i = 0; i < CAPS.length; i++) if (st.tc >= CAPS[i][0]) want = i;
+  if (th < 1.6 && st.tc > 48) want = 99;
+  if (st.broken) want = 100;
+  fadeEl.style.opacity = SHOT >= 0 ? 0 : smooth(CYCLE - 1.6, CYCLE - 0.2, st.tc) + (1 - smooth(0.0, 1.2, st.tc));
+  if (want !== capI) {
+    capI = want; cap.style.opacity = 0;
+    setTimeout(() => { cap.textContent = want === 100 ? '' : want === 99 ? 'One thread left.' : (CAPS[want] ? CAPS[want][1] : ''); cap.style.opacity = 1; }, 700);
+  }
+}
+
+// ============================================================================ input
+let paused = false;
+addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+  else if (e.key === 'c' || e.key === 'C') { manual = false; shotT = 0; }
+  else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('clean');
+  else if (e.key === 'm' || e.key === 'M') { audioInit(); soundToggle(); }
+  else if (e.key >= '1' && e.key <= '8') { manual = false; shotI = +e.key - 1; shotT = 0; }
+});
+
+// ============================================================================ loop
+const clock = new THREE.Clock();
+let time = 0, ftAvg = 16, dprTimer = 0, first = true;
+const focusW = new THREE.Vector3();
+// warm up the steam so the first frame isn't empty
+{ const S0 = cycleS(START_T % CYCLE); st.s = st.jerkTo = st.jerkFrom = Math.max(0, sTarget(0.005 + 0.025 * S0, 0) - 0.0008);
+  machine.updateMatrixWorld(true); story(0); for (let i = 0; i < 90; i++) { story(1 / 60); applyState(1 / 60, i / 60); steam.update(1 / 60, i / 60); fly.update(1 / 60, i / 60); } }
+time = 1.5; st.t = START_T - 1 / 60; cycleN = Math.floor(st.t / CYCLE);
+function simStep(dt) {
+  // bullet time for the break: drop to quarter speed, then ease back
+  if (st.broken) { BK.real += dt; dt *= lerp(0.22, 1, smooth(0.25, 2.4, BK.real)); }
+  time += dt;
+  if (dt > 0) { story(dt * (st.broken ? 1 : storyRate)); applyState(dt, time); steam.update(dt, time); fly.update(dt, time); }
+  if (!manual) autoCam(dt || 0.0001);
+  else { controls.update(); camBase.copy(camera.position); }
+  return dt;
+}
+if (Q.has('run')) { for (let i = 0, n = Math.round(+Q.get('run') * 60); i < n; i++) simStep(1 / 60); paused = true; }
+function frame() {
+  requestAnimationFrame(frame);
+  const rawDt = Math.min(clock.getDelta(), 0.05);
+  const dt = simStep(paused ? 0 : (SHOT >= 0 ? 1 / 60 : rawDt));
+  audioUpdate(st);
+  renderFrame(dt, rawDt);
+}
+function renderFrame(dt, rawDt) {
+  // handheld drift and the floor shaking under the operator
+  const hh = 0.0008 + 0.0008 * st.S;
+  camShake.set(
+    hh * (Math.sin(time * 0.71) * 0.6 + Math.sin(time * 1.37 + 2) * 0.4) + vib.x * 0.6,
+    hh * (Math.sin(time * 0.53 + 1) * 0.6 + Math.sin(time * 1.11) * 0.4) + vib.y * 0.6 + st.impulse * 0.0015 * Math.sin(time * 90),
+    hh * (Math.sin(time * 0.61 + 4) * 0.6 + Math.sin(time * 1.29 + 3) * 0.4) + vib.z * 0.6
+  );
+  const savedPos = camera.position.clone();
+  camera.position.add(camShake);
+  // focus on the neck of the bolt (or the nut for the macro)
+  const s = SHOTS[shotI];
+  boltG.updateMatrixWorld(true);
+  if (st.broken) focusW.copy(BK.look);
+  else { nutG.updateMatrixWorld(true); nutG.localToWorld(focusW.set(0.011, 0, 0)); }
+  camera.updateMatrixWorld();
+  const fd = tmpV.copy(focusW).applyMatrix4(camera.matrixWorldInverse).z;
+  DOFU.uFocus.value = Math.max(0.03, -fd);
+  const ap = manual ? 0.0035 : curAp;
+  DOFU.uAp.value = ap * (HH) / (camera.fov * Math.PI / 180);
+  // steam lights
+  steam.U.uKeyDir.value.copy(key.target.position).sub(KEY_POS).normalize();
+  steam.U.uRimDir.value.copy(rim.target.position).sub(RIM_POS).normalize();
+  key.target.position.copy(F0);
+  // render
+  renderer.shadowMap.needsUpdate = true;
+  renderer.setRenderTarget(rtMain); renderer.render(scene, camera);
+  // steam pass: only layer 2, transparent clear, reads the solid depth for occlusion + soft edges
+  steam.U.tDepth.value = rtMain.depthTexture;
+  const bg = scene.background; scene.background = null;
+  camera.layers.set(2); renderer.setClearColor(0x000000, 0);
+  renderer.setRenderTarget(rtSteam); renderer.clear(true, false, false); renderer.render(scene, camera);
+  camera.layers.set(0); scene.background = bg; renderer.setClearColor(0x000000, 1);
+  passDown.material.uniforms.tC.value = rtMain.texture; passDown.material.uniforms.tS.value = rtSteam.texture; passDown.material.uniforms.tD.value = rtMain.depthTexture;
+  renderer.setRenderTarget(rtHalf); passDown.render(renderer);
+  passGather.material.uniforms.tH.value = rtHalf.texture;
+  renderer.setRenderTarget(rtBlur); passGather.render(renderer);
+  passComp.material.uniforms.tC.value = rtMain.texture; passComp.material.uniforms.tS.value = rtSteam.texture; passComp.material.uniforms.tD.value = rtMain.depthTexture; passComp.material.uniforms.tB.value = rtBlur.texture;
+  renderer.setRenderTarget(rtComp); passComp.render(renderer);
+  bloom.render(renderer, null, rtComp, dt, false);
+  FINALU.uTime.value = time; FINALU.uFlash.value = st.impulse * 0.06 + (st.broken ? 0.3 * Math.exp(-BK.t * 9) : 0);
+  renderer.setRenderTarget(null); passFinal.render(renderer);
+  camera.position.copy(savedPos);
+  hud(dt);
+  if (first) { first = false; document.getElementById('loading').classList.add('done'); }
+  // adaptive resolution
+  if (SHOT < 0 && !CAPTURE) {
+    ftAvg = lerp(ftAvg, rawDt * 1000, 0.05); dprTimer += rawDt;
+    if (dprTimer > 2.5) {
+      dprTimer = 0;
+      if (ftAvg > 24 && dpr > 0.7) { dpr = Math.max(0.7, dpr - 0.15); resize(); }
+      else if (ftAvg < 13 && dpr < MAX_DPR) { dpr = Math.min(MAX_DPR, dpr + 0.1); resize(); }
+    }
+  }
+}
+if (!CAPTURE) frame();
+else {
+  // ---- the film: 30 s at 30 fps, frame by frame, sound rendered offline in lockstep
+  audioInit();
+  storyRate = (BREAK_T - FILM_T0) / 21.7;
+  const capP = document.getElementById('capP'), capStage = document.getElementById('capStage');
+  const LINES = [[0.6, 5.8, 'Five of six bolts have already sheared.'], [6.4, 10.1, 'The last one is necking down.'],
+    [10.5, 13.7, 'Its threads strip out of the nut.'], [14.1, 18.2, 'A crack opens around the neck.'], [18.6, 21.5, 'One thread left.']];
+  let lastLine = '';
+  window.__frame = (i) => {
+    filmT = i / FILM_FPS;
+    if (i > 0) simStep(1 / FILM_FPS);
+    else autoCam(1e-4);
+    audioUpdate(st);
+    renderFrame(1 / FILM_FPS, 1 / FILM_FPS);
+    fadeEl.style.transition = 'none';
+    fadeEl.style.opacity = Math.max(1 - smooth(0, 0.8, filmT), smooth(FILM_DUR - 1.3, FILM_DUR - 0.1, filmT));
+    capP.firstChild.nodeValue = String(Math.round(st.P)); capP.classList.toggle('hot', st.P > 250 && !st.broken);
+    let line = null; for (const l of LINES) if (filmT >= l[0] && filmT < l[1]) line = l;
+    const txt = line ? line[2] : '';
+    if (txt !== lastLine) { lastLine = txt; capStage.textContent = txt; }
+    capStage.style.opacity = line ? Math.min(smooth(line[0], line[0] + 0.4, filmT), 1 - smooth(line[1] - 0.4, line[1], filmT)) : 0;
+    return filmT;
+  };
+  window.__audio = async () => {
+    const buf = await AU.ctx.startRendering();
+    const n = buf.length, ch = [buf.getChannelData(0), buf.getChannelData(1)];
+    const out = new DataView(new ArrayBuffer(44 + n * 4));
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) out.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
+    out.setUint32(24, 48000, true); out.setUint32(28, 48000 * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); w(36, 'data'); out.setUint32(40, n * 4, true);
+    for (let i = 0; i < n; i++) for (let c = 0; c < 2; c++) out.setInt16(44 + i * 4 + c * 2, Math.max(-1, Math.min(1, ch[c][i])) * 32767, true);
+    const bytes = new Uint8Array(out.buffer); let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+  window.__ready = true;
+}
+</script>
+</body>
+</html>
