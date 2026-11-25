@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vibecodevember - Cocoon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root { --ink: #eef0f4; --soft: #a9b0bf; --bar: 56px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #04050a; color: var(--ink); }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,4,.55) 100%); }
+  #fade { position: fixed; inset: 0; pointer-events: none; background: #000; opacity: 1; }
+  .bar { position: fixed; left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 3vw, 36px); pointer-events: none; text-shadow: 0 0 10px rgba(0,0,0,.6); z-index: 3; }
+  .brand { white-space: nowrap; font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; opacity: .85; }
+  .name { font: italic 400 24px 'Cormorant Garamond', Georgia, serif; letter-spacing: .05em; }
+  #caption { position: fixed; left: clamp(16px, 3vw, 36px); bottom: 22px; font: italic 400 19px 'Cormorant Garamond', Georgia, serif; color: var(--ink); opacity: 0; transition: opacity 1.2s; pointer-events: none; text-shadow: 0 0 12px rgba(0,0,0,.8); z-index: 3; }
+  #caption small { display: block; font: 500 9.5px Inter, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--soft); margin-top: 4px; }
+  #credit { position: fixed; right: clamp(16px, 3vw, 36px); top: calc(var(--bar) - 6px); font-size: 9.5px; letter-spacing: .08em; color: var(--soft); opacity: .7; z-index: 3; text-align: right; }
+  #credit a { color: inherit; }
+  #hint { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 10.5px; letter-spacing: .1em; color: var(--soft); pointer-events: none; text-shadow: 0 0 12px rgba(0,0,0,.9); z-index: 3; white-space: nowrap; }
+  #hint b { color: var(--ink); font-weight: 500; }
+  #replay { position: fixed; right: clamp(16px, 3vw, 36px); bottom: 18px; z-index: 4; border: 1px solid rgba(238,240,244,.3); background: rgba(0,0,0,.3); color: var(--ink); border-radius: 16px; padding: 6px 12px; font: 500 10px Inter, sans-serif; letter-spacing: .2em; text-transform: uppercase; cursor: pointer; backdrop-filter: blur(6px); }
+  #replay:hover { background: rgba(0,0,0,.5); }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; z-index: 10; background: #04050a; transition: opacity 1s; pointer-events: none; }
+  #loading div { font: italic 400 22px 'Cormorant Garamond', Georgia, serif; color: var(--soft); text-align: center; }
+  #loading span { display: block; margin-top: 10px; font: 500 10px Inter, sans-serif; letter-spacing: .3em; color: #6d7487; }
+  #loading.done { opacity: 0; }
+  .cap { display: none; }
+  body.capture .bar, body.capture #credit, body.capture #hint, body.capture #replay, body.capture #loading, body.capture .vignette { display: none !important; }
+  body.capture .cap { display: block; position: fixed; z-index: 5; pointer-events: none; text-shadow: 0 0 14px rgba(0,0,0,.8); }
+  body.capture #capTitle { left: 44px; top: 38px; font: italic 400 46px 'Cormorant Garamond', Georgia, serif; letter-spacing: .04em; color: var(--ink); }
+  body.capture #capTitle small { display: block; margin-top: 6px; font: 500 13px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; color: var(--soft); }
+  body.capture #capCredit { right: 44px; bottom: 40px; font: 500 12px Inter, sans-serif; letter-spacing: .14em; color: var(--soft); text-align: right; }
+  body.capture #caption { left: 44px; bottom: 40px; font-size: 30px; transition: none; }
+  body.capture #caption small { font-size: 12px; margin-top: 6px; }
+  body.capture #capVig { inset: 0; background: radial-gradient(ellipse at 50% 48%, transparent 50%, rgba(0,0,4,.6) 100%); }
+  body.shot .bar, body.shot #caption, body.shot #credit, body.shot #hint, body.shot #replay, body.shot #loading { display: none !important; }
+  @media (max-width: 600px) { .name { font-size: 20px; } .brand { letter-spacing: .2em; font-size: 9px; } #hint { bottom: 64px; } #caption { bottom: 18px; font-size: 16px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+  "@sparkjsdev/spark": "https://cdn.jsdelivr.net/npm/@sparkjsdev/spark@2.4.0/dist/spark.module.js"
+} }
+</script>
+</head>
+<body>
+<div class="vignette"></div>
+<div id="fade"></div>
+<header class="bar"><span class="brand">Vibecodevember</span><span class="name">Cocoon</span></header>
+<div id="credit">Morpho rhetenor helena · scan by Dany Bittel<br /><a href="https://superspl.at/scene/e9214ff8" target="_blank" rel="noopener">superspl.at</a> · 2.1M gaussians</div>
+<div id="caption"></div>
+<div class="cap" id="capVig"></div>
+<div class="cap" id="capTitle">Cocoon<small>Vibecodevember</small></div>
+<div class="cap" id="capCredit">Morpho rhetenor helena<br />scan · Dany Bittel</div>
+<div id="hint"><b>drag</b> to look around · it carries on by itself</div>
+<button id="replay">↺ replay</button>
+<div id="loading"><div>a chrysalis is forming…<span id="pct">0%</span></div></div>
+
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { SparkRenderer, SplatMesh, dyno } from '@sparkjsdev/spark';
+
+// ============================================================================ setup
+// World units: the butterfly is ~13 across, body centred on the origin, head toward +z,
+// wings raised in a V toward +y. The chrysalis hangs head-down from a twig, cremaster at (0, 3.7, 0.4).
+const Q = new URLSearchParams(location.search);
+const SHOT = Q.has('shot'), CAPTURE = Q.has('capture');
+if (SHOT) document.body.classList.add('shot');
+if (CAPTURE) document.body.classList.add('capture');
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const ease2 = (x) => { x = clamp(x, 0, 1); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const lerp = (a, b, t) => a + (b - a) * t;
+const DEG = Math.PI / 180;
+
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+const DPR = Math.min(devicePixelRatio, COARSE ? 1 : 1.5);
+renderer.setPixelRatio(DPR);
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(innerWidth < innerHeight ? 52 : 40, innerWidth / innerHeight, 0.02, 200);
+const spark = new SparkRenderer({ renderer, focalDistance: 6, apertureAngle: 0 });
+scene.add(spark);
+
+// backdrop: deep blue-black, a faint glow behind the subject (linear colour: the output pass encodes)
+const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 48, 24), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  vertexShader: `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `varying vec3 vD;
+    void main(){ float back = smoothstep(-0.3, 0.9, dot(vD, normalize(vec3(0.0, 0.3, -1.0))));
+      vec3 c = mix(vec3(0.00012, 0.00018, 0.0006), vec3(0.0012, 0.0019, 0.0062), back) * (0.8 + 0.2*smoothstep(-1.0, 0.6, vD.y));
+      gl_FragColor = vec4(c, 1.0); }`,
+}));
+scene.add(sky);
+if (Q.has('axes')) { const ax = new THREE.AxesHelper(3); ax.material.depthTest = false; ax.renderOrder = 99; scene.add(ax); }
+
+// ============================================================================ the twig, made of splats too
+// A bark-covered stem the chrysalis hangs from, plus the tuft of silk the cremaster hooks into.
+function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+function vnoise(x, y) { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash(xi * 57 + yi * 131), b = hash((xi + 1) * 57 + yi * 131), c = hash(xi * 57 + (yi + 1) * 131), d = hash((xi + 1) * 57 + (yi + 1) * 131);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+const twig = new SplatMesh({
+  constructSplats: (splats) => {
+    const N = COARSE ? 50000 : 110000, c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color(), nrm = new THREE.Vector3();
+    const axis = (s) => V(0.25 * Math.sin(s * 0.5), 3.98 + 0.18 * Math.sin(s * 0.33 + 0.6) - 0.012 * s * s, s);   // gently bent stem along z
+    for (let i = 0; i < N; i++) {
+      const s = -6 + Math.random() * 12, a = Math.random() * Math.PI * 2;
+      const r = 0.15 * (1 - (s + 6) / 24) * (1 + 0.08 * vnoise(s * 3, a * 2));
+      const p0 = axis(s), p1 = axis(s + 0.01), tdir = p1.sub(p0).normalize();
+      const side = V(1, 0, 0).cross(tdir).normalize(), up = tdir.clone().cross(side).normalize();
+      nrm.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(up, Math.sin(a));
+      c.copy(p0).addScaledVector(nrm, r);
+      // bark: long fissures, grey-brown, lichen flecks; darker underneath
+      const fis = Math.pow(Math.abs(Math.sin(a * 9 + vnoise(s * 1.5, a) * 4)), 6);
+      const tone = 0.55 + 0.45 * vnoise(s * 4, a * 3) - 0.35 * fis;
+      const lichen = vnoise(s * 0.9 + 7, a * 1.3) > 0.72 ? 1 : 0;
+      col.setRGB(0.24 * tone, 0.19 * tone, 0.15 * tone);
+      if (lichen) col.lerp(new THREE.Color(0.42, 0.46, 0.36), 0.6);
+      const shade = 0.45 + 0.55 * clamp(nrm.y * 0.5 + 0.5, 0, 1);
+      col.multiplyScalar(shade);
+      q.setFromUnitVectors(V(0, 0, 1), nrm);
+      sc.set(0.022, 0.03, 0.004);
+      splats.pushSplat(c, sc, q, 0.95, col);
+    }
+    // cremaster: the short dark stalk the chrysalis hangs by
+    for (let i = 0; i < 9000; i++) {
+      const y = 3.5 + Math.random() * 0.48, a = Math.random() * Math.PI * 2, rr = 0.03 + 0.025 * (1 - (y - 3.5) / 0.48);
+      c.set(Math.cos(a) * rr, y, 0.4 + Math.sin(a) * rr);
+      nrm.set(Math.cos(a), 0, Math.sin(a)); q.setFromUnitVectors(V(0, 0, 1), nrm);
+      const tone = 0.6 + 0.4 * Math.random();
+      col.setRGB(0.2 * tone, 0.13 * tone, 0.07 * tone).multiplyScalar(0.6 + 0.4 * Math.max(0, Math.cos(a - 2.4)));
+      sc.set(0.012, 0.016, 0.003);
+      splats.pushSplat(c, sc, q, 0.95, col);
+    }
+    // silk pad
+    for (let i = 0; i < 2500; i++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.pow(Math.random(), 1.5) * 0.12, y = 3.88 + Math.random() * 0.12;
+      c.set(Math.cos(a) * rr, y, 0.4 + Math.sin(a) * rr);
+      q.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
+      sc.set(0.03 + Math.random() * 0.03, 0.0012, 0.0012);
+      col.setRGB(0.55, 0.55, 0.53);
+      splats.pushSplat(c, sc, q, 0.22, col);
+    }
+  },
+});
+scene.add(twig);
+
+// ============================================================================ the metamorphosis
+// One shader over all 2.1M splats of the scan. Before eclosion it rebuilds them as a chrysalis
+// (each splat laid flat on a teardrop surface, shaded like a waxy jade case); during eclosion it lifts
+// them into a glittering vortex that settles, body first, back onto the wings.
+const uT = dyno.dynoFloat(0);       // eclosion progress 0..1
+const uM = dyno.dynoFloat(0);       // ripeness: 0 jade, 1 the folded wings show through
+const uSwayX = dyno.dynoFloat(0), uSwayZ = dyno.dynoFloat(0);
+const uFlex = dyno.dynoFloat(0);    // slow wing breathing once out
+const uPulse = dyno.dynoFloat(0);   // abdominal pumping of the pupa
+const uSeam = dyno.dynoFloat(0);    // light leaking through the splitting seam
+const uSweep = dyno.dynoFloat(-9);  // a sheen travelling out along the new wings
+const uTime = dyno.dynoFloat(0);
+const uCam = dyno.dynoVec3(new THREE.Vector3());
+const uIri = dyno.dynoFloat(Q.has('iri') ? +Q.get('iri') : CAPTURE ? 1.0 : 0.75);   // how hard to push the scan's own angle-dependent blue
+
+const metamorphosis = new dyno.Dyno({
+  inTypes: { gsplat: dyno.Gsplat, t: 'float', m: 'float', sx: 'float', sz: 'float', flex: 'float', pulse: 'float', seam: 'float', sweep: 'float', time: 'float', cam: 'vec3', iri: 'float' },
+  outTypes: { gsplat: dyno.Gsplat },
+  globals: () => [dyno.unindent(/* glsl */`
+    vec4 cocQuatMul(vec4 a, vec4 b) { return vec4(a.w*b.xyz + b.w*a.xyz + cross(a.xyz, b.xyz), a.w*b.w - dot(a.xyz, b.xyz)); }
+    vec4 cocQuatFromTo(vec3 a, vec3 b) { float d = dot(a, b); if (d < -0.9999) return vec4(1.0, 0.0, 0.0, 0.0); return normalize(vec4(cross(a, b), 1.0 + d)); }
+    vec3 cocQuatVec(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+    float cocHash(uint h) { h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16; return float(h) / 4294967295.0; }
+    vec3 cocHash3(int i) { uint u = uint(i); return vec3(cocHash(u * 3u + 1u), cocHash(u * 3u + 2u), cocHash(u * 3u + 3u)); }
+    vec3 cocRot(vec3 d, float ax, float az) {
+      float c = cos(az), s = sin(az); d.xy = vec2(c*d.x - s*d.y, s*d.x + c*d.y);
+      c = cos(ax); s = sin(ax); d.yz = vec2(c*d.y - s*d.z, s*d.y + c*d.z); return d;
+    }
+    // chrysalis surface as a function of (u along the body, theta around it)
+    float cocRadius(float u, float theta, float pulse) {
+      // closed, rounded crown -> broad shoulders at u~0.3 -> long taper to a point
+      float top = pow(sin(clamp(u / 0.33, 0.0, 1.0) * 1.5708), 0.55);
+      float bot = pow(cos(clamp((u - 0.33) / 0.67, 0.0, 1.0) * 1.5708), 0.8);          // rounded ogive to the tip
+      float r = 1.3 * (u < 0.33 ? top : bot) + 0.035 * (1.0 - smoothstep(0.0, 0.04, u));
+      r *= 1.0 + 0.006 * sin(u * 70.0) * smoothstep(0.08, 0.15, u) * (1.0 - smoothstep(0.26, 0.32, u));  // faint segments
+      r *= 1.0 - 0.05 * exp(-theta*theta*10.0) * smoothstep(0.38, 0.6, u);                            // wing-case keel
+      r *= 1.0 + 0.02 * pulse * smoothstep(0.05, 0.35, u);
+      return r;
+    }
+    float cocH1(float n) { return fract(sin(n) * 43758.5453); }
+    float cocVN(vec3 p) {
+      vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); float n = dot(i, vec3(1.0, 57.0, 113.0));
+      return mix(mix(mix(cocH1(n), cocH1(n + 1.0), f.x), mix(cocH1(n + 57.0), cocH1(n + 58.0), f.x), f.y),
+                 mix(mix(cocH1(n + 113.0), cocH1(n + 114.0), f.x), mix(cocH1(n + 170.0), cocH1(n + 171.0), f.x), f.y), f.z);
+    }
+    float cocFbm(vec3 p) { return 0.5 * cocVN(p) + 0.25 * cocVN(p * 2.03 + 7.1) + 0.125 * cocVN(p * 4.1 + 3.3); }
+    // even out the splats along the case (the scan is sparse at both ends of this axis)
+    float cocEvenU(float x) {
+      float k[10] = float[10](0.0, 0.034, 0.08, 0.118, 0.195, 0.324, 0.484, 0.625, 0.826, 1.0);
+      float v[10] = float[10](0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0);
+      for (int i = 0; i < 9; i++) if (x <= k[i + 1]) return mix(v[i], v[i + 1], (x - k[i]) / (k[i + 1] - k[i]));
+      return 1.0;
+    }
+  `)],
+  statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */`
+    ${outputs.gsplat} = ${inputs.gsplat};
+    vec3 W = ${inputs.gsplat}.center;
+    vec4 q = ${inputs.gsplat}.quaternion;
+    vec3 sc = ${inputs.gsplat}.scales;
+    vec3 orig = ${inputs.gsplat}.rgba.rgb;
+    vec3 h = cocHash3(${inputs.gsplat}.index);
+    float T = ${inputs.t}, time = ${inputs.time};
+    float side = W.x >= 0.0 ? 1.0 : -1.0;
+    float span = smoothstep(0.4, 2.2, abs(W.x));
+
+    // --- once out, the wings slowly open and close about the body axis
+    float fa = ${inputs.flex} * span * side;
+    vec2 pv = vec2(0.0, -0.6), rr = W.xy - pv;
+    vec3 Wf = vec3(pv + vec2(cos(fa)*rr.x - sin(fa)*rr.y, sin(fa)*rr.x + cos(fa)*rr.y), W.z);
+
+    // --- the chrysalis: wings rolled round a teardrop, body down the front seam, head at the bottom
+    float u = cocEvenU(clamp((W.z + 2.3) / 6.9, 0.0, 1.0));
+    float theta = clamp(W.x / 6.6, -1.0, 1.0) * 3.0;
+    theta = mix(theta, (h.y * 2.0 - 1.0) * 3.14159, 1.0 - smoothstep(0.04, 0.3, u));    // the scan is patchy here: spread evenly round the crown
+    float rad = cocRadius(u, theta, ${inputs.pulse});
+    float e = 0.004;
+    vec3 anchor = vec3(0.0, 3.6, 0.4);
+    vec3 Lp = vec3(rad * sin(theta), -u * 4.9, rad * cos(theta));
+    float prong = smoothstep(0.955, 1.0, u);
+    Lp.x += sign(sin(theta) + 1e-4) * prong * 0.07;
+    // analytic normal from neighbouring surface points
+    float ru = cocRadius(u + e, theta, ${inputs.pulse}), rt = cocRadius(u, theta + e, ${inputs.pulse});
+    vec3 du = vec3(ru * sin(theta), -(u + e) * 4.9, ru * cos(theta)) - Lp;
+    vec3 dt = vec3(rt * sin(theta + e), Lp.y, rt * cos(theta + e)) - Lp;
+    vec3 nL = normalize(cross(dt, du));
+    if (dot(nL, vec3(sin(theta), 0.0, cos(theta))) < 0.0) nL = -nL;
+    // three nested shells: a thin glassy cuticle, living green tissue, and the folded wings deep inside
+    float layer = h.z < 0.3 ? 0.0 : (h.z < 0.62 ? 1.0 : 2.0);
+    float depth = (layer == 0.0 ? 0.0 : (layer == 1.0 ? 0.04 : 0.11)) * clamp(rad / 1.3, 0.2, 1.0);
+    vec3 C = anchor + cocRot(Lp - nL * depth, ${inputs.sx}, ${inputs.sz});
+    vec3 nC = normalize(cocRot(nL, ${inputs.sx}, ${inputs.sz}));
+    // lay each splat flat on the case: its thinnest axis along the surface normal
+    vec3 thin = (sc.x <= sc.y && sc.x <= sc.z) ? vec3(1.0, 0.0, 0.0) : (sc.y <= sc.z ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0));
+    vec4 qC = cocQuatMul(cocQuatFromTo(normalize(cocQuatVec(q, thin)), nC), q);
+    vec3 scC = sc * 1.3 * (1.0 - thin * 0.75) * mix(0.5, 1.0, smoothstep(0.0, 0.08, u)) * mix(1.0, 0.45, prong);
+
+    // --- the case, built in layers so light passes into it and scatters back out
+    vec3 sp = Lp * 3.0;
+    float mott = cocFbm(sp * 1.3);
+    float fine = cocVN(sp * 9.0);
+    float speck = step(0.93, cocVN(sp * 22.0 + 11.0));
+    float wrinkle = sin(u * 380.0 + sin(theta * 7.0) * 3.0 + cocFbm(sp * 2.2) * 14.0) * cocVN(sp * 3.0 + 5.0) * (1.0 - smoothstep(0.22, 0.4, u)) * smoothstep(0.03, 0.1, u);
+    float wcU = clamp((u - 0.34) / 0.58, 0.0, 1.0);
+    float outline = exp(-pow(abs(theta) - (0.5 + 0.5 * sin(3.14159 * wcU)), 2.0) / 0.0018) * step(0.34, u) * (1.0 - smoothstep(0.9, 0.96, u));
+    float veins = 0.0;
+    for (int i = 1; i <= 3; i++) veins += exp(-pow(abs(theta) - float(i) * 0.14 * (0.4 + 0.6 * sin(3.14159 * wcU)) - 0.02, 2.0) / 0.0006);
+    veins *= smoothstep(0.38, 0.5, u) * (1.0 - smoothstep(0.85, 0.94, u));
+    float keel = exp(-theta*theta * 140.0) * smoothstep(0.4, 0.6, u);
+    float d1 = exp(-(pow((u - 0.3) * 55.0, 2.0) + pow((abs(theta) - 1.15) * 12.0, 2.0)));
+    float d2 = exp(-(pow((u - 0.44) * 55.0, 2.0) + pow((abs(theta) - 0.85) * 12.0, 2.0)));
+    float gold = clamp(d1 + d2, 0.0, 1.0);
+    float lumO = dot(orig, vec3(0.3, 0.5, 0.2));
+    float M = ${inputs.m};
+
+    // lighting terms (view-dependent: the camera position comes in as a uniform)
+    vec3 Vd = normalize(${inputs.cam} - C), Ld = normalize(vec3(-0.5, 0.75, 0.45));
+    float ndl = dot(nC, Ld), ndv = max(dot(nC, Vd), 0.0);
+    vec3 Rv = reflect(-Vd, nC);
+    float spec = pow(max(dot(Rv, Ld), 0.0), 120.0);
+    float broad = pow(max(dot(Rv, Ld), 0.0), 12.0);
+    float env = smoothstep(0.2, 0.95, Rv.y) * 0.6 + smoothstep(0.7, 1.0, dot(Rv, normalize(vec3(0.6, 0.2, -0.8)))) * 0.5;
+    float fres = pow(1.0 - ndv, 3.0);
+    float wrapL = clamp((ndl + 0.6) / 1.6, 0.0, 1.0);                                   // soft, scattered light
+    float through = pow(clamp(dot(Vd, -Ld) * 0.5 + 0.5, 0.0, 1.0), 3.0);                   // light coming through from behind
+
+    vec3 cCol; float aC = ${inputs.gsplat}.rgba.a;
+    if (layer == 0.0) {
+      // cuticle: almost clear, faintly green, wrinkled; carries the reflections, opaque only at grazing angles
+      cCol = mix(vec3(0.52, 0.66, 0.4), vec3(0.2, 0.24, 0.3), M) * (0.92 + 0.08 * wrinkle) * (0.45 + 0.4 * wrapL);
+      cCol += vec3(0.95, 1.0, 0.92) * (spec * 1.6 + broad * 0.12 + env * 0.12 + fres * 0.18) * (0.85 + 0.3 * wrinkle);
+      aC *= mix(0.14 + 0.55 * fres + 0.4 * spec, 0.1 + 0.4 * fres + 0.4 * spec, M) * (0.85 + 0.3 * fine);
+    } else if (layer == 1.0) {
+      // living tissue: mottled apple green, pale wing-case lines, fine speckles, the gold-white spots
+      vec3 tissue = mix(vec3(0.22, 0.42, 0.1), vec3(0.52, 0.74, 0.25), smoothstep(0.25, 0.75, mott));
+      tissue = mix(tissue, vec3(0.6, 0.74, 0.3), smoothstep(0.6, 0.85, cocFbm(sp * 4.0 + 20.0)) * 0.4);   // paler, thinner patches
+      tissue *= 0.9 + 0.12 * fine;
+      tissue = mix(tissue, vec3(0.62, 0.78, 0.36), clamp(outline * 0.55 + veins * 0.3 + keel * 0.3, 0.0, 1.0));
+      tissue = mix(tissue, vec3(0.86, 0.9, 0.66), speck * 0.35);
+      tissue = mix(tissue, vec3(0.95, 0.9, 0.6), smoothstep(0.3, 0.75, gold));
+      tissue = mix(tissue, mix(vec3(0.1, 0.12, 0.1), orig * 0.9, 0.7), M * 0.85);
+      cCol = tissue * (0.35 + 0.75 * wrapL);
+      cCol += mix(vec3(0.55, 0.8, 0.22), vec3(0.3, 0.45, 0.9), M) * (through * (0.3 + 0.7 * fres) * 0.55 + fres * 0.12);        // subsurface glow
+      cCol += vec3(0.9, 1.0, 0.85) * spec * 0.25;
+      aC *= mix(0.55, 0.12, M);
+    } else {
+      // deep inside: the developing wings, seen through the tissue as a darker, veined olive
+      vec3 deep = mix(vec3(0.08, 0.17, 0.04), vec3(0.4, 0.55, 0.16), clamp(lumO * 1.8, 0.0, 1.0));
+      deep = mix(deep, orig * 1.25, M);
+      cCol = deep * (0.45 + 0.6 * wrapL);
+      cCol += mix(vec3(0.42, 0.62, 0.16), vec3(0.3, 0.45, 0.9), M) * through * 0.25;
+    }
+    cCol = mix(cCol, vec3(0.38, 0.22, 0.09) * (0.5 + 0.5 * wrapL), prong);
+    if (prong > 0.5) aC = ${inputs.gsplat}.rgba.a;
+    // light leaking through the splitting seam
+    float seamLine = exp(-theta*theta * 90.0) * smoothstep(0.3, 0.55, u);
+    cCol += vec3(1.0, 0.92, 0.75) * ${inputs.seam} * (seamLine * (1.2 + 0.6 * sin(u * 30.0 - time * 4.0)) + 0.08);
+
+    // --- eclosion: body first, wings last, through a swirling cloud of glitter
+    float dd = abs(W.x) / 6.6;
+    float s = clamp((T * 1.5 - dd * 0.6 - h.x * 0.2 - (1.0 - u) * 0.05) / 0.7, 0.0, 1.0);
+    float k = smoothstep(0.0, 1.0, s);
+    float fly = sin(3.14159 * k);
+    vec3 P = mix(C, Wf, k);
+    vec2 axisXZ = vec2(0.0, 0.3);
+    vec2 d = (P.xz - axisXZ) * (1.0 + fly * (0.25 + 0.3 * h.z));
+    float ang = fly * (1.0 + 0.9 * h.y);
+    P.xz = axisXZ + vec2(cos(ang)*d.x - sin(ang)*d.y, sin(ang)*d.x + cos(ang)*d.y);
+    P.y += fly * (0.4 + 0.9 * h.z) + sin(time * 2.0 + h.x * 30.0) * 0.06 * fly;
+    P += (h - 0.5) * fly * 0.25;
+
+    // colour in flight: spectral, twinkling motes that cool into the real wing colours
+    vec3 hue = 0.55 + 0.45 * cos(6.2832 * (h.x * 0.6 + k * 1.3 + vec3(0.0, 0.33, 0.67)));
+    hue = mix(hue, vec3(0.35, 0.55, 1.0), 0.35);
+    float tw = pow(0.5 + 0.5 * sin(time * 13.0 + h.z * 90.0), 8.0);
+    vec3 settled = mix(cCol, orig, smoothstep(0.25, 0.85, k));
+    // structural colour. Morpho blue is interference: it changes with the angle between the scale and the eye.
+    // Each wing splat is a flat disc lying on the scale, so its thinnest axis is the surface normal.
+    vec3 ax = sc.x < sc.y ? (sc.x < sc.z ? vec3(1, 0, 0) : vec3(0, 0, 1)) : (sc.y < sc.z ? vec3(0, 1, 0) : vec3(0, 0, 1));
+    vec3 nS = cocQuatVec(q, ax), nP = normalize(vec3(-0.5 * side, 0.85, -0.15));   // the scale, and the wing's plane
+    nS *= sign(dot(nS, nP) + 1e-4);
+    vec3 nW = normalize(mix(nS, nP, 0.6));
+    vec3 Vw = normalize(${inputs.cam} - Wf), Hw = normalize(Vw + Ld);
+    float cv = abs(dot(nW, Vw)), ch = abs(dot(nW, Hw));
+    // face-on cobalt, oblique violet, a cyan-white flash in the glint
+    vec3 film = mix(vec3(0.32, 0.08, 0.75), vec3(0.04, 0.28, 1.0), smoothstep(0.15, 0.65, cv));
+    film = mix(film, vec3(0.3, 0.7, 1.0), smoothstep(0.93, 0.995, ch) * 0.8);
+    float gain = 0.45 + 2.6 * pow(ch, 18.0);
+    float blueish = smoothstep(0.45, 0.65, (orig.b - max(orig.r, orig.g)) / max(orig.b, 0.02)) * span;
+    vec3 iriCol = film * gain * (0.35 + 1.4 * orig.b);
+    settled = mix(settled, iriCol, blueish * ${inputs.iri} * 0.65 * smoothstep(0.85, 1.0, k));
+    vec3 col = mix(settled, hue * (0.9 + 3.2 * tw), smoothstep(0.0, 0.7, fly) * 0.6);
+    // a sheen running out along the finished wings
+    float sw = exp(-pow(abs(W.x) - ${inputs.sweep}, 2.0) / 0.8) * step(0.99, k);
+    col += (orig * 1.4 + vec3(0.15, 0.35, 0.9)) * sw * 0.9;
+
+    ${outputs.gsplat}.center = P;
+    if (dot(qC, q) < 0.0) qC = -qC;
+    ${outputs.gsplat}.quaternion = normalize(mix(qC, q, smoothstep(0.1, 0.8, k)));
+    ${outputs.gsplat}.scales = mix(scC, sc, smoothstep(0.0, 0.5, k)) * mix(1.0, 0.5, smoothstep(0.0, 0.5, fly));
+    ${outputs.gsplat}.rgba.rgb = col;
+    ${outputs.gsplat}.rgba.a = mix(aC, ${inputs.gsplat}.rgba.a, smoothstep(0.0, 0.35, k));
+  `),
+});
+
+const morpho = new SplatMesh({
+  url: './morpho.sog',
+  onProgress: (e) => { if (e.lengthComputable) document.getElementById('pct').textContent = Math.round(e.loaded / e.total * 100) + '%'; },
+});
+morpho.quaternion.set(1, 0, 0, 0);                 // captures are y-down
+morpho.position.set(0.004, -0.575, 2.876);         // body centre to the origin
+morpho.worldModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => ({
+  gsplat: metamorphosis.apply({ gsplat, t: uT, m: uM, sx: uSwayX, sz: uSwayZ, flex: uFlex, pulse: uPulse, seam: uSeam, sweep: uSweep, time: uTime, cam: uCam, iri: uIri }).gsplat,
+}));
+morpho.updateGenerator();
+scene.add(morpho);
+// the twig dissolves with the case: each splat fades on its own schedule (SplatMesh.opacity didn't take)
+const uTwigA = dyno.dynoFloat(1);
+const twigFade = new dyno.Dyno({
+  inTypes: { gsplat: dyno.Gsplat, a: 'float' }, outTypes: { gsplat: dyno.Gsplat },
+  statements: ({ inputs, outputs }) => dyno.unindentLines(`
+    ${outputs.gsplat} = ${inputs.gsplat};
+    float r = fract(sin(float(${inputs.gsplat}.index) * 12.9898) * 43758.5453);
+    float f = smoothstep(r * 0.6, r * 0.6 + 0.4, ${inputs.a});
+    ${outputs.gsplat}.rgba.a *= f;
+    ${outputs.gsplat}.scales *= mix(0.4, 1.0, f);
+  `),
+});
+twig.worldModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => ({ gsplat: twigFade.apply({ gsplat, a: uTwigA }).gsplat }));
+twig.updateGenerator();
+
+// ============================================================================ post: a little bloom for the glitter
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }));
+composer.setPixelRatio(DPR); composer.setSize(innerWidth, innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.5, 0.85);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ============================================================================ the film
+// Close-ups are arcs around a patch of wing: the camera swings from the side where the scales look
+// navy, through the angle where they flare cobalt. n is the patch normal; az 0 looks from the wingtip side.
+const N_R = V(-0.5, 0.85, -0.15).normalize(), N_L = V(0.5, 0.85, -0.15).normalize(), UP = V(0, 1, 0);
+function arcPos(P, n, r, el, az, out) {
+  const a = n.clone().cross(V(0, 0, 1)).normalize(), b = n.clone().cross(a);
+  return out.copy(P).addScaledVector(n, r * Math.sin(el * DEG)).addScaledVector(a, r * Math.cos(el * DEG) * Math.cos(az * DEG)).addScaledVector(b, r * Math.cos(el * DEG) * Math.sin(az * DEG));
+}
+const SHOTS = [
+  { dur: 12, ap: 0.025, fadeOut: 0, arc: { P: V(0, 1.6, 0.4), n: UP, r: [9.2, 8.0], el: [10, 16], az: [-40, -130] }, t0: V(0, 1.6, 0.4), t1: V(0, 1.3, 0.4),
+    caption: ['Chrysalis', 'day fourteen'] },
+  // eclosion: drift up and back while the case dissolves, arrive on the whole butterfly, and hold on it
+  { dur: 17, ap: 0.012, hold: 0.42, fit: true, fadeIn: 0, fadeOut: 1.6,
+    arc: { P: V(0, 0.2, -0.1), n: UP, r: [7.2, 12.2], el: [18, 60], az: [-130, -88] }, t0: V(0, 1.4, 0.4), t1: V(0, 0.15, -0.1),
+    caption: ['Eclosion', 'Morpho rhetenor helena'] },
+  { dur: 11, ap: 0.022, fadeIn: 1.4, capR: 1.75, arc: { P: V(3.6, 0.75, 0.2), n: N_R, r: [3.6, 3.1], el: [28, 58], az: [190, 10] }, t0: V(3.6, 0.75, 0.2), t1: V(3.7, 0.8, 0.1),
+    caption: ['Forewing', 'turn it, and the blue ignites'] },
+  { dur: 11, ap: 0.014, arc: { P: V(3.0, 0.35, 0.35), n: N_R, r: [1.9, 1.65], el: [35, 62], az: [205, 25] }, t0: V(3.0, 0.35, 0.35), t1: V(3.25, 0.5, 0.3),
+    caption: ['Scales', 'ridged like roof tiles, each a few microns'] },
+  { dur: 10, ap: 0.016, arc: { P: V(5.3, 0.85, -1.3), n: V(-0.33, 0.8, -0.5).normalize(), r: [2.0, 1.75], el: [32, 60], az: [170, -10] }, t0: V(5.3, 0.85, -1.3), t1: V(5.2, 0.85, -1.2),
+    caption: ['Hindwing', 'scalloped margin'] },
+  { dur: 9, ap: 0.025, p0: V(1.7, 0.9, 6.0), t0: V(0, -0.05, 3.6), p1: V(-1.5, 1.1, 6.2), t1: V(0, 0.0, 3.5),
+    caption: ['Head', 'antennae, compound eyes'] },
+  { dur: 11, ap: 0.022, capR: 1.7, arc: { P: V(-3.6, 0.75, 0.2), n: N_L, r: [3.3, 3.6], el: [55, 30], az: [-10, 200] }, t0: V(-3.6, 0.75, 0.2), t1: V(-3.5, 0.7, 0.3),
+    caption: ['Left forewing', 'from cobalt to ink'] },
+  { dur: 9, ap: 0.02, p0: V(-6.6, -1.2, 2.4), t0: V(-4.6, 1.2, 0.2), p1: V(-6.9, -0.9, -1.4), t1: V(-4.8, 1.1, -0.4),
+    caption: ['Underside', 'camouflage on the other face'] },
+  { dur: 14, ap: 0.02, arc: { P: V(0, 0.3, -0.2), n: UP, r: [9.5, 10.5], el: [68, 48], az: [-60, 60] }, t0: V(0, 0.3, -0.2), t1: V(0, 0.3, -0.2),
+    fit: true, capR: 1.15, caption: ['Morpho rhetenor helena', 'Gaussian splat · 2.1M samples'] },
+];
+const shotStart = []; let total = 0;
+for (const s of SHOTS) { shotStart.push(total); total += s.dur; }
+const T_RIPEN = [4, 10.5], T_SEAM = [9.5, 12.8], T_EMERGE = [12.3, 21.8], T_SWEEP = 22.2;
+
+// ============================================================================ interaction
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.enablePan = false;
+controls.minDistance = 1.2; controls.maxDistance = 30; controls.rotateSpeed = 0.5; controls.zoomSpeed = 0.6;
+controls.enabled = false;
+let manual = false, idle = 0, clockT = Q.has('t') ? +Q.get('t') : 0;
+const fadeEl = document.getElementById('fade'), capEl = document.getElementById('caption');
+const curTarget = V(0, 1, 0), _p = V(0, 0, 0);
+function takeOver() { idle = 0; if (!manual) { manual = true; controls.target.copy(curTarget); controls.enabled = true; controls.update(); capEl.style.opacity = 0; } }
+renderer.domElement.addEventListener('pointerdown', takeOver);
+renderer.domElement.addEventListener('wheel', takeOver, { passive: true });
+document.getElementById('replay').addEventListener('click', () => dip(() => { clockT = 0; manual = false; controls.enabled = false; lastShot = -1; }));
+let dipping = false;
+let dipA = 1, dipTarget = 0;     // a manual fade on top of the film's own (replay, resuming the tour, loading)
+function dip(mid) {
+  if (dipping) return; dipping = true; dipTarget = 1;
+  setTimeout(() => { mid(); setTimeout(() => { dipTarget = 0; dipping = false; }, 150); }, 750);
+}
+
+// ============================================================================ frame
+let lastShot = -1, prev = performance.now(), started = false;
+dipTarget = 1;
+// ---- ?capture: a 25 s, 30 fps social cut. Each segment maps video time onto story time.
+const CAP_LEN = 40;
+const EDIT = [  // [videoStart, videoEnd, storyStart, storyEnd]
+  [0, 2.0, 10.0, 12.3],      // the chrysalis, still camera: it shudders, light at the seam
+  [2.0, 9.0, 12.3, 25.0],    // it dissolves and reforms; the camera arrives on the whole butterfly
+  [9.0, 11.5, 25.0, 29.0],   // hold, then fade to black
+  [11.5, 21.0, 29.0, 40.0],  // right forewing, wide enough to see the blue travel across it
+  [21.0, 30.5, 70.0, 81.0],  // left forewing: cobalt to ink
+  [30.5, 40.0, 90.0, 101.0], // the whole butterfly, turning
+];
+let capVT = 0;
+function storyAt(vt) { for (const [a, b, c, d] of EDIT) if (vt <= b) return c + (d - c) * clamp((vt - a) / (b - a), 0, 1); return EDIT[EDIT.length - 1][3]; }
+if (CAPTURE) {
+  dipA = 0; dipTarget = 0;
+  window.__frames = Math.round(CAP_LEN * 30);
+  window.__frame = async (i) => {
+    capVT = i / 30; clockT = storyAt(capVT);
+    // render the same instant a few times so Spark's async depth sort settles
+    for (let k = 0; k < 4; k++) { prev = capVT * 1000; frame(capVT * 1000); await new Promise((r) => requestAnimationFrame(r)); }
+    return clockT;
+  };
+}
+// keep the whole wingspan in frame on narrow screens
+function fitScale() { const h = Math.tan(camera.fov * DEG / 2) * camera.aspect; return clamp(0.62 / h, 1, 2.4); }
+function shotAt(t) { let i = 0; while (i < SHOTS.length - 1 && t >= shotStart[i + 1]) i++; return i; }
+
+function frame(now) {
+  const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
+  if (started) clockT += dt;
+  if (clockT >= total) { clockT = total - 0.001; if (!dipping) dip(() => { clockT = 0; lastShot = -1; }); }
+  const t = clockT;
+
+  // story
+  uTime.value = CAPTURE ? capVT : now / 1000;
+  uM.value = ease((t - T_RIPEN[0]) / (T_RIPEN[1] - T_RIPEN[0]));
+  if (CAPTURE) uM.value = Math.max(0.3 * ease(capVT / 1), ease((capVT - 0.8) / 1.2));   // green first, then it clears as it shudders
+  uT.value = ease2((t - T_EMERGE[0]) / (T_EMERGE[1] - T_EMERGE[0]));
+  uSeam.value = ease((t - T_SEAM[0]) / (T_SEAM[1] - T_SEAM[0])) * (1 - ease((t - T_EMERGE[0] - 1) / 2));
+  uSweep.value = t > T_SWEEP ? (t - T_SWEEP) * 2.6 - 2.5 : -9;   // starts off the body so it glides in
+  const hanging = 1 - uT.value;
+  const twitch = CAPTURE
+    ? [[0.4, 0.10], [0.7, 0.14], [0.95, 0.12], [1.25, 0.2], [1.5, 0.18], [1.8, 0.26]].reduce((a, [c, h]) => a + h * Math.exp(-(((capVT - c) / 0.08) ** 2)), 0)
+    : uM.value > 0.4 ? Math.pow(Math.max(0, Math.sin(t * 2.3) * Math.sin(t * 5.1)), 6) * 0.12 * uM.value : 0;
+  // the video shudders on its own clock (story time changes speed at each cut) and only in its scripted bursts
+  const st = CAPTURE ? capVT * 1.15 : t, jit = CAPTURE ? 2.2 : 1;
+  uSwayX.value = (0.03 * Math.sin(st * 0.6) + twitch * Math.sin(st * 31 * jit)) * hanging;
+  uSwayZ.value = (0.04 * Math.sin(st * 0.45 + 1) + twitch * Math.cos(st * 27 * jit)) * hanging;
+  uPulse.value = Math.sin(st * 1.7) * (1 + 3 * uM.value) * hanging;
+  uFlex.value = ease((t - T_EMERGE[1]) / 3) * (0.09 * Math.sin((t - T_EMERGE[1]) * 0.55) - 0.03);
+  const twigOp = clamp(1 - (uT.value - 0.35) * 2.5, 0, 1);
+  if (twigOp !== uTwigA.value) { uTwigA.value = twigOp; twig.updateVersion(); }
+  if (twigOp < 0.001 && twig.parent) scene.remove(twig); else if (twigOp >= 0.001 && !twig.parent) scene.add(twig);
+  uCam.value.copy(camera.position);
+  morpho.updateVersion();
+
+  // camera
+  let si = shotAt(t), S = SHOTS[si];
+  if (CAPTURE && si === 0) { si = 1; S = SHOTS[1]; }
+  if (si !== lastShot) {
+    lastShot = si;
+    if (CAPTURE) capEl.innerHTML = `${S.caption[0]}<small>${S.caption[1]}</small>`;
+    else if (!manual && !SHOT) { capEl.innerHTML = `${S.caption[0]}<small>${S.caption[1]}</small>`; capEl.style.opacity = 1; setTimeout(() => { if (lastShot === si) capEl.style.opacity = 0; }, Math.min(S.dur - 1.5, 6) * 1000); }
+  }
+  const local = Math.max(0, t - shotStart[si]);
+  const k = ease2(local / (S.dur * (1 - (S.hold || 0))));
+  // film fades: out over the last moments of a shot, in over the first of the next
+  const fo = S.fadeOut ?? 0.8, fi = S.fadeIn ?? 0.7;
+  let filmA = 0;
+  if (!manual) {
+    if (fo > 0) filmA = Math.max(filmA, ease((local - (S.dur - fo)) / fo));
+    if (fi > 0) filmA = Math.max(filmA, 1 - ease(local / fi));
+  }
+  dipA += (dipTarget - dipA) * Math.min(1, dt * 6);
+  fadeEl.style.opacity = Math.max(filmA, dipA).toFixed(3);
+  curTarget.lerpVectors(S.t0, S.t1, k);
+  if (manual) {
+    idle += dt;
+    controls.update();
+    if (idle > 14) { dip(() => { manual = false; controls.enabled = false; lastShot = -1; }); idle = -10; }
+  } else {
+    if (S.arc) arcPos(S.arc.P, S.arc.n, lerp(S.arc.r[0], S.arc.r[1], k) * (S.fit ? fitScale() : 1) * (CAPTURE ? S.capR || 1 : 1), lerp(S.arc.el[0], S.arc.el[1], k), lerp(S.arc.az[0], S.arc.az[1], k), camera.position);
+    else camera.position.lerpVectors(S.p0, S.p1, k);
+    if (S.hold && local > S.dur * (1 - S.hold)) { const dr = (local - S.dur * (1 - S.hold)) * 0.04; camera.position.addScaledVector(V(Math.sin(dr), 0, Math.cos(dr)).cross(UP), 0.25 * Math.sin(dr * 3)); }
+    camera.lookAt(curTarget);
+  }
+  if (Q.has('cp')) { camera.position.fromArray(Q.get('cp').split(',').map(Number)); curTarget.fromArray(Q.get('ct').split(',').map(Number)); camera.lookAt(curTarget); }
+  // focus on what we're looking at; aperture as a physical size
+  const focus = camera.position.distanceTo(manual ? controls.target : curTarget);
+  spark.focalDistance = focus;
+  const ap = manual ? 0.04 : S.ap;
+  spark.apertureAngle = 2 * Math.atan(0.5 * ap / focus);
+
+  if (CAPTURE) {
+    // captions and fades by the clock, never by timers
+    const cIn = ease((local - 0.6) / 0.6), cOut = 1 - ease((local - Math.min(S.dur - 1.5, 6.5)) / 0.8);
+    capEl.style.opacity = (si === 1 && t > shotStart[1] ? Math.min(cIn, cOut) : 0).toFixed(3);
+    const tA = ease((capVT - 0.2) / 0.5) * (1 - ease((capVT - 3.0) / 0.6));
+    document.getElementById('capTitle').style.opacity = tA.toFixed(3);
+    fadeEl.style.opacity = Math.max(filmA, 1 - ease(capVT / 0.6), ease((capVT - (CAP_LEN - 0.9)) / 0.9)).toFixed(3);
+  }
+  composer.render();
+  if (!CAPTURE) requestAnimationFrame(frame);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.fov = innerWidth < innerHeight ? 52 : 40; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+
+arcPos(SHOTS[0].arc.P, SHOTS[0].arc.n, SHOTS[0].arc.r[0], SHOTS[0].arc.el[0], SHOTS[0].arc.az[0], camera.position); camera.lookAt(SHOTS[0].t0);
+if (!CAPTURE) requestAnimationFrame(frame);
+morpho.initialized.then(() => {
+  document.getElementById('loading').classList.add('done');
+  if (CAPTURE) { window.__ready = true; return; }
+  setTimeout(() => { started = !Q.has('freeze'); dipTarget = 0; }, 400);
+});
+</script>
+</body>
+</html>
