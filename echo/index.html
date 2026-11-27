@@ -30,6 +30,7 @@
   #start div { text-align: center; font: italic 400 34px 'Cormorant Garamond', Georgia, serif; }
   #start span { display: block; margin-top: 14px; font: 500 10px Inter, sans-serif; letter-spacing: .34em; text-transform: uppercase; color: var(--soft); }
   #start.gone { opacity: 0; pointer-events: none; }
+  body.capture .bar, body.capture #caption, body.capture #hint, body.capture #start, body.capture #fade, body.capture #shotname, body.capture #scope { display: none !important; }
   body.shot .bar, body.shot #caption, body.shot #hint, body.shot #start, body.shot #fade, body.shot #shotname { display: none !important; }
   @media (max-width: 600px) { .name { font-size: 20px; } .brand { letter-spacing: .2em; font-size: 9px; } #caption { font-size: 16px; } #scope canvas { width: 110px; height: 110px; } #scope .ro { font-size: 8px; } #shotname { display: none; } }
 </style>
@@ -57,6 +58,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ============================================================================ setup
 // Metres. The submarine cruises at y = 0 (150 m below the surface) heading -z; the seabed lies
@@ -65,6 +67,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 const Q = new URLSearchParams(location.search);
 const SHOT = Q.has('shot');
 if (SHOT) document.body.classList.add('shot');
+const CAPTURE = Q.has('capture');
+if (CAPTURE) document.body.classList.add('capture');
 const COARSE = matchMedia('(pointer: coarse)').matches;
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -128,7 +132,15 @@ function heightAt(x, z) {
   let h = rawHeight(x, z);
   // the wreck has settled into a scour pit of its own making
   const dx = x - WRECK.x, dz = z - WRECK.z, d2 = dx * dx + dz * dz;
-  if (d2 < 120 * 120) { const w = Math.exp(-d2 / (48 * 48)); h = lerp(h, WRECK.base - 1.5 + Math.sqrt(d2) * 0.03, w * 0.85); }
+  if (d2 < 120 * 120) {
+    const w = Math.exp(-d2 / (48 * 48)); h = lerp(h, WRECK.base - 1.5 + Math.sqrt(d2) * 0.03, w * 0.85);
+    // hull-local coordinates: sediment drifts piled along both sides and around the bow piece
+    const px = WRECK.x - Math.sin(WRECK.yaw) * 32, pz = WRECK.z - Math.cos(WRECK.yaw) * 32, ex = x - px, ez = z - pz;
+    const c = Math.cos(WRECK.yaw), sn = Math.sin(WRECK.yaw), lx = ex * c - ez * sn, lz = ex * sn + ez * c;
+    const along = ease((lz + 3) / 6) * ease((70 - lz) / 8);
+    const side = Math.exp(-Math.pow((Math.abs(lx) - 6.2) / 3.2, 2)) * (lx < 0 ? 2.4 : 1.6);
+    h += side * along * (0.75 + 0.5 * vnoise(lz * 0.15, lx * 0.2));
+  }
   return h;
 }
 
@@ -157,19 +169,34 @@ const SONAR_DECL = `
       float W = 2.2 + r * 0.01;
       float x = (d - r) / W;
       float front = exp(-x * x) * smoothstep(MAXR + 30.0, MAXR - 80.0, r);
-      float trail = step(d, r) * exp(-(r - d) / 140.0) * exp(-age * 0.13);
+      float trail = step(d, r) * exp(-(r - d) / 55.0) * exp(-age * 0.16);
       float att = 1.0 / (1.0 + d / 170.0);
       float speck = mix(1.0, 0.55 + 0.8 * sonNoise(w.xz * 0.35 + float(i) * 7.0) * (0.7 + 0.6 * sonNoise(w.xz * 1.7)), grain);
       son += vec3(0.4, 1.0, 0.88) * front * (0.3 + 0.9 * lam) * att * 0.85 * speck * k;
-      son += vec3(0.16, 0.8, 0.7) * trail * att * (0.04 + 0.45 * lam + contour * 0.85) * k;
+      son += vec3(0.16, 0.8, 0.7) * trail * att * (0.015 + 0.18 * lam + contour * 0.75) * k;
     }
     return son;
   }
 `;
 // Inject sonar light into a standard/physical material as emission.
+// Caustics: daylight focused by the uneven underside of the ice, dancing over up-facing surfaces.
+// Two layers of a classic iterated-warp pattern at different scales and speeds, softly mixed.
+const caustU = { value: 0 }, caustColU = { value: new THREE.Color(0.55, 0.9, 1.0) };
+const CAUSTIC_GLSL = `
+  uniform float uCaust; uniform vec3 uCaustCol;
+  // thin interfering light lines: zero-crossings of two warped wave fields, brighter where they cross
+  float causticF(vec2 p, float t){
+    vec2 q = p + 0.6 * vec2(sin(p.y * 1.7 + t), cos(p.x * 1.5 - t * 0.8)) + 0.35 * vec2(sin(p.y * 3.9 - t * 1.3), cos(p.x * 4.3 + t * 1.1));
+    float a = sin(q.x * 2.1 + sin(q.y * 1.3 + t * 0.7) * 1.5);
+    float b = sin(q.y * 2.3 + sin(q.x * 1.1 - t * 0.6) * 1.5);
+    float c1 = exp(-a * a * 9.0), c2 = exp(-b * b * 9.0);
+    float c = (c1 + c2) * 0.5 + c1 * c2;
+    return c * c;
+  }
+`;
 function addSonar(mat, k = 1) {
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uPing = pingU; sh.uniforms.uTime = timeU;
+    sh.uniforms.uPing = pingU; sh.uniforms.uTime = timeU; sh.uniforms.uCaust = caustU; sh.uniforms.uCaustCol = caustColU;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSW;')
       .replace('#include <project_vertex>', `#include <project_vertex>
         vec4 sw = vec4(transformed, 1.0);
@@ -177,7 +204,18 @@ function addSonar(mat, k = 1) {
           sw = instanceMatrix * sw;
         #endif
         vSW = (modelMatrix * sw).xyz;`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSW;\n' + SONAR_DECL)
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSW;\n' + SONAR_DECL + CAUSTIC_GLSL)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        if (uCaust > 0.0) {
+          vec3 wnc = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
+          float upF = smoothstep(-0.1, 0.9, wnc.y);
+          vec2 cp = vSW.xz * 0.55 + vSW.y * 0.1;
+          float c = causticF(cp, uTime * 0.9) * 0.65 + causticF(cp * 1.6 + 3.1, uTime * 0.7) * 0.35;
+          c = clamp(c, 0.0, 1.5);
+          vec3 cl = uCaustCol * c * upF * uCaust;
+          reflectedLight.directDiffuse += diffuseColor.rgb * cl * 3.5;
+          reflectedLight.directSpecular += cl * 0.032;
+        }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         {
           vec3 wn = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
@@ -208,7 +246,7 @@ const groundMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * viewMatrix * w;
     }`,
   fragmentShader: SONAR_DECL + `
-    uniform vec3 uFog, uAmb, uDown; uniform float uFogD;
+    uniform vec3 uFog, uAmb, uDown; uniform float uFogD; uniform sampler2D tSand, tSandN;
     varying vec3 vW; varying vec3 vN; varying float vAo; varying float vRock;
     float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
       return mix(mix(sonHash(i), sonHash(i+vec2(1,0)), f.x), mix(sonHash(i+vec2(0,1)), sonHash(i+vec2(1,1)), f.x), f.y); }
@@ -250,6 +288,11 @@ const groundMat = new THREE.ShaderMaterial({
       vec3 Nr = N;
       if (vRock > 0.5 || flt < 0.5) { float a0 = fb(p * 0.45), ax = fb((p + vec2(0.35, 0.0)) * 0.45), az = fb((p + vec2(0.0, 0.35)) * 0.45); Nr = normalize(N + vec3(-(ax - a0), 0.0, -(az - a0)) * 2.6); }
       N = mix(Nr, N, flt);
+      // close-up sand detail from the texture at two scales (rotated) so it never visibly tiles
+      vec2 tp1 = p / 2.0, tp2 = mat2(0.8, -0.6, 0.6, 0.8) * p / 6.7 + 0.37;
+      vec3 st1 = texture2D(tSand, tp1).rgb, st2 = texture2D(tSand, tp2).rgb;
+      vec2 sn = (texture2D(tSandN, tp1).xy * 2.0 - 1.0) * 0.65 + (texture2D(tSandN, tp2).xy * 2.0 - 1.0) * 0.35;
+      N = normalize(N + vec3(sn.x, 0.0, -sn.y) * 0.55 * flt);
       // albedo: tan quartz sand; cleaner pale patches, grey silty patches; detritus and shell hash
       // collect in the ripple troughs; fine grain noise up close
       float patchy = fb(p * 0.012), silty = smoothstep(0.45, 0.7, fb(p * 0.006 + 4.0));
@@ -257,10 +300,8 @@ const groundMat = new THREE.ShaderMaterial({
       sand = mix(sand, vec3(0.33, 0.32, 0.28), silty * 0.7);
       float trough = 1.0 - smoothstep(0.0, 0.25, min(t0, 1.0 - t0) * 4.0 - 0.15);
       sand = mix(sand, vec3(0.2, 0.18, 0.14), trough * 0.45 * rk);
-      float shell = step(0.985, sonHash(floor(p * 9.0))) * (0.4 + 0.6 * trough) * rk * (1.0 - smoothstep(0.25, 0.8, fwidth(p.x * 9.0)));
-      sand = mix(sand, vec3(0.78, 0.74, 0.66), shell);
-      float grain = (sonHash(floor(p * 40.0)) - 0.5) * (1.0 - smoothstep(0.25, 0.8, fwidth(p.x * 40.0)));
-      sand *= 1.0 + grain * 0.12 + (megaripple(p) - 0.5) * 0.06;
+      vec3 det = (st1 * 0.65 + st2 * 0.35) * 2.0;
+      sand *= mix(vec3(1.0), det, 0.9) * (1.0 + (megaripple(p) - 0.5) * 0.06);
       sand = mix(sand, vec3(0.06, 0.05, 0.04), h0 * 0.85);
       float strata = 0.75 + 0.25 * sin(vW.y * 2.3 + fb(p * 0.1) * 4.0);
       vec3 rock = vec3(0.12, 0.115, 0.11) * (0.65 + 0.55 * fb(p * 0.8)) * strata;
@@ -281,6 +322,38 @@ const groundMat = new THREE.ShaderMaterial({
       gl_FragColor = vec4(col, 1.0);
     }`,
 });
+
+// ============================================================================ sand texture
+// A 2 m tile of seabed close up: grain noise and mottling, pebbles, shell fragments, white
+// forams, dark organic flecks. Used as detail (albedo multiplier + normal) at two scales.
+function makeSandTex() {
+  const N = COARSE ? 512 : 1024, k = N / 1024, H = new Float32Array(N * N), img = new Uint8ClampedArray(N * N * 4);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const m = 0.12 * (vnoise(x / (26 * k), y / (26 * k)) - 0.5) + 0.08 * (vnoise(x / (7 * k) + 5, y / (7 * k)) - 0.5);
+    const g = Math.random();
+    const L = (0.9 + 0.2 * g + m) * 128, i = (y * N + x) * 4;
+    img[i] = L * 1.02; img[i + 1] = L; img[i + 2] = L * 0.95; img[i + 3] = 255;
+    H[y * N + x] = (g - 0.5) * 0.35 + m * 2;
+  }
+  const put = (x, y, r, g, b, h) => { const X = ((x | 0) % N + N) % N, Y = ((y | 0) % N + N) % N, i = Y * N + X; img[i * 4] = r; img[i * 4 + 1] = g; img[i * 4 + 2] = b; H[i] = Math.max(H[i], h); };
+  const PEB = [[66, 62, 58], [104, 96, 84], [42, 40, 38], [140, 130, 112], [92, 70, 54]];
+  for (let n = 0; n < 260; n++) {           // pebbles
+    const cx = rnd() * N, cy = rnd() * N, R = (2 + Math.pow(rnd(), 2) * 8) * k + 1, c = PEB[Math.floor(rnd() * PEB.length)], ex = 0.7 + rnd() * 0.6;
+    for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) { const d = Math.hypot(x / ex, y) / R; if (d < 1) { const sh = 0.8 + 0.4 * Math.random(); put(cx + x, cy + y, c[0] * sh, c[1] * sh, c[2] * sh, 1.2 * Math.sqrt(1 - d * d) * R / (6 * k)); } }
+  }
+  for (let n = 0; n < 150; n++) {           // shell fragments: pale curved arcs
+    const cx = rnd() * N, cy = rnd() * N, R = (4 + rnd() * 11) * k + 1, a0 = rnd() * 6.28, span = 1 + rnd() * 2;
+    for (let t = 0; t < span; t += 0.6 / R) for (let w = 0; w < 2.2 * k + 1; w += 0.7) { const a = a0 + t; put(cx + Math.cos(a) * (R + w), cy + Math.sin(a) * (R + w) * 0.7, 232, 222, 200, 0.7); }
+  }
+  for (let n = 0; n < 2000 * k * k; n++) { const v = rnd() < 0.6; put(rnd() * N, rnd() * N, v ? 240 : 40, v ? 236 : 34, v ? 225 : 28, v ? 0.3 : -0.2); }
+  const c = document.createElement('canvas'); c.width = c.height = N; c.getContext('2d').putImageData(new ImageData(img, N, N), 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = ANISO; t.colorSpace = THREE.SRGBColorSpace;
+  const nt = new THREE.CanvasTexture(normalFromHeight(N, H, 1.4 / k)); nt.wrapS = nt.wrapT = THREE.RepeatWrapping; nt.anisotropy = ANISO;
+  return { map: t, normal: nt };
+}
+const SANDTEX = makeSandTex();
+groundMat.uniforms.tSand = { value: SANDTEX.map };
+groundMat.uniforms.tSandN = { value: SANDTEX.normal };
 let seabed, rocks;
 {
   const S = 2600, SEG = COARSE ? 300 : 420;
@@ -318,10 +391,20 @@ let seabed, rocks;
     const sz = 0.4 + Math.pow(rnd(), 3) * 5;
     e.set(rnd() * 6, rnd() * 6, rnd() * 6); q.setFromEuler(e);
     s.set(sz * (0.8 + rnd() * 0.6), sz * (0.5 + rnd() * 0.5), sz * (0.8 + rnd() * 0.6));
-    m.compose(V(x, heightAt(x, z) - sz * 0.18, z), q, s);
+    m.compose(V(x, heightAt(x, z) - sz * 0.32, z), q, s);
     rocks.setMatrixAt(i, m);
   }
   scene.add(rocks);
+  // small stones and gravel scattered over the sand, mostly within sight of the boat's track
+  const NP2 = COARSE ? 2500 : 6000;
+  const peb = new THREE.InstancedMesh(rgf, groundMat, NP2);
+  for (let i = 0; i < NP2; i++) {
+    const x = rs(160) * Math.pow(rnd(), 0.5), z = rs(1250), sz = 0.03 + Math.pow(rnd(), 3) * 0.3;
+    e.set(rnd() * 6, rnd() * 6, rnd() * 6); q.setFromEuler(e);
+    s.set(sz * (0.8 + rnd() * 0.6), sz * (0.4 + rnd() * 0.4), sz * (0.8 + rnd() * 0.6));
+    m.compose(V(x, heightAt(x, z) - sz * 0.15, z), q, s); peb.setMatrixAt(i, m);
+  }
+  scene.add(peb); rocks.userData.peb = peb;
 }
 
 // ============================================================================ texture helpers
@@ -411,7 +494,7 @@ function tileMat(repU, repV, opts = {}) {
   const t = {}; for (const k of ['map', 'normalMap', 'roughnessMap']) { t[k] = TILE[k].clone(); t[k].needsUpdate = true; t[k].repeat.set(repU, repV); }
   return addSonar(new THREE.MeshPhysicalMaterial({
     color: 0xffffff, ...t, normalScale: new THREE.Vector2(0.45, 0.45), roughness: 1.0, metalness: 0.0,
-    clearcoat: 0.35, clearcoatRoughness: 0.32, envMapIntensity: 1.0, ...opts,
+    clearcoat: 0.3, clearcoatRoughness: 0.55, envMapIntensity: 1.0, ...opts,
   }), 0.2);
 }
 
@@ -645,101 +728,331 @@ const subPos = SUB0.clone();
 sub.position.copy(subPos);
 
 // ============================================================================ the wreck
-// An old coaster, broken in two, rolled onto its side in a scour pit. Rust and silt and nothing else.
-const wreck = new THREE.Group();
-{
-  const rust = canvasTex(1024, (x, N) => {
-    x.fillStyle = '#1a120d'; x.fillRect(0, 0, N, N);
-    for (let i = 0; i < 1800; i++) {
-      const r = 4 + Math.pow(Math.random(), 3) * 60, c = Math.random();
-      x.fillStyle = c < 0.45 ? `rgba(84,40,18,${0.08 + Math.random() * 0.2})` : c < 0.75 ? `rgba(30,24,20,${0.15 + Math.random() * 0.2})` : c < 0.92 ? `rgba(110,98,80,${0.05 + Math.random() * 0.1})` : `rgba(140,70,30,${0.1 + Math.random() * 0.2})`;
-      x.beginPath(); x.ellipse(Math.random() * N, Math.random() * N, r, r * (0.4 + Math.random()), Math.random() * 3, 0, 6.3); x.fill();
-    }
-    for (let i = 0; i < 260; i++) { const g = x.createLinearGradient(0, 0, 0, 200); const xx = Math.random() * N, yy = Math.random() * N; x.fillStyle = `rgba(60,28,12,${0.1 + Math.random() * 0.2})`; x.fillRect(xx, yy, 2 + Math.random() * 6, 40 + Math.random() * 220); }
-    // plate seams and rivet lines
-    x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 3;
-    for (let k = 0; k < 8; k++) { x.beginPath(); x.moveTo(0, k * N / 8); x.lineTo(N, k * N / 8); x.stroke(); x.beginPath(); x.moveTo(k * N / 8 + 30, 0); x.lineTo(k * N / 8 + 30, N); x.stroke(); }
-  }, true);
-  const silt = canvasTex(512, (x, N) => { x.fillStyle = '#000'; x.fillRect(0, 0, N, N); for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(255,255,255,${Math.random() * 0.2})`; x.beginPath(); x.arc(Math.random() * N, Math.random() * N, 3 + Math.random() * 30, 0, 6.3); x.fill(); } }, false);
-  const rustMat = addSonar(new THREE.MeshStandardMaterial({ map: rust, roughness: 0.95, metalness: 0.15, side: THREE.DoubleSide, color: 0xb8b0a8 }), 0.55);
-  // silt settles on upward faces
-  rustMat.onBeforeCompile = ((prev) => (sh) => {
-    prev(sh);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      { vec3 wn = normalize((vec4(normalize(vNormal), 0.0) * viewMatrix).xyz);
-        float up = smoothstep(0.25, 0.8, wn.y);
-        float lum = dot(diffuseColor.rgb, vec3(0.33)); float n = fract(sin(dot(floor(vSW.xz * 0.7), vec2(12.9, 78.2))) * 43758.5);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.115, 0.11, 0.095) * (0.7 + 0.6 * n), up * (0.45 + 0.4 * smoothstep(0.05, 0.25, lum))); }`);
-  })(rustMat.onBeforeCompile);
-  rustMat.userData.silt = silt;
-
-  const WLn = 64, WB = 11, WDp = 7.5;
-  const hullSection = (u0, u1, jag) => {
-    const NS = 36, NA = 28, pos = [], uv = [], idx = [];
-    for (let i = 0; i <= NS; i++) {
-      const u = lerp(u0, u1, i / NS);
-      let b = WB / 2 * (1 - Math.pow(Math.max(0, (u - 0.62) / 0.38), 1.8) * 0.97) * (u < 0.06 ? 0.86 + u / 0.06 * 0.14 : 1);
-      const dep = WDp * (1 - Math.pow(Math.max(0, (u - 0.8) / 0.2), 2) * 0.35);
-      for (let j = 0; j <= NA; j++) {
-        const a = Math.PI + j / NA * Math.PI;   // port deck edge -> keel -> starboard deck edge
-        const ca = Math.cos(a), sa = Math.sin(a);
-        let x = Math.sign(ca) * Math.pow(Math.abs(ca), 0.35) * b;
-        let y = -Math.pow(Math.abs(sa), 0.35) * dep;
-        let z = u * WLn;
-        // torn edge at the break, dents everywhere
-        if (jag !== 0 && (jag > 0 ? i === NS : i === 0)) z += jag * (1.5 + 3 * vnoise(j * 0.9, 3.3) + (j % 3) * 0.6);
-        const dn = (vnoise(u * 30, j * 0.5) - 0.5) * 0.35;
-        x += Math.sign(x) * dn; y += dn * 0.4;
-        pos.push(x, y, z); uv.push(z / 9, j / NA * 2.2);
+// A steel coaster, about 64 m, broken in two forward of the foremast and long settled: riveted
+// plating rusted through in places (the frames show behind), open holds, a collapsed bridge, a
+// fallen mainmast, slack rigging, the anchor chain run out of the hawse onto the sand, sponges and
+// calcareous worms on everything that faces up, rusticles under everything that overhangs.
+function makePlateTex() {
+  const N = COARSE ? 512 : 1024, k = N / 1024;           // texture tile = 8 m; 128 px per metre at full size
+  const H = new Float32Array(N * N), img = new Uint8ClampedArray(N * N * 4), rough = new Uint8ClampedArray(N * N * 4);
+  const SR = 128 * k, PL = 256 * k, FR = 77 * k, RV = 10 * k;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const st = Math.floor(y / SR), yy = y - st * SR, off = (st * 96 * k) % PL, xx = (x + off) % PL;
+    const d = Math.min(yy, SR - 1 - yy, xx, PL - 1 - xx);
+    let h = 0;
+    if (d < 2) h -= 0.7;
+    // rivet rows a few px in from every seam
+    const rowY = yy < SR / 2 ? yy - 5 * k : yy - (SR - 5 * k), rowX = xx < PL / 2 ? xx - 5 * k : xx - (PL - 5 * k);
+    const rx = ((x % RV) + RV) % RV - RV / 2, ry = ((y % RV) + RV) % RV - RV / 2;
+    const r1 = rx * rx + rowY * rowY, r2 = ry * ry + rowX * rowX, rr = 3.2 * k * k + 1;
+    if (r1 < rr) h += 0.9 * (1 - r1 / rr);
+    if (r2 < rr) h += 0.9 * (1 - r2 / rr);
+    // hungry-horse: plating sags between the frames
+    h -= 0.3 * Math.sin(Math.PI * ((x % FR) / FR));
+    // corrosion, blisters, pitting
+    const n = vnoise(x / (40 * k), y / (40 * k)) * 0.55 + vnoise(x / (11 * k), y / (11 * k)) * 0.3 + vnoise(x / (3 * k), y / (3 * k)) * 0.15;
+    h += (n - 0.5) * 0.6 + Math.max(0, n - 0.68) * 4;
+    if (Math.random() < 0.004) h -= 0.8;
+    H[y * N + x] = h;
+    // colour: black-brown steel, orange rust blooms, dark crust, pale encrusting growth
+    const n2 = vnoise(x / (70 * k) + 9, y / (55 * k)), n3 = vnoise(x / (25 * k) + 3, y / (25 * k) + 7), n4 = vnoise(x / (90 * k) + 17, y / (90 * k) + 5);
+    let r = 46, g = 37, b = 31;
+    const rust = ease((n2 - 0.42) / 0.3) * (0.6 + 0.4 * n3);
+    r = lerp(r, 92, rust * 0.8); g = lerp(g, 50, rust * 0.8); b = lerp(b, 28, rust * 0.8);
+    const crust = ease((n3 - 0.6) / 0.2) * 0.7;
+    r = lerp(r, 24, crust); g = lerp(g, 20, crust); b = lerp(b, 17, crust);
+    const pale = ease((n4 - 0.7) / 0.18) * (0.3 + 0.3 * n);
+    r = lerp(r, 96, pale); g = lerp(g, 90, pale); b = lerp(b, 78, pale);
+    const grain = 0.93 + Math.random() * 0.14, seam = d < 2 ? 0.55 : 1;
+    const i4 = (y * N + x) * 4;
+    img[i4] = r * grain * seam; img[i4 + 1] = g * grain * seam; img[i4 + 2] = b * grain * seam; img[i4 + 3] = 255;
+    rough[i4 + 1] = 215 + 35 * pale - 30 * rust * 0.3; rough[i4 + 3] = 255;
+  }
+  // calcareous worm tubes: white squiggles
+  for (let w = 0; w < 160 * k * k + 30; w++) {
+    let x = rnd() * N, y = rnd() * N, a = rnd() * 6.28;
+    const len = (15 + rnd() * 50) * k;
+    for (let s = 0; s < len; s++) {
+      a += rs(0.5); x += Math.cos(a); y += Math.sin(a);
+      for (const [ox, oy] of [[0, 0], [1, 0], [0, 1]]) {
+        const X = ((Math.floor(x) + ox) % N + N) % N, Y = ((Math.floor(y) + oy) % N + N) % N, i = Y * N + X;
+        H[i] += 0.4; img[i * 4] = 150; img[i * 4 + 1] = 146; img[i * 4 + 2] = 134; rough[i * 4 + 1] = 250;
       }
     }
-    for (let i = 0; i < NS; i++) for (let j = 0; j < NA; j++) { const a = i * (NA + 1) + j, b = a + 1, c = a + NA + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    return g;
-  };
-  // aft section
-  const aft = new THREE.Group(); wreck.add(aft);
-  mesh(hullSection(0, 0.66, 1), rustMat, aft);
-  // broken deck plating with gaps, frames exposed at the tear
-  for (let k = 0; k < 9; k++) {
-    if (k === 4 || k === 7) continue;
-    const d = mesh(new THREE.BoxGeometry(WB * 0.96, 0.12, 4.2), rustMat, aft); d.position.set(0, -0.1, 2.4 + k * 4.5); d.rotation.z = rs(0.03); d.rotation.x = rs(0.02);
   }
-  for (let k = 0; k < 5; k++) {
-    const z = 0.66 * WLn + 0.8 + k * 1.3, pts = [];
-    for (let j = 0; j <= 16; j++) { const a = Math.PI + j / 16 * Math.PI; pts.push(V(Math.sign(Math.cos(a)) * Math.pow(Math.abs(Math.cos(a)), 0.35) * WB / 2 * 0.97, -Math.pow(Math.abs(Math.sin(a)), 0.35) * WDp, 0)); }
-    const cut = Math.floor(4 + rnd() * 10);
-    const frame = mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.slice(0, cut + 3)), 40, 0.09, 5), rustMat, aft); frame.position.z = z; frame.rotation.z = rs(0.1);
-  }
-  // deckhouse, crushed and skewed, with dark empty windows
-  {
-    const g = new THREE.BoxGeometry(8.5, 5.5, 7, 6, 4, 6), p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + (y + 2.75) * 0.12); p.setY(i, y * (1 - 0.15 * Math.max(0, p.getX(i) / 4.25))); p.setZ(i, p.getZ(i) + (vnoise(p.getX(i), y) - 0.5) * 0.5); }
-    g.computeVertexNormals();
-    const dh = mesh(g, rustMat, aft); dh.position.set(-0.3, 2.6, 6.5);
-    for (let k = 0; k < 4; k++) { const w = mesh(new THREE.BoxGeometry(0.05, 0.9, 1.1), darkMat, aft, false); w.position.set(4.25 + 0.35, 3.4, 4 + k * 1.7); }
-    const funnel = mesh(new THREE.CylinderGeometry(1.1, 1.3, 4.5, 20, 1, true), rustMat, aft); funnel.position.set(0.6, 7.2, 8.5); funnel.rotation.z = -0.35; funnel.rotation.x = 0.1;
-    const mast = mesh(new THREE.CylinderGeometry(0.18, 0.25, 15, 10), rustMat, aft); mast.position.set(2.5, 5.5, 22); mast.rotation.z = -1.05;
-    const boom = mesh(new THREE.CylinderGeometry(0.1, 0.12, 9, 8), rustMat, aft); boom.position.set(-1.5, 1.2, 28); boom.rotation.set(1.2, 0.2, 0.4);
-  }
-  // bow section, lying apart and more steeply rolled
-  const bow = new THREE.Group(); wreck.add(bow);
-  mesh(hullSection(0.7, 1.0, -1), rustMat, bow);
-  bow.position.set(4.5, -0.8, 7); bow.rotation.set(0.05, 0.28, 0.42);
-  // scattered plates and a coil of chain on the bottom
-  for (let k = 0; k < 14; k++) {
-    const pl = mesh(new THREE.BoxGeometry(1 + rnd() * 3, 0.08, 1 + rnd() * 2.5), rustMat, wreck);
-    pl.position.set(rs(16), -WDp + 0.6 + rnd() * 0.4, rnd() * 70); pl.rotation.set(rs(0.3), rnd() * 3, rs(0.3));
-  }
-  aft.rotation.set(-0.03, 0, -0.36);
-  wreck.position.set(WRECK.x - Math.sin(WRECK.yaw) * 32, WRECK.base + 1.6, WRECK.z - Math.cos(WRECK.yaw) * 32);
-  wreck.rotation.y = WRECK.yaw;
+  const mk = (data, srgb) => { const c = document.createElement('canvas'); c.width = c.height = N; c.getContext('2d').putImageData(new ImageData(data, N, N), 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = ANISO; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const nt = new THREE.CanvasTexture(normalFromHeight(N, H, 1.6 / k)); nt.wrapS = nt.wrapT = THREE.RepeatWrapping; nt.anisotropy = ANISO;
+  return { map: mk(img, true), normalMap: nt, roughnessMap: mk(rough, false) };
 }
+const PLATE = makePlateTex();
+// wreck material: sonar, silt on upward faces, dark interiors, optional rust-through holes
+function wreckMat(holeThr = 0) {
+  const m = addSonar(new THREE.MeshStandardMaterial({ color: 0x9a9a9a, ...PLATE, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1, metalness: 0.25, side: THREE.DoubleSide }), 0.55);
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh) => {
+    prev(sh);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      float wh(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+      float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(wh(i), wh(i+vec2(1,0)), f.x), mix(wh(i+vec2(0,1)), wh(i+vec2(1,1)), f.x), f.y); }
+      float wfb(vec2 p){ return wn(p) * 0.55 + wn(p * 2.3 + 7.1) * 0.3 + wn(p * 5.7 + 3.3) * 0.15; }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+      {
+        float holeN = wfb(vMapUv * 3.2);
+        ${holeThr > 0 ? `if (holeN > ${holeThr.toFixed(3)}) discard;
+        float rim = smoothstep(${(holeThr - 0.07).toFixed(3)}, ${holeThr.toFixed(3)}, holeN);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.09, 0.045, 0.02), rim * 0.8);` : ''}
+        vec3 vn = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+        vec3 wn3 = normalize((vec4(vn, 0.0) * viewMatrix).xyz);
+        float up = smoothstep(0.25, 0.85, wn3.y);
+        float drift = wn(vSW.xz * 0.6) * 0.6 + wn(vSW.xz * 3.0) * 0.4;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.075, 0.07, 0.06) * (0.8 + 0.4 * drift), up * smoothstep(0.35, 0.75, drift) * 0.85);
+        diffuseColor.rgb *= mix(1.0, 0.65, up);
+        if (!gl_FrontFacing) diffuseColor.rgb *= 0.22;   // inside the hull it is dark
+      }`);
+  };
+  m.customProgramCacheKey = () => 'wreck' + holeThr;
+  return m;
+}
+const wrkSolid = wreckMat(0), wrkHull = wreckMat(0.69), wrkDeck = wreckMat(0.63);
+
+// ---- hull form (local metres: z along the ship 0 = stern, x to starboard, y = 0 at main deck)
+const WL = 64, WB = 11, WD = 7.2;
+function halfB(u) { let b = WB / 2; if (u < 0.1) b *= 0.8 + 0.2 * ease(u / 0.1); if (u > 0.62) b *= 1 - Math.pow((u - 0.62) / 0.38, 1.9) * 0.96; return b; }
+function sheerY(u) { return 1.1 * Math.pow(Math.max(0, (u - 0.5) / 0.5), 2) + 0.6 * Math.pow(Math.max(0, (0.35 - u) / 0.35), 2); }
+function keelY(u) { let k = -WD; if (u > 0.86) k += Math.pow((u - 0.86) / 0.14, 1.6) * WD * 0.55; if (u < 0.05) k += (1 - u / 0.05) * 1.8; return k; }
+function sectionPt(u, a01, inset = 0) {
+  const a = Math.PI + a01 * Math.PI, ca = Math.cos(a), sa = Math.sin(a), e = lerp(0.22, 0.85, ease((u - 0.6) / 0.4));
+  const b = halfB(u) - inset, top = sheerY(u) - inset * 0.3, bot = keelY(u) + inset;
+  return [Math.sign(ca) * Math.pow(Math.abs(ca), e) * b, top - (top - bot) * Math.pow(Math.abs(sa), e * 0.9 + 0.1)];
+}
+function hullGeo(u0, u1, jagEnd, jagStart) {
+  const NS = Math.max(8, Math.round((u1 - u0) * 110)), NA = 44, pos = [], uv = [], idx = [];
+  for (let i = 0; i <= NS; i++) {
+    const u = lerp(u0, u1, i / NS); let girth = 0, px = 0, py = 0;
+    for (let j = 0; j <= NA; j++) {
+      let [x, y] = sectionPt(u, j / NA);
+      let z = u * WL;
+      if (jagEnd && i === NS) z += 0.5 + 2.6 * vnoise(j * 0.7, 3.3) + (j % 3) * 0.4 - (j > NA * 0.3 && j < NA * 0.7 ? 1.5 : 0);
+      if (jagStart && i === 0) z -= 0.5 + 2.2 * vnoise(j * 0.7, 8.1) + (j % 2) * 0.5;
+      const dent = (vnoise(u * 40, j * 0.4) - 0.5) * 0.12; x *= 1 - dent * 0.2; y += dent * 0.15;
+      if (j > 0) girth += Math.hypot(x - px, y - py); px = x; py = y;
+      pos.push(x, y, z); uv.push(z / 8, girth / 8);
+    }
+  }
+  for (let i = 0; i < NS; i++) for (let j = 0; j < NA; j++) { const a = i * (NA + 1) + j, b = a + 1, c = a + NA + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+// frames (ribs) as flat ribbons following the section, inside the plating
+function framesGeo(u0, u1, step = 1.2) {
+  const pos = [], idx = [], uv = [];
+  for (let z = u0 * WL + 0.6; z < u1 * WL; z += step) {
+    const u = z / WL, base = pos.length / 3, NA = 30;
+    const cut = rnd() < 0.25 ? Math.floor(rnd() * NA) : NA;
+    for (let j = 0; j <= NA; j++) {
+      const [x, y] = sectionPt(u, 0.02 + j / NA * 0.96, 0.22);
+      pos.push(x, y, z - 0.07, x, y, z + 0.07); uv.push(j / 4, 0, j / 4, 0.02);
+      if (j < Math.min(NA, cut)) { const a = base + j * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+// main deck with hatch openings, cambered
+function deckGeo(u0, u1, hatches, lift = 0) {
+  const NS = Math.round((u1 - u0) * 90), NX = 14, pos = [], uv = [], idx = [];
+  for (let i = 0; i <= NS; i++) {
+    const u = lerp(u0, u1, i / NS), b = halfB(u) * 0.985;
+    for (let j = 0; j <= NX; j++) { const x = lerp(-b, b, j / NX), y = sheerY(u) + lift + 0.14 * (1 - (x / b) ** 2) - 0.04; pos.push(x, y, u * WL); uv.push(x / 8, u * WL / 8); }
+  }
+  for (let i = 0; i < NS; i++) for (let j = 0; j < NX; j++) {
+    const a = i * (NX + 1) + j, z = pos[a * 3 + 2], x = pos[a * 3];
+    if (hatches.some(([z0, z1, w]) => z >= z0 && z < z1 && Math.abs(x + 0.3) < w / 2)) continue;
+    idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+// bulwark: low wall along the deck edge, rotted away in stretches, with freeing ports
+function bulwarkGeo(u0, u1, side) {
+  const NS = Math.round((u1 - u0) * 120), pos = [], uv = [], idx = [];
+  for (let i = 0; i <= NS; i++) { const u = lerp(u0, u1, i / NS), x = side * halfB(u), y = sheerY(u); pos.push(x, y - 0.05, u * WL, x * 1.01, y + 1.05, u * WL); uv.push(u * WL / 8, 0, u * WL / 8, 0.13); }
+  for (let i = 0; i < NS; i++) { const u = lerp(u0, u1, i / NS); if (vnoise(u * 22, side * 5) > 0.66 || vnoise(u * 90, side * 9) > 0.8) continue; const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function boxUV(w, h, d) { const g = new THREE.BoxGeometry(w, h, d); const uv = g.attributes.uv; const s = Math.max(w, h, d) / 8; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * s, uv.getY(i) * s); return g; }
+function wMesh(geo, mat, parent) { const m = new THREE.Mesh(geo, mat); m.castShadow = m.receiveShadow = true; parent.add(m); return m; }
+function rod(a, b, r, mat, parent, seg = 8) { const d = b.clone().sub(a), m = wMesh(new THREE.CylinderGeometry(r, r, d.length(), seg), mat, parent); m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize()); return m; }
+function sag(a, b, drop, r, mat, parent) { const pts = []; for (let i = 0; i <= 16; i++) { const t = i / 16; pts.push(a.clone().lerp(b, t).add(V(0, -drop * 4 * t * (1 - t), 0))); } return wMesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, r, 5), mat, parent); }
+
+const wreck = new THREE.Group();
+const aft = new THREE.Group(); wreck.add(aft);
+const bowPivot = new THREE.Group(); bowPivot.position.set(0, 0, 47); wreck.add(bowPivot);
+const bow = new THREE.Group(); bow.position.set(0, 0, -47); bowPivot.add(bow);
+const growthPts = [], rusticlePts = [];
+{
+  const U_BREAK = 0.70, U_BOW = 0.735;
+  wMesh(hullGeo(0, U_BREAK, true, false), wrkHull, aft);
+  wMesh(framesGeo(0.02, U_BREAK + 0.035), wrkSolid, aft);
+  wMesh(deckGeo(0.02, U_BREAK - 0.01, [[13.5, 20, 5], [25, 32, 5.5]]), wrkDeck, aft);
+  for (const sd of [-1, 1]) wMesh(bulwarkGeo(0.02, U_BREAK - 0.01, sd), wrkHull, aft);
+  // transom
+  { const sh = new THREE.Shape(); const pts = []; for (let j = 0; j <= 30; j++) pts.push(sectionPt(0.0, j / 30)); sh.moveTo(pts[0][0], pts[0][1]); for (const [x, y] of pts.slice(1)) sh.lineTo(x, y); sh.closePath();
+    const g = new THREE.ShapeGeometry(sh); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 8, uv.getY(i) / 8); wMesh(g, wrkHull, aft); }
+  // deck beams under the deck, seen through holes and hatches
+  for (let z = 1.2; z < U_BREAK * WL - 1; z += 1.2) { const u = z / WL, b = halfB(u); const bm = wMesh(boxUV(b * 1.9, 0.22, 0.14), wrkSolid, aft); bm.position.set(0, sheerY(u) - 0.25, z); }
+  // hatch coamings and a few fallen hatch boards
+  for (const [z0, z1, w] of [[13.5, 20, 5], [25, 32, 5.5]]) {
+    const zc = (z0 + z1) / 2, L = z1 - z0, y = sheerY(zc / WL) + 0.45;
+    for (const [px, pz, sx, sz] of [[-0.3 - w / 2, zc, 0.18, L], [-0.3 + w / 2, zc, 0.18, L], [-0.3, z0, w, 0.18], [-0.3, z1, w, 0.18]]) { const c = wMesh(boxUV(sx, 0.9, sz), wrkSolid, aft); c.position.set(px, y, pz); }
+    for (let k = 0; k < 4; k++) { const bd = wMesh(boxUV(w * 0.9, 0.08, 0.7), wrkSolid, aft); bd.position.set(-0.3 + rs(0.6), y - 0.2 - rnd() * 2.5, z0 + 1 + rnd() * (L - 2)); bd.rotation.set(rs(0.6), rs(0.3), rs(0.5)); }
+  }
+  // the bridge: lower house with portholes, upper wheelhouse partly collapsed, funnel, ventilators
+  const dY = sheerY(0.12);
+  const lower = wMesh(boxUV(8.6, 2.6, 7.2), wrkSolid, aft); lower.position.set(0, dY + 1.3, 7.5);
+  const upper = wMesh(boxUV(6.4, 2.3, 4.4), wrkSolid, aft); upper.position.set(0.3, dY + 3.75, 9.3); upper.rotation.set(-0.05, 0.03, 0.09);
+  const roof = wMesh(boxUV(7.2, 0.15, 5.2), wrkSolid, aft); roof.position.set(0.7, dY + 5.0, 9.0); roof.rotation.set(-0.12, 0.05, 0.2);
+  const dark = new THREE.MeshBasicMaterial({ color: 0x010101 });
+  for (let k = 0; k < 5; k++) { const w = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.08), dark); w.position.set(-2.4 + k * 1.2, 0.35, 2.22); upper.add(w); }
+  const ring = new THREE.TorusGeometry(0.24, 0.05, 6, 16), disc = new THREE.CircleGeometry(0.22, 16);
+  for (const sd of [-1, 1]) for (let k = 0; k < 5; k++) {
+    const r = wMesh(ring, wrkSolid, lower); r.position.set(sd * 4.32, 0.3, -2.6 + k * 1.3); r.rotation.y = Math.PI / 2;
+    const d = new THREE.Mesh(disc, dark); d.position.set(sd * 4.31, 0.3, -2.6 + k * 1.3); d.rotation.y = sd * Math.PI / 2; lower.add(d);
+  }
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.9, 0.06), dark); door.position.set(1.6, -0.3, 3.62); lower.add(door);
+  const fun = wMesh(new THREE.CylinderGeometry(1.0, 1.1, 4.6, 24, 1, true), wrkHull, aft); fun.scale.x = 0.75; fun.position.set(0.4, dY + 4.6, 4.6); fun.rotation.set(0.12, 0, 0.3);
+  const fr = wMesh(new THREE.TorusGeometry(1.0, 0.07, 6, 24), wrkSolid, fun); fr.position.y = 2.3; fr.rotation.x = Math.PI / 2;
+  for (const [x, z, ry] of [[-3.2, 12.6, 0.3], [3.0, 12.4, -0.5], [-2.6, 22.5, 2.6]]) {
+    const y0 = sheerY(z / WL), c = new THREE.QuadraticBezierCurve3(V(0, 0, 0), V(0, 1.8, 0), V(0, 1.9, 0.6));
+    const v = new THREE.Group(); v.position.set(x, y0, z); v.rotation.y = ry; aft.add(v);
+    wMesh(new THREE.TubeGeometry(c, 16, 0.24, 10), wrkSolid, v);
+    const mouth = wMesh(new THREE.LatheGeometry([new THREE.Vector2(0.24, 0), new THREE.Vector2(0.34, 0.25), new THREE.Vector2(0.48, 0.45)], 16), wrkSolid, v); mouth.position.set(0, 1.9, 0.6); mouth.rotation.x = Math.PI / 2;
+  }
+  // foremast standing (tilted), mainmast fallen across the deck and over the side
+  const fmBase = V(0.4, sheerY(41 / WL), 41), fmTop = fmBase.clone().add(V(-2.2, 12.5, 0.8));
+  rod(fmBase, fmTop, 0.2, wrkSolid, aft, 10);
+  const ctr = fmBase.clone().lerp(fmTop, 0.78); rod(ctr.clone().add(V(-1.6, 0.1, 0)), ctr.clone().add(V(1.6, -0.1, 0)), 0.08, wrkSolid, aft);
+  rod(fmBase.clone().add(V(0, 0.8, -0.3)), fmBase.clone().add(V(-3.8, 2.4, -7.5)), 0.13, wrkSolid, aft);   // derrick boom, slumped
+  const mmBase = V(-0.4, sheerY(23 / WL) + 0.3, 23.5), mmEnd = V(-13.5, -6.2, 19.5);
+  rod(mmBase, mmEnd, 0.2, wrkSolid, aft, 10);
+  const rigMat = wrkSolid;
+  for (const sd of [-1, 1]) { sag(fmTop.clone().add(V(0, -0.5, 0)), V(sd * halfB(0.6) * 0.95, sheerY(0.6) + 1, 38.5), 1.2, 0.025, rigMat, aft); sag(fmTop.clone().add(V(0, -0.8, 0)), V(sd * halfB(0.66) * 0.9, sheerY(0.66) + 1, 43.5), 0.8, 0.025, rigMat, aft); }
+  sag(fmTop, mmBase.clone().add(V(0, 0.4, 0)), 3.5, 0.03, rigMat, aft);
+  sag(mmBase.clone().lerp(mmEnd, 0.6), V(-9, -6.6, 27), 1.5, 0.03, rigMat, aft);
+  // stern gear: rudder and a four-bladed propeller, half in the sand
+  const rud = wMesh(boxUV(0.25, 3.6, 2.4), wrkSolid, aft); rud.position.set(0, keelY(0.02) + 1.6, -1.3); rud.rotation.y = 0.35;
+  const hub = new THREE.Group(); hub.position.set(0, keelY(0.04) + 1.2, 1.1); aft.add(hub);
+  wMesh(new THREE.CylinderGeometry(0.35, 0.45, 0.9, 14).rotateX(Math.PI / 2), wrkSolid, hub);
+  for (let k = 0; k < 4; k++) { const bl = wMesh(new THREE.SphereGeometry(1, 16, 8), wrkSolid, hub); bl.scale.set(0.55, 1.05, 0.08); bl.position.set(Math.cos(k * Math.PI / 2) * 0.95, Math.sin(k * Math.PI / 2) * 0.95, 0); bl.rotation.set(0.35, 0, k * Math.PI / 2 - Math.PI / 2); }
+  // torn plates curling out at the break
+  for (let k = 0; k < 6; k++) {
+    const a01 = 0.1 + rnd() * 0.8, [x, y] = sectionPt(U_BREAK, a01);
+    const pg = boxUV(1.4 + rnd() * 1.6, 1 + rnd() * 1.4, 0.04); const pp = pg.attributes.position;
+    for (let i = 0; i < pp.count; i++) pp.setZ(i, pp.getZ(i) + pp.getX(i) ** 2 * 0.25);
+    pg.computeVertexNormals();
+    const pl = wMesh(pg, wrkSolid, aft); pl.position.set(x * 1.03, y, U_BREAK * WL + 1.4 + rnd()); pl.lookAt(x * 4, y + rs(2), U_BREAK * WL + 3); pl.rotateZ(rs(1));
+  }
+
+  // ---- bow section
+  wMesh(hullGeo(U_BOW, 1.0, false, true), wrkHull, bow);
+  wMesh(framesGeo(U_BOW - 0.03, 1.0), wrkSolid, bow);
+  wMesh(deckGeo(U_BOW + 0.01, 0.985, [[52, 57, 3.4]], 0), wrkDeck, bow);
+  for (const sd of [-1, 1]) wMesh(bulwarkGeo(U_BOW + 0.01, 0.99, sd), wrkHull, bow);
+  // windlass, bollards, a few stanchions of the rail
+  const wY = sheerY(0.9);
+  const wl = new THREE.Group(); wl.position.set(0, wY + 0.55, 58.5); bow.add(wl);
+  wMesh(new THREE.CylinderGeometry(0.5, 0.5, 1.6, 18).rotateZ(Math.PI / 2), wrkSolid, wl);
+  for (const sd of [-1, 1]) { const g = wMesh(new THREE.CylinderGeometry(0.62, 0.62, 0.35, 18).rotateZ(Math.PI / 2), wrkSolid, wl); g.position.x = sd * 1.05; }
+  wMesh(boxUV(2.6, 0.5, 1.4), wrkSolid, wl).position.y = -0.4;
+  for (const z of [50, 55, 60]) for (const sd of [-1, 1]) { const u = z / WL; for (const dz of [0, 0.7]) { const b = wMesh(new THREE.CylinderGeometry(0.18, 0.2, 0.6, 10), wrkSolid, bow); b.position.set(sd * (halfB(u) - 0.7), sheerY(u) + 0.3, z + dz); } }
+  // the anchor, snug in its hawse, and the chain run out of the other one
+  const hawseL = V(-halfB(0.93) * 0.92, sheerY(0.93) - 0.8, 0.93 * WL), hawseR = V(halfB(0.93) * 0.92, sheerY(0.93) - 0.8, 0.93 * WL);
+  const anc = new THREE.Group(); anc.position.copy(hawseL).add(V(-0.25, -1.4, 0)); anc.rotation.set(0.1, 0, -0.2); bow.add(anc);
+  wMesh(new THREE.CylinderGeometry(0.11, 0.13, 2.4, 10), wrkSolid, anc);
+  for (const sd of [-1, 1]) { const arm = wMesh(boxUV(0.25, 1.0, 0.22), wrkSolid, anc); arm.position.set(sd * 0.35, -1.25, 0); arm.rotation.z = sd * 0.9; const fl = wMesh(new THREE.ConeGeometry(0.28, 0.6, 4), wrkSolid, anc); fl.position.set(sd * 0.72, -0.95, 0); fl.rotation.z = -sd * 0.6; }
+  bow.userData.hawse = hawseR;
+
+  // ---- encrustation + rusticles (collected per section, placed below once the wreck is posed)
+  const sample = (u0, u1, n, grp) => {
+    for (let k = 0; k < n; k++) {
+      const u = lerp(u0, u1, rnd()), t = rnd();
+      let p, nrm;
+      if (t < 0.3) { const b = halfB(u), x = rs(b * 0.9); p = V(x, sheerY(u) + 0.12 * (1 - (x / b) ** 2), u * WL); nrm = V(0, 1, 0); }          // deck
+      else if (t < 0.45) { const sd = rnd() < 0.5 ? -1 : 1; p = V(sd * halfB(u) * 1.01, sheerY(u) + 1.05, u * WL); nrm = V(sd * 0.3, 1, 0).normalize(); } // bulwark cap
+      else { const a01 = rnd() < 0.5 ? rnd() * 0.18 : 1 - rnd() * 0.18, [x, y] = sectionPt(u, a01); p = V(x, y, u * WL); nrm = V(Math.sign(x), 0.4, 0).normalize(); } // topsides
+      if (growthPts.length && rnd() < 0.55) { const prev = growthPts[growthPts.length - 1]; if (prev.grp === grp) { p.copy(prev.p).add(V(rs(0.35), 0, rs(0.35))); nrm.copy(prev.nrm); } }
+      growthPts.push({ grp, p, nrm });
+    }
+    for (let k = 0; k < n * 0.3; k++) { const u = lerp(u0, u1, rnd()), sd = rnd() < 0.5 ? -1 : 1; rusticlePts.push({ grp, p: V(sd * halfB(u) * 1.02, sheerY(u) - 0.15 - rnd() * 0.5, u * WL) }); }
+  };
+  sample(0.03, U_BREAK - 0.02, COARSE ? 450 : 800, aft);
+  sample(U_BOW + 0.02, 0.97, COARSE ? 160 : 300, bow);
+  for (let k = 0; k < 80; k++) { const [x, y] = sectionPt(U_BREAK, 0.05 + rnd() * 0.9); rusticlePts.push({ grp: aft, p: V(x * 0.97, y, U_BREAK * WL + 0.6) }); }
+  { // under the deck house eaves
+    for (let k = 0; k < 40; k++) rusticlePts.push({ grp: aft, p: V(rs(4.2), dY + 2.6, 3.9 + rnd() * 7.2) });
+  }
+}
+// pose: settled upright-ish, heeled to port, bow section torn away and lying askew
+aft.rotation.set(-0.025, 0, 0.2);
+bowPivot.position.set(4.6, -0.9, 52); bowPivot.rotation.set(0.06, 0.34, 0.42);
+wreck.position.set(WRECK.x - Math.sin(WRECK.yaw) * 32, WRECK.base + 3.0, WRECK.z - Math.cos(WRECK.yaw) * 32);
+wreck.rotation.y = WRECK.yaw;
 scene.add(wreck);
-// tell the echo model about the wreck: a few box-ish reflectors along its length
-const WRECK_PTS = [];
 wreck.updateMatrixWorld(true);
-for (let i = 0; i < 12; i++) WRECK_PTS.push(V(0, -2, i * 6).applyMatrix4(wreck.matrixWorld));
+{
+  // growth: sponges, anemones and calcareous lumps; pale, cream, salmon, white
+  let bg = new THREE.IcosahedronGeometry(1, 2); bg.deleteAttribute('normal'); bg.deleteAttribute('uv'); bg = mergeVertices(bg);
+  const bp = bg.attributes.position, v = V(0, 0, 0);
+  for (let i = 0; i < bp.count; i++) { v.fromBufferAttribute(bp, i); const k = 1 + 0.35 * (vnoise(v.x * 2.5 + 3, v.y * 2.5 + v.z * 2) - 0.5); bp.setXYZ(i, v.x * k, Math.max(v.y, -0.3) * k, v.z * k); }
+  bg.computeVertexNormals();
+  const gm = addSonar(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 }), 0.55);
+  const growth = new THREE.InstancedMesh(bg, gm, growthPts.length); growth.castShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = V(1, 1, 1), c = new THREE.Color();
+  const pal = [[0.2, 0.18, 0.15], [0.24, 0.22, 0.18], [0.27, 0.17, 0.12], [0.3, 0.29, 0.26], [0.16, 0.15, 0.13], [0.28, 0.24, 0.16]];
+  growthPts.forEach((g, i) => {
+    const wp = g.grp.localToWorld(g.p.clone()), wn = g.nrm.clone().transformDirection(g.grp.matrixWorld);
+    q.setFromUnitVectors(V(0, 1, 0), wn); q.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), rnd() * 6.28));
+    const sz = 0.03 + Math.pow(rnd(), 4) * 0.28;
+    s.set(sz * (0.8 + rnd() * 0.6), sz * (0.3 + rnd() * 0.5), sz * (0.8 + rnd() * 0.6));
+    m.compose(wp, q, s); growth.setMatrixAt(i, m);
+    const p = pal[Math.floor(rnd() * pal.length)]; c.setRGB(p[0], p[1], p[2]).multiplyScalar(0.35 + rnd() * 0.25); growth.setColorAt(i, c);
+  });
+  scene.add(growth);
+  // rusticles: brittle orange icicles hanging straight down from every overhang
+  const rg = new THREE.ConeGeometry(0.07, 1, 6, 3).translate(0, 0.5, 0).rotateX(Math.PI);
+  { const rp = rg.attributes.position; for (let i = 0; i < rp.count; i++) { const y = rp.getY(i); rp.setX(i, rp.getX(i) * (1 + 0.4 * Math.sin(y * 13))); } rg.computeVertexNormals(); }
+  const rm = addSonar(new THREE.MeshStandardMaterial({ color: 0x3a1c0c, roughness: 0.95, metalness: 0.1 }), 0.55);
+  const rus = new THREE.InstancedMesh(rg, rm, rusticlePts.length);
+  rusticlePts.forEach((r, i) => {
+    const wp = r.grp.localToWorld(r.p.clone()), len = 0.25 + Math.pow(rnd(), 2) * 1.5;
+    q.identity(); s.set(0.7 + rnd() * 0.8, len, 0.7 + rnd() * 0.8);
+    m.compose(wp, q, s); rus.setMatrixAt(i, m);
+  });
+  // flip: cones point down (local +y was rotated to -y)
+  scene.add(rus);
+  wreck.userData.extra = [growth, rus];
+  // anchor chain from the starboard hawse, slack down the hull and heaped on the sand
+  const H0 = bow.localToWorld(bow.userData.hawse.clone());
+  const out = H0.clone().add(V(Math.cos(WRECK.yaw) * 6 + 3, 0, -Math.sin(WRECK.yaw) * 6 + 2));
+  out.y = heightAt(out.x, out.z) + 0.15;
+  const pts = []; for (let i = 0; i <= 24; i++) { const t = i / 24; const p = H0.clone().lerp(out, t); p.y = lerp(H0.y, out.y, Math.pow(t, 0.55)) - Math.sin(t * Math.PI) * 0.6; pts.push(p); }
+  { let a = 0, px = 0, pz = 0; for (let i = 0; i < 70; i++) { a += 0.5 + rs(0.9); px += Math.cos(a) * 0.45; pz += Math.sin(a) * 0.45; px *= 0.96; pz *= 0.96; const p = out.clone().add(V(px, 0, pz)); p.y = heightAt(p.x, p.z) + 0.1 + rnd() * 0.12; pts.push(p); } }
+  const curve = new THREE.CatmullRomCurve3(pts), clen = curve.getLength(), NL = Math.floor(clen / 0.17);
+  const lg = new THREE.TorusGeometry(0.075, 0.026, 6, 12).scale(1, 1.45, 1);
+  const chain = new THREE.InstancedMesh(lg, wrkSolid, NL); chain.castShadow = true;
+  for (let i = 0; i < NL; i++) {
+    const t = i / NL, p = curve.getPointAt(t), tg = curve.getTangentAt(t);
+    q.setFromUnitVectors(V(0, 1, 0), tg); if (i % 2) q.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), Math.PI / 2));
+    m.compose(p, q, V(1, 1, 1)); chain.setMatrixAt(i, m);
+  }
+  scene.add(chain); wreck.userData.extra.push(chain);
+  wreck.userData.hawse = H0; wreck.userData.chainEnd = out;
+}
+// tell the echo model about the wreck: reflectors along both pieces
+const WRECK_PTS = [];
+for (let z = 2; z < 45; z += 5) WRECK_PTS.push(aft.localToWorld(V(0, -2, z)));
+for (let z = 49; z < 63; z += 5) WRECK_PTS.push(bow.localToWorld(V(0, -2, z)));
 
 
 // ============================================================================ under the ice
@@ -753,11 +1066,14 @@ function iceY(x, z) {
   let y = 45.6 - 1.8 * (fbm(u * 0.006, z * 0.006, 4) * 0.5 + 0.5) - 0.7 * vnoise(u * 0.05, z * 0.05);
   for (const [a, f, o, d] of RIDGES) {
     const t = (u * Math.cos(a) + z * Math.sin(a)) * f + fbm(u * 0.002 + o, z * 0.002, 3) * 1.6;
-    const k = Math.pow(1 - Math.abs(Math.sin(t * Math.PI)), 7);
-    if (k > 0.001) y -= d * k * (0.55 + 0.9 * vnoise(u * 0.03 + o, z * 0.03)) + k * 3.5 * vnoise(u * 0.22, z * 0.22);
+    const dl = Math.abs(t - Math.round(t)) / f;                       // metres from the ridge line
+    const w = 16 * (0.7 + 0.6 * vnoise(u * 0.01 + o, z * 0.01));       // keel half-width
+    const k = Math.exp(-(dl / w) * (dl / w));
+    if (k > 0.002) y -= d * k * (0.55 + 0.9 * vnoise(u * 0.02 + o, z * 0.02)) + k * 1.2 * (vnoise(u * 0.07, z * 0.07) - 0.3);
   }
   const lt = (u * 0.8 - z * 0.6) * 0.003 + fbm(u * 0.003 + 2, z * 0.003, 3) * 0.8;
-  const lead = Math.min(1, Math.max(0, 1 - Math.abs(Math.sin(lt * Math.PI)) * 16) * 1.6);
+  const ld = Math.abs(lt - Math.round(lt)) / 0.003;
+  const lead = 1 - ease((ld - 5) / 14);
   return lerp(y, 47.4, lead);
 }
 const iceMat = new THREE.ShaderMaterial({
@@ -791,48 +1107,87 @@ const iceMat = new THREE.ShaderMaterial({
       float e = 0.12, k = 0.7;
       float s0 = scal(p * k), sx = scal((p + vec2(e, 0.0)) * k), sz = scal((p + vec2(0.0, e)) * k);
       float fw = 1.0 - smoothstep(0.1, 0.5, fwidth(p.x * k));
-      N = normalize(N + vec3(-(sx - s0) / e, 0.0, -(sz - s0) / e) * 0.5 * fw);
+      N = normalize(N + vec3(-(sx - s0) / e, 0.0, -(sz - s0) / e) * 0.22 * fw);
       // daylight transmitted through the ice: Beer-Lambert in thickness, cut by snow cover,
       // brighter at the thin centres of the scallops; brine channels streak it
+      // looking up into the ice: sample its interior at three depths along the view ray (parallax),
+      // brine channels, bubble layers and density veils, so the ice has volume rather than a skin
+      vec3 Vd = normalize(vW - cameraPosition);
+      vec2 po = Vd.xz / max(Vd.y, 0.18);
+      float inner = 0.0, brine = 0.0, bub = 0.0;
+      for (int k = 0; k < 3; k++){
+        float hk = 0.7 + float(k) * float(k) * 1.4 + float(k) * 0.6;
+        vec2 q = p + po * hk;
+        inner += fb(q * (0.3 / (1.0 + float(k))) + float(k) * 7.3) * (0.5 - float(k) * 0.12);
+        brine += fb(vec2(q.x * 0.7, q.y * 6.0) + float(k) * 3.1) * 0.33;
+        float bf = 1.0 - smoothstep(0.3, 1.0, fwidth(q.x * 7.0));
+        bub += step(0.992, sonHash(floor(q * 7.0) + float(k) * 13.0)) * bf * (0.6 - float(k) * 0.15);
+      }
+      // daylight transmitted through the ice: Beer-Lambert in thickness, cut by snow cover,
+      // brighter at the thin centres of the scallops, broken up by the interior structure
       float T = exp(-th * 0.17) * (1.0 - 0.82 * snow) * (0.8 + 0.4 * s0 * fw);
-      T *= 0.85 + 0.3 * fb(vec2(p.x * 0.5, p.y * 4.0));
-      vec3 trans = vec3(0.05, 0.48, 1.0) * T * 4.2;
+      T *= 0.7 + 0.45 * inner + 0.25 * brine;
+      // colour: four blues by thickness and by large drifting variation, plus algae greens
+      float hueN = fb(p * 0.006 + 11.0), hue2 = fb(p * 0.02 + 4.0), algae = smoothstep(0.5, 0.78, fb(p * 0.011 + 5.0)) * (0.55 + 0.45 * fb(p * 0.09));
+      vec3 navy = vec3(0.01, 0.1, 0.55), ultra = vec3(0.04, 0.3, 1.0), cyan = vec3(0.08, 0.7, 1.0), teal = vec3(0.07, 0.78, 0.8), green = vec3(0.22, 0.8, 0.5);
+      float thin = exp(-th * 0.12);
+      vec3 tint = mix(navy, ultra, smoothstep(0.0, 0.6, thin + hueN * 0.3));
+      tint = mix(tint, cyan, smoothstep(0.35, 0.8, hueN) * thin);
+      tint = mix(tint, teal, smoothstep(0.55, 0.85, hue2) * 0.5 * thin);
+      tint = mix(tint, green, algae * 0.75);
+      vec3 trans = tint * T * 4.4;
+      trans *= mix(1.0, 0.72, algae * smoothstep(0.4, 0.8, fb(p * 0.3)));
+      // soft shoulder: bright ice keeps its colour instead of clipping to white
+      float pk = max(max(trans.r, trans.g), trans.b);
+      trans *= 1.45 / (1.0 + pk * 0.55);
       float down = clamp(-N.y, 0.0, 1.0);
-      vec3 col = trans * mix(0.25, 1.0, down) + vec3(0.006, 0.04, 0.09) * (0.4 + 0.6 * down);
+      vec3 col = trans * mix(0.25, 1.0, down);
+      // internal scattering: light wanders sideways through the ice, so thick keels glow deep blue
+      col += vec3(0.008, 0.07, 0.22) * (0.5 + 0.9 * inner) * exp(-th * 0.045) * (0.6 + 0.4 * down);
+      col += vec3(0.25, 0.7, 1.0) * bub * T * 2.5;
+      col += vec3(0.004, 0.03, 0.07) * (0.4 + 0.6 * down);
       col *= mix(1.0, 0.5, vRub);
       float dist = length(vW - cameraPosition);
       float f = 1.0 - exp(-pow(uFogD * dist, 2.0));
       float cl = vW.y / 1.5; float lw = abs(fract(cl - 0.5) - 0.5) / max(fwidth(cl), 1e-4);
       float contour = (1.0 - min(lw, 1.0)) * 0.8;
-      vec3 son = sonarAt(vW, N, contour, 0.8, 1.0);
+      vec3 son = sonarAt(vW, N, contour, 1.5, 1.0);
       col = mix(col, uFog, f);
       col += son * mix(1.0, 0.2, f);
       gl_FragColor = vec4(col, 1.0);
     }`,
 });
-let iceSheet, rubble;
+let iceSheet, rubble, iceFloor;
+// the bottom under the ice: open sand ~110 m below the ceiling
+function iceFloorY(x, z) { const u = x - ICE.x; return -64 + fbm(u * 0.003, z * 0.003, 4) * 9 + 1.2 * Math.sin((u * 0.55 + z * 0.83) * 0.045 + fbm(u * 0.002, z * 0.002, 3) * 4); }
 {
   const S = 2600, SEG = COARSE ? 300 : 420;
-  const g = new THREE.PlaneGeometry(S, S, SEG, SEG).rotateX(Math.PI / 2).translate(ICE.x, 0, 0);
+  const g = new THREE.PlaneGeometry(S, S, SEG * 1.3, SEG * 1.3).rotateX(Math.PI / 2).translate(ICE.x, 0, 0);
   const pa = g.attributes.position;
   for (let i = 0; i < pa.count; i++) pa.setY(i, iceY(pa.getX(i), pa.getZ(i)));
   g.computeVertexNormals();
   iceSheet = new THREE.Mesh(g, iceMat); iceSheet.visible = false; scene.add(iceSheet);
+  const fg = new THREE.PlaneGeometry(S, S, 260, 260).rotateX(-Math.PI / 2).translate(ICE.x, 0, 0), fp = fg.attributes.position;
+  for (let i = 0; i < fp.count; i++) fp.setY(i, iceFloorY(fp.getX(i), fp.getZ(i)));
+  fg.setAttribute('ao', new THREE.BufferAttribute(new Float32Array(fp.count).fill(1), 1)); fg.computeVertexNormals();
+  iceFloor = new THREE.Mesh(fg, groundMat); iceFloor.visible = false; scene.add(iceFloor);
   // rubble: broken blocks jammed into the keels
-  const bg = new THREE.BoxGeometry(1, 1, 1, 2, 2, 2), bp = bg.attributes.position, v = V(0, 0, 0);
-  for (let i = 0; i < bp.count; i++) { v.fromBufferAttribute(bp, i); const k = 1 + 0.18 * (vnoise(v.x * 3 + 5, v.y * 3 + v.z * 2) - 0.5); bp.setXYZ(i, v.x * k, v.y * k, v.z * k); }
-  const bgf = bg.toNonIndexed(); bgf.computeVertexNormals();
-  const NB = COARSE ? 900 : 1800;
+  // rounded, melt-worn blocks (smooth normals), not crisp boxes
+  let bg = new THREE.IcosahedronGeometry(1, 3); bg.deleteAttribute('normal'); bg.deleteAttribute('uv'); bg = mergeVertices(bg);
+  const bp = bg.attributes.position, v = V(0, 0, 0);
+  for (let i = 0; i < bp.count; i++) { v.fromBufferAttribute(bp, i); const k = 1 + 0.22 * (vnoise(v.x * 2 + 5, v.y * 2 + v.z * 1.5) - 0.5); bp.setXYZ(i, v.x * k, v.y * k, v.z * k); }
+  bg.computeVertexNormals(); const bgf = bg;
+  const NB = COARSE ? 300 : 500;
   rubble = new THREE.InstancedMesh(bgf, iceMat, NB);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = V(1, 1, 1), e = new THREE.Euler();
   let n = 0;
   for (let tries = 0; tries < 40000 && n < NB; tries++) {
     const x = ICE.x + rs(500), z = rs(1250), y = iceY(x, z);
-    if (y > 41) continue;
+    if (y > 37) continue;
     const sz = 0.8 + Math.pow(rnd(), 2) * 4;
     e.set(rs(0.8), rnd() * 6, rs(0.8)); q.setFromEuler(e);
     sc.set(sz * (0.8 + rnd()), sz * (0.25 + rnd() * 0.4), sz * (0.7 + rnd() * 0.8));
-    m.compose(V(x + rs(2), y + sz * 0.15 - rnd() * 0.5, z + rs(2)), q, sc);
+    m.compose(V(x + rs(1), y + sz * 0.32, z + rs(1)), q, sc);
     rubble.setMatrixAt(n++, m);
   }
   rubble.count = n; rubble.visible = false; scene.add(rubble);
@@ -887,10 +1242,10 @@ const snow = new THREE.Points((() => {
   g.boundingSphere = new THREE.Sphere(V(0, 0, 0), 1e5);
   return g;
 })(), new THREE.ShaderMaterial({
-  uniforms: { uPing: pingU, uTime: timeU, uScale: { value: 1 }, uFogD: fogDU },
+  uniforms: { uPing: pingU, uTime: timeU, uScale: { value: 1 }, uFogD: fogDU, uSnowK: { value: 1.6 } },
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   vertexShader: SONAR_DECL + `
-    attribute float size; uniform float uScale; uniform float uFogD; varying float vB; varying vec3 vC;
+    attribute float size; uniform float uScale; uniform float uFogD; uniform float uSnowK; varying float vB; varying vec3 vC;
     void main(){
       vec3 p = position + vec3(0.22, -0.4, 0.12) * uTime + vec3(sin(uTime * 0.3 + position.x), cos(uTime * 0.23 + position.z), sin(uTime * 0.2 + position.y)) * 0.4;
       p = mod(p - cameraPosition + ${(SB / 2).toFixed(1)}, ${SB.toFixed(1)}) - ${(SB / 2).toFixed(1)} + cameraPosition;
@@ -901,7 +1256,7 @@ const snow = new THREE.Points((() => {
         float age = uTime - uPing[i].w; if (age < 0.0 || age > 9.0) continue;
         float dd = length(p - uPing[i].xyz);
         float x = (dd - C * age) / 4.0;
-        s += exp(-x * x) * 1.6 / (1.0 + dd / 120.0);
+        s += exp(-x * x) * uSnowK / (1.0 + dd / 120.0);
       }
       float rid = fract(sin(dot(position, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
       float bio = rid > 0.994 ? pow(max(sin(uTime * (0.4 + rid) + rid * 300.0), 0.0), 12.0) * 3.0 : 0.0;
@@ -933,11 +1288,11 @@ function makeEnv(lo, hi, tint, discCol) {
   return new THREE.PMREMGenerator(renderer).fromScene(env, 0.04).texture;
 }
 const ENV_SEA = makeEnv(0.004, 0.16, [0.3, 0.85, 1], new THREE.Color(0.25, 0.8, 0.9));
-const ENV_ICE = makeEnv(0.004, 0.3, [0.1, 0.5, 1], new THREE.Color(0.2, 0.8, 1.6));
+const ENV_ICE = makeEnv(0.008, 0.5, [0.1, 0.5, 1], new THREE.Color(0.25, 0.85, 1.6));
 scene.environment = ENV_SEA;
-scene.environmentIntensity = 1.4;
-const hemi = new THREE.HemisphereLight(0x2f7484, 0x010203, 0.9); scene.add(hemi);
-const key = new THREE.DirectionalLight(0x7cc4d0, 2.6);
+scene.environmentIntensity = 1.7;
+const hemi = new THREE.HemisphereLight(0x2f7484, 0x020507, 1.1); scene.add(hemi);
+const key = new THREE.DirectionalLight(0x7cc4d0, 1.4);
 key.castShadow = true;
 key.shadow.mapSize.set(COARSE ? 1024 : 2048, COARSE ? 1024 : 2048);
 Object.assign(key.shadow.camera, { left: -62, right: 62, top: 62, bottom: -62, near: 1, far: 260 });
@@ -964,7 +1319,7 @@ const dof = new ShaderPass({
       vec2 px = 1.0 / uRes;
       float z = min(min(lin(vUv), lin(vUv + vec2(px.x, 0.0))), min(lin(vUv - vec2(px.x, 0.0)), min(lin(vUv + vec2(0.0, px.y)), lin(vUv - vec2(0.0, px.y)))));
       float c0 = coc(z);
-      float maxPx = 11.0;
+      float maxPx = 7.0;
       vec3 acc = texture2D(tDiffuse, vUv).rgb; float wsum = 1.0;
       float jit = fract(sin(dot(vUv * uRes, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
       for (int i = 1; i < 28; i++){
@@ -990,10 +1345,10 @@ const refract = new ShaderPass({
   uniforms: {
     tDiffuse: { value: null }, tDepth: { value: null }, uPing: pingU, uTime: timeU,
     uCam: { value: new THREE.Vector3() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() },
-    uNear: { value: camera.near }, uFar: { value: camera.far }, uFogD: fogDU, uAsp: { value: 1 },
+    uNear: { value: camera.near }, uFar: { value: camera.far }, uFogD: fogDU, uAsp: { value: 1 }, uPass: { value: 1 },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse, tDepth; uniform vec4 uPing[${NP}]; uniform float uTime, uNear, uFar, uFogD, uAsp;
+  fragmentShader: `uniform sampler2D tDiffuse, tDepth; uniform vec4 uPing[${NP}]; uniform float uTime, uNear, uFar, uFogD, uAsp, uPass;
     uniform vec3 uCam; uniform mat4 uInvProj, uCamWorld, uView; varying vec2 vUv;
     const float C = ${C.toFixed(1)}; const float MAXR = ${MAXR.toFixed(1)};
     void main(){
@@ -1029,8 +1384,8 @@ const refract = new ShaderPass({
         }
         // the front passing over the camera
         float y = (length(oc) - r) / 7.0;
-        float pass = exp(-y * y) * A;
-        off += (vUv - 0.5) * vec2(1.0, 1.0 / uAsp) * (-y * exp(-y * y)) * A * 0.012;
+        float pass = exp(-y * y) * A * uPass;
+        off += (vUv - 0.5) * vec2(1.0, 1.0 / uAsp) * (-y * exp(-y * y)) * A * 0.012 * uPass;
         glow += pass * 0.12;
       }
       vec3 c = vec3(texture2D(tDiffuse, vUv - off * 1.25).r, texture2D(tDiffuse, vUv - off).g, texture2D(tDiffuse, vUv - off * 0.78).b);
@@ -1049,9 +1404,9 @@ composer.addPass(bloom);
 composer.addPass(new OutputPass());
 // the film: anamorphic letterbox, dome-port fringing, grade, halation, grain
 const film = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uAsp: { value: 1 }, uBox: { value: 1 } },
+  uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uAsp: { value: 1 }, uBox: { value: 1 }, uFade: { value: 1 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uT, uAsp, uBox; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uT, uAsp, uBox, uFade; varying vec2 vUv;
     float h(vec2 p){ p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
     void main(){
       vec2 q = (vUv - 0.5) * vec2(uAsp, 1.0);
@@ -1065,6 +1420,7 @@ const film = new ShaderPass({
       c = max(c, 0.0);
       c *= mix(0.42, 1.0, smoothstep(1.15, 0.2, length(q)));
       c += (h(vUv * 1000.0 + fract(uT * 7.13) * 91.7) - 0.5) * 0.028 * (1.0 - l * 0.5);
+      c *= uFade;
       float bar = step(uBox * 0.5, abs(vUv.y - 0.5));
       c = mix(c, vec3(0.0), bar);
       gl_FragColor = vec4(c, 1.0);
@@ -1105,6 +1461,7 @@ function castFan(o) {
   }
   return hits;
 }
+const capPings = [];
 function ping() {
   const now = clockT;
   const o = subPos.clone().add(V(0, -0.5, -L / 2 + 4));
@@ -1119,6 +1476,7 @@ function ping() {
   let d = 0, below = null;
   while (d < MAXR) { if (world === 'ice' ? iceY(o.x, o.z) - (o.y + d) < 0.5 : o.y - d - heightAt(o.x, o.z) < 0.5) { below = d; break; } d += 0.5; }
   if (below != null) setTimeout(() => { lastBottom = below; }, 2 * below / C * 1000);
+  if (CAPTURE) capPings.push({ t: now, hits: hits.map((h) => ({ d: h.d, s: h.s, hard: !!h.hard })) });
   sound.ping(hits);
   flashT = now;
   lastPing = now;
@@ -1231,8 +1589,8 @@ function drawScope() {
 
 // ============================================================================ worlds
 const WORLDS = {
-  sea: { fog: [0.004, 0.022, 0.03], fogD: 0.0052, top: [0.022, 0.095, 0.115], sun: [0.03, 0.11, 0.12], sunP: 18, hemi: [0x2f7484, 0x010203, 0.9], key: [0x7cc4d0, 2.6], rim: 1.3, env: ENV_SEA, shaft: [0.35, 0.8, 0.85], shaftA: 0.022, surf: 150 },
-  ice: { fog: [0.0015, 0.026, 0.075], fogD: 0.0058, top: [0.02, 0.16, 0.42], sun: [0.03, 0.18, 0.42], sunP: 3, hemi: [0x2f86ff, 0x010309, 1.2], key: [0x8fd0ff, 1.2], rim: 0.6, env: ENV_ICE, shaft: [0.35, 0.75, 1.0], shaftA: 0.06, surf: 48 },
+  sea: { fog: [0.004, 0.022, 0.03], fogD: 0.0052, top: [0.022, 0.095, 0.115], sun: [0.03, 0.11, 0.12], sunP: 18, hemi: [0x2f7484, 0x020507, 1.4], key: [0x7cc4d0, 1.4], envI: 1.7, caust: 0.0, rim: 1.3, env: ENV_SEA, shaft: [0.35, 0.8, 0.85], shaftA: 0.022, surf: 150 },
+  ice: { fog: [0.0015, 0.026, 0.075], fogD: 0.0058, top: [0.02, 0.16, 0.42], sun: [0.03, 0.18, 0.42], sunP: 3, hemi: [0x3a8fff, 0x041526, 1.0], key: [0x9fd8ff, 0.5], envI: 1.0, caust: 0.55, rim: 0.6, env: ENV_ICE, shaft: [0.35, 0.75, 1.0], shaftA: 0.02, surf: 48 },
 };
 let world = 'sea';
 const ICE_START = V(ICE.x, 0, 800);
@@ -1248,10 +1606,12 @@ function applyWorld(w) {
   sky.material.uniforms.uTop.value.setRGB(...W.top); sky.material.uniforms.uSunC.value.setRGB(...W.sun); sky.material.uniforms.uSunP.value = W.sunP;
   hemi.color.setHex(W.hemi[0]); hemi.groundColor.setHex(W.hemi[1]); hemi.intensity = W.hemi[2];
   key.color.setHex(W.key[0]); key.intensity = W.key[1]; rim.intensity = W.rim;
-  scene.environment = W.env;
+  scene.environment = W.env; scene.environmentIntensity = W.envI; caustU.value = Q.has('nocaust') ? 0 : W.caust;
   shaftMat.uniforms.uCol.value.setRGB(...W.shaft); shaftMat.uniforms.uA.value = W.shaftA;
-  for (const o of [seabed, rocks, wreck]) o.visible = w === 'sea';
-  for (const o of [iceSheet, rubble]) o.visible = w === 'ice';
+  for (const o of [seabed, rocks, rocks.userData.peb, wreck, ...wreck.userData.extra]) o.visible = w === 'sea';
+  for (const o of [iceSheet, rubble, iceFloor]) o.visible = w === 'ice';
+  if (w === 'ice') { groundMat.uniforms.uDown.value.set(0.05, 0.15, 0.3); groundMat.uniforms.uAmb.value.set(0.008, 0.03, 0.06); }
+  else { groundMat.uniforms.uDown.value.set(0.085, 0.18, 0.19); groundMat.uniforms.uAmb.value.set(0.014, 0.032, 0.036); }
   for (const sh of shafts) sh.userData.p = null;
   blips.length = 0; lastBottom = null;
   for (const pv of pingU.value) pv.w = -1e4;
@@ -1270,7 +1630,8 @@ const SHOTS = [
   { name: 'UNDER THE ICE', world: 'ice', dur: 17, fov: 54, cam(t) { return { p: subPos.clone().add(V(38 - t * 0.4, -64 + t * 0.5, 74 - t * 1.4)), l: subPos.clone().add(V(-4, 24, -34 + t * 0.6)) }; } },
   { name: 'KEELS', world: 'ice', dur: 15, fov: 40, init(s) { s.a = subPos.clone().add(V(-34, 0, -100)); s.a.y = Math.min(iceY(s.a.x, s.a.z) - 7, 30); }, cam(t, s) { return { p: s.a.clone().add(V(t * 0.3, -t * 0.12, t * 0.4)), l: subPos.clone().add(V(0, 3, -12 + t * 0.8)) }; } },
   { name: 'ICE ECHO', world: 'ice', dur: 15, fov: 36, pingAt: 2, cam(t) { return { p: subPos.clone().add(V(-72 + t * 0.6, -16 + t * 0.2, -30 + t * 1.3)), l: subPos.clone().add(V(0, 14, -24)) }; } },
-  { name: 'THE WRECK', dur: 16, fov: 42, when() { return Math.abs(seaSub().z - WRECK.z) < 230; }, init(s) { const w = V(WRECK.x, WRECK.base, WRECK.z); s.a = w.clone().add(V(30, 0, 24)); s.a.y = heightAt(s.a.x, s.a.z) + 3; s.w = w; }, cam(t, s) { return { p: s.a.clone().add(V(-t * 0.6, t * 0.12, -t * 0.3)), l: s.w.clone().add(V(0, 1.5, 0)).lerp(subPos, ease((t - 7) / 9) * 0.45) }; } },
+  { name: 'THE WRECK', dur: 18, fov: 40, when() { return Math.abs(seaSub().z - WRECK.z) < 260; }, cam(t) { const a = 2.75 + t * 0.022, W0 = V(WRECK.x, WRECK.base, WRECK.z); return { p: W0.clone().add(V(Math.cos(a) * 40, 27 - t * 0.35, Math.sin(a) * 40)), l: W0.clone().add(V(0, -1.5, 0)) }; }, focus() { return V(WRECK.x, WRECK.base, WRECK.z); } },
+  { name: 'HAWSE & CHAIN', dur: 14, fov: 36, when() { return Math.abs(seaSub().z - WRECK.z) < 260; }, init(s) { const H = wreck.userData.hawse, Ce = wreck.userData.chainEnd; s.H = H; s.C = Ce; s.a = Ce.clone().add(V(7, 0, 9)); s.a.y = heightAt(s.a.x, s.a.z) + 1.4; }, cam(t, s) { return { p: s.a.clone().add(V(-t * 0.25, t * 0.08, -t * 0.2)), l: s.C.clone().lerp(s.H, 0.1 + ease((t - 5) / 9) * 0.5) }; }, focus(s) { return s.C; } },
   { name: 'HIGH', dur: 14, fov: 40, cam(t) { return { p: subPos.clone().add(V(-30 + t * 0.6, 48 - t * 0.3, 20 + t * 0.6)), l: subPos.clone().add(V(0, -6, -6)) }; } },
 ];
 let shotIdx = 0, shotT = 0, shotState = {}, mode = 'cinema', idleT = 0, cutFade = 0;
@@ -1283,6 +1644,7 @@ function nextShot(first = false) {
 }
 if (SHOT && Q.has('s')) shotIdx = +Q.get('s');
 if (Q.has('ice')) shotIdx = SHOTS.findIndex((x) => x.world === 'ice');
+if (Q.has('wreck')) { subPos.z = WRECK.z + 140; shotIdx = SHOTS.findIndex((x) => x.name === 'THE WRECK'); }
 nextShot(true);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enabled = false;
@@ -1293,7 +1655,7 @@ let fovNow = 40;
 const capEl = document.getElementById('caption'), hintEl = document.getElementById('hint'), startEl = document.getElementById('start');
 let capTimer = 0, contactSaid = false;
 function say(a, b) { capEl.style.opacity = 0; clearTimeout(capTimer); capTimer = setTimeout(() => { capEl.innerHTML = `${a}<small>${b}</small>`; capEl.style.opacity = 1; clearTimeout(capEl._h); capEl._h = setTimeout(() => { capEl.style.opacity = 0; }, 9000); }, 900); }
-hintEl.innerHTML = COARSE ? '<b>Drag</b> to take the camera · <b>Tap</b> to ping' : '<b>Drag</b> to take the camera · <b>Click</b> or <b>Space</b> to ping · <b>I</b> for the ice';
+hintEl.innerHTML = COARSE ? '<b>Drag</b> to take the camera · <b>Tap</b> to ping' : '<b>Drag</b> to take the camera · <b>Click</b> or <b>Space</b> to ping · <b>I</b> ice · <b>W</b> wreck';
 let started = SHOT, startT = 0, nextAuto = 0, lastPing = -99;
 function begin() { if (started) return; started = true; startT = clockT; startEl.classList.add('gone'); sound.start(); nextAuto = clockT + 3.5; }
 startEl.addEventListener('click', begin);
@@ -1310,6 +1672,11 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 renderer.domElement.addEventListener('wheel', () => { idleT = 0; if (mode === 'cinema') { mode = 'orbit'; controls.enabled = true; controls.target.copy(subPos); } });
 addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); if (!started) begin(); else userPing(); }
+  if (e.code === 'KeyW') {   // jump to the wreck
+    mode = 'cinema'; controls.enabled = false; idleT = 0;
+    shotIdx = SHOTS.findIndex((x) => x.name === 'THE WRECK');
+    applyWorld('sea'); subPos.z = WRECK.z + 140; nextShot(true);
+  }
   if (e.code === 'KeyI') {   // jump between the open sea and the ice
     mode = 'cinema'; controls.enabled = false; idleT = 0;
     shotIdx = world === 'ice' ? 0 : SHOTS.findIndex((x) => x.world === 'ice');
@@ -1329,7 +1696,7 @@ function resize() {
   dof.uniforms.uRes.value.set(innerWidth * DPR, innerHeight * DPR);
   const asp = innerWidth / innerHeight;
   film.uniforms.uAsp.value = asp;
-  const box = asp > 1.3 ? Math.min(1, asp / 2.39) : 1;
+  const box = CAPTURE ? 1 : asp > 1.3 ? Math.min(1, asp / 2.39) : 1;
   film.uniforms.uBox.value = box;
   document.documentElement.style.setProperty('--lb', `${(1 - box) * innerHeight / 2 * 2}px`);
   snow.material.uniforms.uScale.value = innerHeight * DPR / (2 * Math.tan(camera.fov * Math.PI / 360));
@@ -1342,15 +1709,15 @@ const hidden = [sky, snow, ...shafts];
 if (Q.has('noshafts')) shafts.forEach((m) => scene.remove(m));
 if (Q.has('nosnow')) scene.remove(snow);
 if (Q.has('norefract')) refract.enabled = false;
-function frame() {
-  const dt = Math.min(clock.getDelta(), 0.05);
+function frame(dtIn) {
+  const dt = dtIn ?? Math.min(clock.getDelta(), 0.05);
   clockT += dt; timeU.value = clockT;
 
   // the boat makes way
   const prev = subPos.clone();
   subPos.z -= SPEED * dt;
   if (subPos.z < -1000) subPos.copy(world === 'ice' ? ICE_START : SUB0);
-  subPos.y = Math.sin(clockT * 0.05) * 1.2;
+  subPos.y = (CAPTURE ? capSubY : 0) + Math.sin(clockT * 0.05) * 1.2;
   const delta = subPos.clone().sub(prev);
   sub.position.copy(subPos);
   sub.rotation.x = Math.sin(clockT * 0.11) * 0.008;
@@ -1358,7 +1725,9 @@ function frame() {
 
   // camera
   let focusTarget = subPos;
-  if (mode === 'cinema') {
+  if (CAPTURE) {
+    const r = capStep(dt); camera.position.copy(r.p); camera.position.x += Math.sin(clockT * 0.37) * 0.2; camera.position.y += Math.sin(clockT * 0.29 + 1) * 0.14; camera.lookAt(r.l); camera.fov = r.fov; camera.updateProjectionMatrix(); if (r.focus) focusTarget = r.focus; cutFade = 0;
+  } else if (mode === 'cinema') {
     shotT += dt;
     const S = SHOTS[shotIdx];
     if (shotT > S.dur) nextShot();
@@ -1371,7 +1740,6 @@ function frame() {
     fovNow = S2.fov; camera.fov = innerWidth < innerHeight ? fovNow * 1.5 : fovNow; camera.updateProjectionMatrix();
     if (S2.pingAt && !S2.pinged && shotT > S2.pingAt && started && clockT - lastPing > 3) { S2.pinged = true; ping(); nextAuto = clockT + 8.5; }
     cutFade = Math.max(1 - shotT / 0.7, 1 - (S2.dur - shotT) / 0.6, 0);
-    if (S2.name === 'THE WRECK') focusTarget = V(WRECK.x, WRECK.base + 2, WRECK.z - 10);
     if (S2.focus) focusTarget = S2.focus(shotState);
   } else {
     camera.position.add(delta);
@@ -1381,7 +1749,7 @@ function frame() {
     cutFade = 0;
     if (idleT > 25) { mode = 'cinema'; controls.enabled = false; nextShot(); }
   }
-  if (world === 'ice') { const ceil = iceY(camera.position.x, camera.position.z) - 3; if (camera.position.y > ceil) camera.position.y = ceil; }
+  if (CAPTURE) {} else if (world === 'ice') { const ceil = iceY(camera.position.x, camera.position.z) - 3; if (camera.position.y > ceil) camera.position.y = ceil; const fl = iceFloorY(camera.position.x, camera.position.z) + 1.5; if (camera.position.y < fl) camera.position.y = fl; }
   else { const floorY = heightAt(camera.position.x, camera.position.z) + 2.5; if (camera.position.y < floorY) camera.position.y = floorY; }
   sky.position.copy(camera.position);
   // shafts stay anchored in the water and recycle ahead of the boat
@@ -1393,16 +1761,16 @@ function frame() {
   rim.position.copy(subPos).add(V(-20, 60, 140)); rim.target.position.copy(subPos);
 
   // pings
-  if (started && clockT > nextAuto) { ping(); nextAuto = clockT + 8.5; }
+  if (started && !CAPTURE && clockT > nextAuto) { ping(); nextAuto = clockT + 8.5; }
   const fa = clockT - flashT;
   flash.position.copy(subPos).add(V(0, -2, -L / 2 - 5));
-  flash.intensity = fa >= 0 && fa < 2 ? 320 * Math.exp(-fa * 3.2) : 0;
+  flash.intensity = !CAPTURE && fa >= 0 && fa < 2 ? 320 * Math.exp(-fa * 3.2) : 0;
 
   // focus: the nearest point on the boat's axis (or the shot's subject)
   const fp = focusTarget === subPos ? subAxisPoint(camera.position) : focusTarget;
   const fd = camera.position.distanceTo(fp);
-  dof.uniforms.uFocus.value = lerp(dof.uniforms.uFocus.value, fd, 1 - Math.pow(0.02, dt));
-  dof.uniforms.uAp.value = 0.9;
+  dof.uniforms.uFocus.value = capCut ? fd : lerp(dof.uniforms.uFocus.value, fd, 1 - Math.pow(0.02, dt)); capCut = false;
+  dof.uniforms.uAp.value = world === 'ice' ? 0.35 : 0.5;
 
   // words
   if (started && lastCaption === 0 && clockT - startT > 5) { lastCaption = 1; say('One hundred fifty metres down, it is too dark to see. So the boat listens.', 'Active sonar · sound slowed twenty-one times'); }
@@ -1425,9 +1793,142 @@ function frame() {
 
   film.uniforms.uT.value = clockT;
   composer.render();
-  requestAnimationFrame(frame);
+  if (!CAPTURE) requestAnimationFrame(() => frame());
 }
-requestAnimationFrame(frame);
+
+// ============================================================================ capture: the 35 s social cut
+// Five shots, hard cuts, one ping per shot right after each cut; every shot shows the wave
+// meeting a different surface. Time is stepped at exactly 30 fps; the soundtrack is rendered
+// offline from the same pings (and the echoes each one actually produced).
+const CAP_DUR = 35;
+let capSubY = 0, capCut = false;
+// the flattest stretch of ice near the boat's track, for the closing shot
+const FLAT_Z = (() => { let best = 0, bz = 400; for (let z = 900; z > -900; z -= 20) { let mn = 99; for (let dx = -80; dx <= 80; dx += 20) for (let dz = -100; dz <= 100; dz += 20) mn = Math.min(mn, iceY(ICE.x + dx, z + dz)); if (mn > best) { best = mn; bz = z; } } return bz; })();
+// profile over a seamount shoulder: find the boat a height that clears the rising bottom
+const PROF = (() => {
+  const M = MOUNTS[0], px = M.x - 22, zc = M.z;
+  let mx = -999; for (let z = zc - 90; z <= zc + 110; z += 4) mx = Math.max(mx, heightAt(px, z), heightAt(px - 6, z), heightAt(px + 6, z));
+  return { x: px, z: zc, y: mx + 14 };
+})();
+const CAP = [
+  // 1 from the sand under the ice, looking up into the glowing ceiling: the boat drifts across frame
+  { world: 'ice', x: ICE.x, y: 10, z: 651, dur: 6, fov: 62, snow: 3.4, exp: 0.62,
+    init(s) { s.c = V(ICE.x + 52, 0, 640); s.c.y = iceFloorY(s.c.x, s.c.z) + 2; },
+    cam(t, s) { return { p: s.c.clone().add(V(0, t * 0.15, -t * 0.2)), l: V(ICE.x - 4, 20, 640 - t * 0.5) }; } },
+  // 2 three-quarter head-on, low over the sand: the bow comes at the lens, the ping leaves the dome
+  { world: 'sea', x: 0, y: -50, z: 760, dur: 5, fov: 44, snow: 2.0, exp: 1.3,
+    init(s) { s.c = V(-26, 0, 760 - 118); s.c.y = heightAt(s.c.x, s.c.z) + 6; },
+    cam(t, s) { return { p: s.c.clone().add(V(t * 0.6, t * 0.15, -t * 1.4)), l: subPos.clone().add(V(0, -4, -22)) }; } },
+  // 3 straight down on the boat over the ripples: the ring blooms on the bottom around it
+  { world: 'sea', x: 0, y: -44, z: 760, dur: 5, fov: 50, snow: 2.0, exp: 1.35,
+    cam(t) { return { p: subPos.clone().add(V(26 - t * 0.7, 100 - t * 1.1, 34 - t * 0.9)), l: subPos.clone().add(V(0, -14, -12)) }; } },
+  // 4 profile, camera on the bottom: the boat glides past over the shoulder of a seamount
+  { world: 'sea', x: PROF.x, y: PROF.y, z: PROF.z + 58, dur: 5.5, fov: 50, snow: 2.0, exp: 1.3,
+    init(s) { s.c = V(PROF.x - 122, 0, PROF.z + 40); s.c.y = heightAt(s.c.x, s.c.z) + 3; },
+    cam(t, s) { return { p: s.c.clone().add(V(t * 0.5, t * 0.12, -t * 2.4)), l: V(PROF.x, PROF.y - 6, PROF.z + 40 - t * 3.2) }; } },
+  // 5 the wreck in the foreground, the boat passing low above it
+  { world: 'sea', x: WRECK.x + 6, y: WRECK.base + 30, z: WRECK.z + 56, dur: 5.5, fov: 50, snow: 2.2,
+    init(s) { s.w = V(WRECK.x, WRECK.base, WRECK.z); },
+    cam(t, s) { return { p: s.w.clone().add(V(-40 + t * 0.9, 9 + t * 0.3, -36 + t * 0.5)), l: s.w.clone().add(V(4, 13, 12)), focus: s.w }; } },
+  // 6 high astern: the front races ahead of the boat across the bottom
+  { world: 'sea', x: 0, y: -36, z: 820, dur: 4, fov: 46, snow: 2.0, exp: 1.3,
+    cam(t) { return { p: subPos.clone().add(V(20 - t * 0.6, 26 - t * 0.5, 96 - t * 1.5)), l: subPos.clone().add(V(0, -22, -90)) }; } },
+  // 7 under a broad smooth stretch of ice: the boat passes over the camera, last echo, fade
+  { world: 'ice', x: ICE.x, y: 0, z: FLAT_Z + 46, dur: 4, fov: 60, snow: 2.6, exp: 0.8,
+    init(s) { s.c = V(ICE.x + 46, -58, FLAT_Z - 14); },
+    cam(t, s) { return { p: s.c.clone().add(V(-t * 0.5, t * 0.35, -t * 0.6)), l: subPos.clone().add(V(-4, 14, -10)) }; } },
+];
+let capI = -1, capT = 0, capS = {};
+function capStep(dt) {
+  capT += dt;
+  if (capI < 0 || capT >= CAP[capI].dur) {
+    if (capI >= 0) capT -= CAP[capI].dur;
+    capI = Math.min(capI + 1, CAP.length - 1);
+    const C0 = CAP[capI];
+    applyWorld(C0.world);
+    capCut = true; capSubY = C0.y; subPos.set(C0.x, C0.y + Math.sin(clockT * 0.05) * 1.2, C0.z); sub.position.copy(subPos); renderer.toneMappingExposure = C0.exp ?? 1.25;
+    for (const pv of pingU.value) pv.w = -1e4;            // one wave per shot
+    for (const sh of shafts) sh.userData.p = null;
+    capS = {}; C0.init?.(capS); C0.pinged = false;
+    snow.material.uniforms.uSnowK.value = C0.snow;
+  }
+  const C0 = CAP[capI];
+  if (!C0.pinged && capT >= 0.35) { C0.pinged = true; ping(); }
+  const r = C0.cam(capT, capS);
+  return { p: r.p, l: r.l, fov: C0.fov, focus: r.focus };
+}
+async function renderSoundtrack(dur) {
+  const SR = 48000, ac = new OfflineAudioContext(2, Math.ceil(SR * dur), SR);
+  const brown = (sec) => { const b = ac.createBuffer(1, SR * sec, SR), d = b.getChannelData(0); let l = 0; for (let i = 0; i < d.length; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; } return b; };
+  const ir = ac.createBuffer(2, SR * 5.5, SR);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) { const t = i / d.length; d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2) * (t < 0.002 ? t / 0.002 : 1); } }
+  const master = ac.createGain(); master.connect(ac.destination);
+  master.gain.setValueAtTime(0, 0); master.gain.linearRampToValueAtTime(0.9, 1.2);
+  master.gain.setValueAtTime(0.9, dur - 2.6); master.gain.linearRampToValueAtTime(0, dur - 0.05);
+  const conv = ac.createConvolver(); conv.buffer = ir;
+  const wlp = ac.createBiquadFilter(); wlp.type = 'lowpass'; wlp.frequency.value = 2400;
+  const wet = ac.createGain(); wet.gain.value = 0.6; wet.connect(conv).connect(wlp).connect(master);
+  const dry = ac.createGain(); dry.connect(master);
+  // the sea and the boat
+  const n = ac.createBufferSource(); n.buffer = brown(8); n.loop = true;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 200;
+  const ng = ac.createGain(); ng.gain.value = 0.38;
+  const lfo = ac.createOscillator(); lfo.frequency.value = 0.05; const lg = ac.createGain(); lg.gain.value = 0.16; lfo.connect(lg).connect(ng.gain); lfo.start();
+  n.connect(lp).connect(ng).connect(master); n.start();
+  for (const [f, g] of [[50, 0.028], [100, 0.011], [147, 0.004]]) { const o = ac.createOscillator(); o.frequency.value = f; const og = ac.createGain(); og.gain.value = g; o.connect(og).connect(master); o.start(); }
+  const tone = (t, f, amp, d, lpF, toWet) => {
+    const o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain(), l = ac.createBiquadFilter();
+    o.frequency.value = f; o2.frequency.value = f * 1.004; l.type = 'lowpass'; l.frequency.value = lpF;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(amp, t + 0.006); g.gain.setValueAtTime(amp, t + d * 0.35); g.gain.exponentialRampToValueAtTime(0.0003, t + d);
+    o.connect(g); o2.connect(g); g.connect(l); l.connect(dry); const sw = ac.createGain(); sw.gain.value = toWet; l.connect(sw).connect(wet);
+    o.start(t); o2.start(t); o.stop(t + d + 0.05); o2.stop(t + d + 0.05);
+  };
+  for (const p of capPings) {
+    const t0 = p.t + 0.02;
+    tone(t0, 1420, 0.24, 1.1, 6000, 1.2);
+    const bins = new Map();
+    for (const h of p.hits) { const k = Math.round((2 * h.d / C) / 0.09); bins.set(k, (bins.get(k) || 0) + h.s * (h.hard ? 3 : 1)); }
+    for (const [k, sv] of [...bins.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7)) {
+      const dt = k * 0.09; if (t0 + dt > dur - 0.5) continue;
+      tone(t0 + dt, 1420 * 1.012, clamp(sv * 0.045, 0.008, 0.1) / (1 + dt * 0.12), 0.7, 1500 - Math.min(dt * 60, 700), 1.6);
+    }
+  }
+  // under the ice: the ice groans, and something far off sings
+  const groan = (t, f0) => { const s2 = ac.createBufferSource(); s2.buffer = brown(4); const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 18; bp.frequency.setValueAtTime(f0, t); bp.frequency.linearRampToValueAtTime(f0 * 0.65, t + 3); const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.8, t + 1.2); g.gain.linearRampToValueAtTime(0, t + 3.6); s2.connect(bp).connect(g); g.connect(wet); g.connect(master); s2.start(t); s2.stop(t + 4); };
+  groan(2.5, 110); groan(31.5, 120);
+  { const t = 4.0, d = 4.5, f0 = 150, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain(), l = ac.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * 1.35, t + d * 0.4); o.frequency.linearRampToValueAtTime(f0 * 0.7, t + d);
+    o2.frequency.setValueAtTime(f0 * 2, t); o2.frequency.linearRampToValueAtTime(f0 * 2.7, t + d * 0.4); o2.frequency.linearRampToValueAtTime(f0 * 1.4, t + d);
+    l.type = 'lowpass'; l.frequency.value = 600; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035, t + d * 0.3); g.gain.linearRampToValueAtTime(0, t + d);
+    o.connect(l); o2.connect(l); l.connect(g).connect(wet); o.start(t); o2.start(t); o.stop(t + d); o2.stop(t + d); }
+  const buf = await ac.startRendering();
+  // 16-bit PCM WAV, base64
+  const len = buf.length, ch = [buf.getChannelData(0), buf.getChannelData(1)];
+  const ab = new ArrayBuffer(44 + len * 4), v = new DataView(ab);
+  const ws = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + len * 4, true); ws(8, 'WAVE'); ws(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, len * 4, true);
+  let peak = 0; for (const c of ch) for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(c[i]));
+  const gain = peak > 0.89 ? 0.89 / peak : 1;
+  for (let i = 0, o = 44; i < len; i++) for (const c of ch) { v.setInt16(o, clamp(c[i] * gain, -1, 1) * 32767, true); o += 2; }
+  const bytes = new Uint8Array(ab); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+if (!CAPTURE) requestAnimationFrame(() => frame());
+else {
+  started = true; nextAuto = 1e9; refract.uniforms.uPass.value = 0;
+  let frames = 0;
+  window.__frame = (i) => {
+    while (frames < i) {
+      const t = (frames + 1) / 30;
+      film.uniforms.uFade.value = Math.min(ease(t / 0.8), ease((CAP_DUR - t) / 2.6));
+      frame(1 / 30); frames++;
+    }
+    return clockT;
+  };
+  window.__audio = () => renderSoundtrack(CAP_DUR);
+  window.__ready = true;
+}
 </script>
 </body>
 </html>
